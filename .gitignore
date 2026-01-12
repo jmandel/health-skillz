@@ -1,0 +1,8 @@
+node_modules/
+data/
+brands/raw/
+static/ehr-connect/
+skill/*.zip
+*.db
+*.db-journal
+.env

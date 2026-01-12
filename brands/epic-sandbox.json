@@ -1,0 +1,20 @@
+{
+  "items": [
+    {
+      "id": "epic-sandbox",
+      "displayName": "Epic FHIR Sandbox",
+      "brandName": "Epic FHIR Sandbox",
+      "itemType": "brand",
+      "brandId": "epic-sandbox",
+      "state": "WI",
+      "endpoints": [
+        {
+          "url": "https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4/",
+          "name": "Epic Sandbox FHIR R4 API Endpoint"
+        }
+      ],
+      "searchName": "epic fhir sandbox wi"
+    }
+  ],
+  "processedTimestamp": "2026-01-12T00:00:00.000Z"
+}

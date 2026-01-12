@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connect Your Health Records</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            text-align: center;
+        }
+        h1 { color: #333; margin-bottom: 16px; font-size: 24px; }
+        p { color: #666; margin-bottom: 24px; line-height: 1.6; }
+        .button {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 16px 32px;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+        .button:disabled { opacity: 0.6; cursor: not-allowed; }
+        .status {
+            margin-top: 24px;
+            padding: 16px;
+            border-radius: 8px;
+            display: none;
+        }
+        .status.loading { display: block; background: #e3f2fd; color: #1565c0; }
+        .status.success { display: block; background: #e8f5e9; color: #2e7d32; }
+        .status.error { display: block; background: #ffebee; color: #c62828; }
+        .spinner {
+            display: inline-block;
+            width: 20px; height: 20px;
+            border: 3px solid #1565c0;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .info { margin-top: 24px; font-size: 14px; color: #888; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏥 Connect Your Health Records</h1>
+        <p>
+            Click the button below to securely connect to your healthcare provider's patient portal.
+            Your health data will be fetched and made available for analysis.
+        </p>
+        
+        <button id="connectBtn" class="button" onclick="openConnector()">
+            Connect to My Health Records
+        </button>
+        
+        <div id="status" class="status"></div>
+        
+        <div class="info">
+            <p>Your data is transmitted securely using the SMART on FHIR standard.</p>
+        </div>
+    </div>
+
+    <script>
+        const SESSION_ID = '{{SESSION_ID}}';
+        const CURRENT_ORIGIN = window.location.origin;
+        const EHR_CONNECT_URL = CURRENT_ORIGIN + '/ehr-connect/ehretriever.html';
+        
+        let connectorWindow = null;
+        
+        function openConnector() {
+            const btn = document.getElementById('connectBtn');
+            const status = document.getElementById('status');
+            
+            const connectorUrl = EHR_CONNECT_URL + '#deliver-to-opener:' + encodeURIComponent(CURRENT_ORIGIN);
+            connectorWindow = window.open(connectorUrl, 'ehrConnector', 'width=900,height=700');
+            
+            if (!connectorWindow) {
+                status.className = 'status error';
+                status.innerHTML = 'Pop-up blocked! Please allow pop-ups and try again.';
+                return;
+            }
+            
+            btn.disabled = true;
+            btn.textContent = 'Waiting for connection...';
+            status.className = 'status loading';
+            status.innerHTML = '<span class="spinner"></span> Complete sign-in in the popup window...';
+        }
+        
+        window.addEventListener('message', async function(event) {
+            if (event.origin !== CURRENT_ORIGIN) return;
+            
+            const status = document.getElementById('status');
+            const btn = document.getElementById('connectBtn');
+            
+            if (event.data && event.data.fhir) {
+                status.className = 'status loading';
+                status.innerHTML = '<span class="spinner"></span> Received data, sending to server...';
+                
+                try {
+                    const response = await fetch('/api/data/' + SESSION_ID, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(event.data)
+                    });
+                    
+                    if (!response.ok) throw new Error('Server returned ' + response.status);
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        status.className = 'status success';
+                        status.innerHTML = '✅ Success! Your health records have been received.<br><br>You can close this window and return to Claude.';
+                        btn.style.display = 'none';
+                        if (connectorWindow && !connectorWindow.closed) connectorWindow.close();
+                    } else {
+                        throw new Error(result.error || 'Unknown error');
+                    }
+                } catch (err) {
+                    status.className = 'status error';
+                    status.innerHTML = '❌ Error: ' + err.message;
+                    btn.disabled = false;
+                    btn.textContent = 'Connect to My Health Records';
+                }
+            }
+        });
+        
+        setInterval(function() {
+            if (connectorWindow && connectorWindow.closed) {
+                const status = document.getElementById('status');
+                const btn = document.getElementById('connectBtn');
+                if (!status.classList.contains('success') && status.classList.contains('loading')) {
+                    status.className = 'status error';
+                    status.innerHTML = 'Window closed. Click the button to try again.';
+                    btn.disabled = false;
+                    btn.textContent = 'Connect to My Health Records';
+                }
+                connectorWindow = null;
+            }
+        }, 1000);
+    </script>
+</body>
+</html>

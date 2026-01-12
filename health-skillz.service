@@ -1,0 +1,15 @@
+[Unit]
+Description=Health Skillz Server
+After=network.target
+
+[Service]
+Type=simple
+User=exedev
+WorkingDirectory=/home/exedev/health-skillz
+ExecStart=/home/exedev/.bun/bin/bun run src/server.ts
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

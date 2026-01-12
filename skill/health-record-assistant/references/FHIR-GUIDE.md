@@ -1,0 +1,201 @@
+# FHIR Data Reference
+
+## Data Structure
+
+```javascript
+{
+  "fhir": {
+    "Patient": [...],
+    "Condition": [...],
+    "MedicationRequest": [...],
+    "Observation": [...],
+    // more resource types...
+  },
+  "attachments": [
+    {
+      "resourceType": "DocumentReference",
+      "contentPlaintext": "extracted clinical note text..."
+    }
+  ]
+}
+```
+
+## Key Resource Types
+
+### Patient
+```javascript
+const patient = data.fhir.Patient[0];
+const name = `${patient.name?.[0]?.given?.join(' ')} ${patient.name?.[0]?.family}`;
+const dob = patient.birthDate;
+const age = new Date().getFullYear() - new Date(dob).getFullYear();
+```
+
+### Condition (Diagnoses)
+```javascript
+const activeConditions = data.fhir.Condition
+  ?.filter(c => c.clinicalStatus?.coding?.[0]?.code === 'active')
+  .map(c => ({
+    name: c.code?.coding?.[0]?.display,
+    onset: c.onsetDateTime
+  }));
+```
+
+Status values: `active`, `inactive`, `resolved`, `remission`
+
+### MedicationRequest
+```javascript
+const meds = data.fhir.MedicationRequest?.map(m => ({
+  name: m.medicationCodeableConcept?.coding?.[0]?.display,
+  status: m.status, // active, completed, stopped
+  dosage: m.dosageInstruction?.[0]?.text,
+  startDate: m.authoredOn
+}));
+```
+
+### Observation (Labs, Vitals)
+```javascript
+function getObservations(data, loincCode) {
+  return data.fhir.Observation?.filter(obs =>
+    obs.code?.coding?.some(c => c.code === loincCode)
+  ).map(obs => ({
+    value: obs.valueQuantity?.value ?? obs.valueString,
+    unit: obs.valueQuantity?.unit,
+    date: obs.effectiveDateTime,
+    interpretation: obs.interpretation?.[0]?.coding?.[0]?.code,
+    refLow: obs.referenceRange?.[0]?.low?.value,
+    refHigh: obs.referenceRange?.[0]?.high?.value
+  })).sort((a,b) => new Date(b.date) - new Date(a.date));
+}
+```
+
+Interpretation codes: `H` (high), `L` (low), `N` (normal), `HH`/`LL` (critical)
+
+### Procedure
+```javascript
+const procedures = data.fhir.Procedure?.map(p => ({
+  name: p.code?.coding?.[0]?.display,
+  date: p.performedDateTime,
+  status: p.status
+}));
+```
+
+### Immunization
+```javascript
+const vaccines = data.fhir.Immunization?.map(i => ({
+  name: i.vaccineCode?.coding?.[0]?.display,
+  date: i.occurrenceDateTime
+}));
+```
+
+### AllergyIntolerance
+```javascript
+const allergies = data.fhir.AllergyIntolerance?.map(a => ({
+  substance: a.code?.coding?.[0]?.display,
+  reaction: a.reaction?.[0]?.manifestation?.[0]?.coding?.[0]?.display,
+  severity: a.reaction?.[0]?.severity
+}));
+```
+
+### Encounter (Visits)
+```javascript
+const visits = data.fhir.Encounter?.map(e => ({
+  type: e.type?.[0]?.coding?.[0]?.display,
+  date: e.period?.start,
+  reason: e.reasonCode?.[0]?.coding?.[0]?.display
+}));
+```
+
+## LOINC Code Reference
+
+| Category | Test | LOINC |
+|----------|------|-------|
+| Glucose | Fasting | 1558-6 |
+| Glucose | Random | 2345-7 |
+| Glucose | A1c | 4548-4 |
+| Lipids | Total Chol | 2093-3 |
+| Lipids | HDL | 2085-9 |
+| Lipids | LDL | 13457-7 |
+| Lipids | Triglycerides | 2571-8 |
+| Kidney | Creatinine | 2160-0 |
+| Kidney | BUN | 3094-0 |
+| Kidney | eGFR | 33914-3 |
+| Liver | ALT | 1742-6 |
+| Liver | AST | 1920-8 |
+| Blood | Hemoglobin | 718-7 |
+| Blood | WBC | 6690-2 |
+| Blood | Platelets | 777-3 |
+| Vitals | Systolic BP | 8480-6 |
+| Vitals | Diastolic BP | 8462-4 |
+| Vitals | Heart Rate | 8867-4 |
+| Vitals | Weight | 29463-7 |
+| Vitals | Height | 8302-2 |
+| Vitals | BMI | 39156-5 |
+| Thyroid | TSH | 3016-3 |
+| Thyroid | Free T4 | 3024-7 |
+
+## Searching Clinical Notes
+
+```javascript
+function searchNotes(data, terms) {
+  const termList = Array.isArray(terms) ? terms : [terms];
+  
+  return data.attachments?.filter(att => {
+    const text = (att.contentPlaintext || '').toLowerCase();
+    return termList.some(t => text.includes(t.toLowerCase()));
+  }).map(att => {
+    const text = att.contentPlaintext || '';
+    // Find context around first match
+    for (const term of termList) {
+      const idx = text.toLowerCase().indexOf(term.toLowerCase());
+      if (idx !== -1) {
+        return {
+          docId: att.resourceId,
+          context: text.substring(
+            Math.max(0, idx - 150),
+            Math.min(text.length, idx + term.length + 150)
+          )
+        };
+      }
+    }
+  });
+}
+
+// Example: Find diabetes-related notes
+const notes = searchNotes(data, ['diabetes', 'a1c', 'metformin', 'glucose']);
+```
+
+## Trend Analysis
+
+```javascript
+function analyzeTrend(values) {
+  if (values.length < 2) return 'insufficient data';
+  const recent = values[0].value;
+  const previous = values[1].value;
+  const pctChange = ((recent - previous) / previous * 100).toFixed(1);
+  
+  if (pctChange > 5) return `increased ${pctChange}%`;
+  if (pctChange < -5) return `decreased ${Math.abs(pctChange)}%`;
+  return 'stable';
+}
+
+// Example
+const a1cValues = getObservations(data, '4548-4');
+console.log('A1c trend:', analyzeTrend(a1cValues));
+```
+
+## Finding Abnormal Results
+
+```javascript
+function findAbnormalLabs(data) {
+  return data.fhir.Observation?.filter(obs => {
+    const code = obs.interpretation?.[0]?.coding?.[0]?.code;
+    return ['H', 'L', 'HH', 'LL', 'A'].includes(code);
+  }).map(obs => ({
+    test: obs.code?.coding?.[0]?.display,
+    value: obs.valueQuantity?.value,
+    unit: obs.valueQuantity?.unit,
+    flag: obs.interpretation?.[0]?.coding?.[0]?.display,
+    date: obs.effectiveDateTime
+  }));
+}
+```
