@@ -24,7 +24,7 @@ export interface EncryptedPayload {
   providerName: string;
 }
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const BASE_URL = '';  // Same-origin API
 
 export async function getSessionInfo(sessionId: string): Promise<SessionInfo> {
   const res = await fetch(`${BASE_URL}/api/session/${sessionId}`);

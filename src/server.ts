@@ -463,11 +463,16 @@ const server = Bun.serve({
       }
     }
 
-    // SPA assets (JS, CSS, etc. from dist/)
-    if (path.startsWith("/assets/")) {
+    // SPA assets (JS, CSS, sourcemaps from dist/)
+    if (path.endsWith('.js') || path.endsWith('.css') || path.endsWith('.js.map')) {
       const filePath = "./dist" + path;
       if (existsSync(filePath)) {
-        return new Response(Bun.file(filePath));
+        const contentType = path.endsWith('.js') ? 'application/javascript' :
+                           path.endsWith('.css') ? 'text/css' :
+                           path.endsWith('.map') ? 'application/json' : 'application/octet-stream';
+        return new Response(Bun.file(filePath), {
+          headers: { 'Content-Type': contentType }
+        });
       }
     }
 
