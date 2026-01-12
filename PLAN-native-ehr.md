@@ -312,12 +312,16 @@ We need to make this available to the frontend.
 | 6 | Cleanup | 1 |
 | **Total** | | **18** |
 
-## Decision: Start with Phase 1?
+## Implementation Status
 
-The plan is incremental. Each phase produces working code.
-Phase 1 can be tested standalone (just renders UI, button is no-op).
-Phase 2-3 are the core and most complex.
-Phase 4 can be simplified if needed.
+### Completed
+- [x] Phase 1: Provider Search UI (ProviderSelectPage, ProviderSearch, ProviderCard)
+- [x] Phase 2: SMART OAuth (oauth.ts with PKCE)
+- [x] Phase 3: FHIR Client (client.ts with pagination, concurrency)
+- [x] Phase 4: Attachments (attachments.ts with HTML, XML, RTF extraction)
+- [x] Phase 5: Integration (OAuthCallbackPage, updated routes)
 
-**Recommendation:** Yes, start Phase 1. Build the provider search UI.
-This gives immediate visual progress and validates the brand loading approach.
+### Remaining
+- [ ] Phase 6: Cleanup - remove build-connector.ts, update docs
+- [ ] Testing with Epic sandbox end-to-end
+- [ ] Load testing with large brand files (epic-prod.json is 62MB)
