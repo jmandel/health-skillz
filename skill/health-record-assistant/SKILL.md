@@ -12,130 +12,148 @@ Fetch and analyze electronic health records from patient portals using SMART on 
 
 ## When to Use
 
-- User asks about their health records, medical history, test results
-- User wants to understand medications, conditions, treatments
+- User asks about their health records, medical history, or test results
+- User wants to understand medications, conditions, or treatments
 - User asks about lab trends or health metrics over time
 - User wants to identify care gaps or preventive care needs
 - User wants summaries of visits or clinical notes
 
-## API
+## How to Connect
 
-Base URL: `https://health-skillz.exe.xyz`
+### Step 1: Create a Session
 
-### Create Session
-```http
-POST /api/session
-
-Response: {"sessionId": "...", "userUrl": "...", "pollUrl": "..."}
-```
-
-### Poll for Data  
-```http
-GET /api/poll/{sessionId}
-
-Response (waiting): {"ready": false}
-Response (complete): {"ready": true, "data": {...}}
-```
-
-## Flow
-
-### 1. Create Session
 ```javascript
-const {sessionId, userUrl, pollUrl} = await fetch(
-  'https://health-skillz.exe.xyz/api/session', 
-  {method: 'POST'}
-).then(r => r.json());
+const response = await fetch('{{BASE_URL}}/api/session', {
+  method: 'POST'
+});
+const { sessionId, userUrl, pollUrl } = await response.json();
 ```
 
-### 2. Show Link to User
+### Step 2: Show the User a Link
 
-> **To access your health records, click this link:**
-> [Connect Your Health Records](userUrl)
+Present `userUrl` to the user as a clickable link:
+
+> **To access your health records, please click this link:**
 >
-> After signing into your patient portal, your records will be securely transferred.
+> [Connect Your Health Records]({userUrl})
+>
+> You'll sign into your patient portal (like Epic MyChart), and your records will be securely transferred for analysis.
 
-### 3. Poll Until Ready
+### Step 3: Poll Until Data is Ready
+
+Poll every 5 seconds until `ready` is `true`:
+
 ```javascript
-const result = await fetch(pollUrl).then(r => r.json());
-if (result.ready) {
-  // result.data contains health records
-}
+const checkForData = async () => {
+  const result = await fetch(pollUrl).then(r => r.json());
+  return result; // { ready: boolean, data?: {...} }
+};
 ```
 
-### 4. Analyze Data
+While polling, you can ask the user what they'd like to know about their records.
 
-Once ready, `result.data` contains:
-- **`data.fhir`** - FHIR resources by type
-- **`data.attachments`** - Extracted text from clinical documents
+### Step 4: Analyze the Data
+
+Once `ready` is `true`, the `data` object contains:
+
+- **`data.fhir`** - FHIR resources organized by type
+- **`data.attachments`** - Extracted text from clinical documents (PDFs, notes)
 
 ## Working with FHIR Data
 
-### Resource Types
+### Available Resource Types
+
 ```javascript
-data.fhir.Patient           // Demographics
-data.fhir.Condition         // Diagnoses  
-data.fhir.MedicationRequest // Medications
-data.fhir.Observation       // Labs, vitals
-data.fhir.Procedure         // Surgeries
-data.fhir.Immunization      // Vaccines
-data.fhir.AllergyIntolerance// Allergies
-data.fhir.Encounter         // Visits
-data.fhir.DocumentReference // Documents
+data.fhir.Patient           // Demographics (name, DOB, contact)
+data.fhir.Condition         // Diagnoses and health problems
+data.fhir.MedicationRequest // Prescribed medications
+data.fhir.Observation       // Lab results, vital signs
+data.fhir.Procedure         // Surgeries and procedures
+data.fhir.Immunization      // Vaccination records
+data.fhir.AllergyIntolerance// Allergies and reactions
+data.fhir.Encounter         // Healthcare visits
+data.fhir.DocumentReference // Clinical documents
+data.fhir.DiagnosticReport  // Lab panels, imaging reports
 ```
 
-### Example: Get Lab Values by LOINC Code
+### Example: Get Lab Results by LOINC Code
+
 ```javascript
-function getLabsByLoinc(data, loincCode) {
+function getLabsByLoinc(loincCode) {
   return data.fhir.Observation?.filter(obs =>
     obs.code?.coding?.some(c => c.code === loincCode)
   ).map(obs => ({
     value: obs.valueQuantity?.value,
     unit: obs.valueQuantity?.unit,
     date: obs.effectiveDateTime,
-    interpretation: obs.interpretation?.[0]?.coding?.[0]?.code
-  })).sort((a,b) => new Date(b.date) - new Date(a.date));
+    flag: obs.interpretation?.[0]?.coding?.[0]?.code // H, L, N
+  })).sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
 // Common LOINC codes:
 // 4548-4  = Hemoglobin A1c
-// 2345-7  = Glucose  
+// 2345-7  = Glucose
 // 2093-3  = Total Cholesterol
-// 2085-9  = HDL
-// 13457-7 = LDL
+// 2085-9  = HDL Cholesterol
+// 13457-7 = LDL Cholesterol
 // 2160-0  = Creatinine
-// 8480-6  = Systolic BP
-// 8462-4  = Diastolic BP
+// 8480-6  = Systolic Blood Pressure
+// 8462-4  = Diastolic Blood Pressure
+// 718-7   = Hemoglobin
+// 39156-5 = BMI
 ```
 
-### Example: Active Medications
+### Example: List Active Medications
+
 ```javascript
 const activeMeds = data.fhir.MedicationRequest
   ?.filter(m => m.status === 'active')
   .map(m => ({
     name: m.medicationCodeableConcept?.coding?.[0]?.display,
-    dosage: m.dosageInstruction?.[0]?.text
+    dosage: m.dosageInstruction?.[0]?.text,
+    prescribedDate: m.authoredOn
+  }));
+```
+
+### Example: Get Active Conditions
+
+```javascript
+const conditions = data.fhir.Condition
+  ?.filter(c => c.clinicalStatus?.coding?.[0]?.code === 'active')
+  .map(c => ({
+    name: c.code?.coding?.[0]?.display,
+    onsetDate: c.onsetDateTime
   }));
 ```
 
 ### Example: Search Clinical Notes
+
+The `attachments` array contains extracted text from clinical documents:
+
 ```javascript
-function searchNotes(data, term) {
+function searchNotes(searchTerm) {
   return data.attachments?.filter(att =>
-    att.contentPlaintext?.toLowerCase().includes(term.toLowerCase())
+    att.contentPlaintext?.toLowerCase().includes(searchTerm.toLowerCase())
   ).map(att => {
     const text = att.contentPlaintext || '';
-    const idx = text.toLowerCase().indexOf(term.toLowerCase());
+    const idx = text.toLowerCase().indexOf(searchTerm.toLowerCase());
+    const start = Math.max(0, idx - 150);
+    const end = Math.min(text.length, idx + searchTerm.length + 150);
     return {
-      context: text.substring(Math.max(0, idx-150), idx+150),
+      context: text.substring(start, end),
       docType: att.resourceType
     };
   });
 }
+
+// Example: Find mentions of diabetes
+const diabetesNotes = searchNotes('diabetes');
 ```
 
-### Example: Care Gap Check
+### Example: Check for Care Gaps
+
 ```javascript
-function checkCareGaps(data, patientAge) {
+function checkCareGaps(patientAge) {
   const gaps = [];
   const now = new Date();
   
@@ -144,10 +162,11 @@ function checkCareGaps(data, patientAge) {
     const colonoscopy = data.fhir.Procedure?.find(p =>
       p.code?.coding?.[0]?.display?.toLowerCase().includes('colonoscopy')
     );
-    const years = colonoscopy 
-      ? (now - new Date(colonoscopy.performedDateTime)) / (365*24*60*60*1000) 
-      : Infinity;
-    if (years > 10) gaps.push('Colonoscopy may be due');
+    const lastDate = colonoscopy ? new Date(colonoscopy.performedDateTime) : null;
+    const yearsSince = lastDate ? (now - lastDate) / (365 * 24 * 60 * 60 * 1000) : Infinity;
+    if (yearsSince > 10) {
+      gaps.push('Colonoscopy may be due (last: ' + (lastDate?.toLocaleDateString() || 'never') + ')');
+    }
   }
   
   // Annual flu shot
@@ -155,10 +174,34 @@ function checkCareGaps(data, patientAge) {
     i.vaccineCode?.coding?.[0]?.display?.toLowerCase().includes('influenza') &&
     new Date(i.occurrenceDateTime).getFullYear() === now.getFullYear()
   );
-  if (!fluShot) gaps.push('Annual flu shot may be due');
+  if (!fluShot) {
+    gaps.push('Annual flu shot may be due');
+  }
   
   return gaps;
 }
+```
+
+### Example: Analyze Lab Trends
+
+```javascript
+function analyzeTrend(loincCode, testName) {
+  const values = getLabsByLoinc(loincCode);
+  if (values.length < 2) return `${testName}: Insufficient data for trend`;
+  
+  const recent = values[0];
+  const previous = values[1];
+  const change = ((recent.value - previous.value) / previous.value * 100).toFixed(1);
+  
+  let trend = 'stable';
+  if (change > 5) trend = `increased ${change}%`;
+  if (change < -5) trend = `decreased ${Math.abs(change)}%`;
+  
+  return `${testName}: ${recent.value} ${recent.unit} (${trend} from ${previous.value})`;
+}
+
+// Example
+analyzeTrend('4548-4', 'A1c');
 ```
 
 ## Combining Structured + Unstructured Data
@@ -166,31 +209,58 @@ function checkCareGaps(data, patientAge) {
 The power is combining FHIR resources with clinical note text:
 
 ```javascript
-// Find if patient has diabetes
+// 1. Check if patient has diabetes diagnosis
 const hasDiabetes = data.fhir.Condition?.some(c =>
   c.code?.coding?.[0]?.display?.toLowerCase().includes('diabetes')
 );
 
-// Get A1c trend
-const a1cTrend = getLabsByLoinc(data, '4548-4');
+// 2. Get A1c trend
+const a1cValues = getLabsByLoinc('4548-4');
 
-// Search notes for diabetes management context
-const diabetesNotes = searchNotes(data, 'diabetes');
+// 3. Find related medications
+const diabetesMeds = data.fhir.MedicationRequest?.filter(m =>
+  ['metformin', 'insulin', 'glipizide', 'januvia'].some(drug =>
+    m.medicationCodeableConcept?.coding?.[0]?.display?.toLowerCase().includes(drug)
+  )
+);
 
-// Now you can provide comprehensive analysis
+// 4. Search notes for management discussions
+const managementNotes = searchNotes('diabetes');
+
+// Now provide comprehensive diabetes analysis
 ```
 
-## Guidelines
+## Important Guidelines
 
-1. **Empathy**: Health data is personal. Be supportive.
-2. **Not Medical Advice**: Remind users to discuss with their provider.
-3. **Plain Language**: Translate medical jargon.
-4. **Privacy**: Data is temporary, not stored long-term.
+1. **Be empathetic** - Health data is personal. Be supportive and clear.
+2. **Not medical advice** - Always remind users to discuss findings with their healthcare provider.
+3. **Use plain language** - Translate medical jargon into understandable terms.
+4. **Respect privacy** - Data is temporary and session-based.
 
 ## Testing
 
-Epic Sandbox credentials:
+For testing with Epic's sandbox:
 - Username: `fhircamila`
 - Password: `epicepic1`
 
-See `references/FHIR-GUIDE.md` for complete FHIR reference.
+## LOINC Code Quick Reference
+
+| Test | LOINC | Normal Range (typical) |
+|------|-------|------------------------|
+| Glucose (fasting) | 1558-6 | 70-100 mg/dL |
+| Glucose (random) | 2345-7 | 70-140 mg/dL |
+| Hemoglobin A1c | 4548-4 | <5.7% |
+| Total Cholesterol | 2093-3 | <200 mg/dL |
+| HDL | 2085-9 | >40 mg/dL |
+| LDL | 13457-7 | <100 mg/dL |
+| Triglycerides | 2571-8 | <150 mg/dL |
+| Creatinine | 2160-0 | 0.7-1.3 mg/dL |
+| BUN | 3094-0 | 7-20 mg/dL |
+| eGFR | 33914-3 | >60 mL/min |
+| Hemoglobin | 718-7 | 12-17 g/dL |
+| WBC | 6690-2 | 4.5-11 K/uL |
+| Platelets | 777-3 | 150-400 K/uL |
+| TSH | 3016-3 | 0.4-4.0 mIU/L |
+| Systolic BP | 8480-6 | <120 mmHg |
+| Diastolic BP | 8462-4 | <80 mmHg |
+| BMI | 39156-5 | 18.5-24.9 |

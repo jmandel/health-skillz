@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
-import { readFileSync, existsSync } from "fs";
-import { join } from "path";
+import { readFileSync, existsSync, readdirSync } from "fs";
+import { join, relative } from "path";
+import { Glob } from "bun";
 
 // Load config
 const configPath = process.env.CONFIG_PATH || "./config.json";
@@ -31,6 +32,61 @@ setInterval(() => {
   const cutoff = Math.floor((Date.now() - timeoutMs) / 1000);
   db.run("DELETE FROM sessions WHERE created_at < ?", [cutoff]);
 }, 5 * 60 * 1000);
+
+// Build skill zip with placeholders filled in
+async function buildSkillZipWithConfig(): Promise<Response> {
+  const skillDir = "./skill/health-record-assistant";
+  
+  if (!existsSync(skillDir)) {
+    return new Response("Skill source not found", { status: 404 });
+  }
+
+  // Use Bun's built-in zip writer
+  const { BlobWriter, ZipWriter, TextReader } = await import("@aspect-build/bun-archive-zip").catch(() => null) || {};
+  
+  // Fallback: build zip using shell if library not available
+  const { $ } = await import("bun");
+  const tempDir = `/tmp/skill-build-${Date.now()}`;
+  
+  try {
+    // Create temp directory with filled-in files
+    await $`mkdir -p ${tempDir}/health-record-assistant/references`;
+    
+    // Process SKILL.md
+    let skillMd = readFileSync(join(skillDir, "SKILL.md"), "utf-8");
+    skillMd = skillMd.replaceAll("{{BASE_URL}}", baseURL);
+    await Bun.write(`${tempDir}/health-record-assistant/SKILL.md`, skillMd);
+    
+    // Process references
+    const refsDir = join(skillDir, "references");
+    if (existsSync(refsDir)) {
+      for (const file of readdirSync(refsDir)) {
+        let content = readFileSync(join(refsDir, file), "utf-8");
+        content = content.replaceAll("{{BASE_URL}}", baseURL);
+        await Bun.write(`${tempDir}/health-record-assistant/references/${file}`, content);
+      }
+    }
+    
+    // Create zip
+    await $`cd ${tempDir} && zip -r skill.zip health-record-assistant/`;
+    
+    const zipData = await Bun.file(`${tempDir}/skill.zip`).arrayBuffer();
+    
+    // Cleanup
+    await $`rm -rf ${tempDir}`;
+    
+    return new Response(zipData, {
+      headers: {
+        "Content-Type": "application/zip",
+        "Content-Disposition": "attachment; filename=health-record-assistant.zip",
+      },
+    });
+  } catch (e) {
+    console.error("Error building skill zip:", e);
+    await $`rm -rf ${tempDir}`.catch(() => {});
+    return new Response("Failed to build skill package", { status: 500 });
+  }
+}
 
 // Generate random session ID
 function generateSessionId(): string {
@@ -152,31 +208,22 @@ const server = Bun.serve({
       });
     }
 
-    // Skill download
-    if (path === "/skill.zip") {
-      const skillPath = "./skill/health-record-assistant.zip";
-      if (!existsSync(skillPath)) {
-        return new Response("Skill not built. Run: bun run build:skill", { status: 404 });
-      }
-      const file = Bun.file(skillPath);
-      return new Response(file, {
-        headers: {
-          "Content-Type": "application/zip",
-          "Content-Disposition": "attachment; filename=health-record-assistant.zip",
-        },
-      });
-    }
-
-    // Skill markdown
+    // Skill markdown (with placeholders filled in)
     if (path === "/health-record-assistant.md") {
       const mdPath = "./skill/health-record-assistant/SKILL.md";
       if (!existsSync(mdPath)) {
         return new Response("Skill not found", { status: 404 });
       }
-      const file = Bun.file(mdPath);
-      return new Response(file, {
+      let content = readFileSync(mdPath, "utf-8");
+      content = content.replaceAll("{{BASE_URL}}", baseURL);
+      return new Response(content, {
         headers: { "Content-Type": "text/markdown" },
       });
+    }
+
+    // Skill zip download (with placeholders filled in)
+    if (path === "/skill.zip") {
+      return await buildSkillZipWithConfig();
     }
 
     // Health check
