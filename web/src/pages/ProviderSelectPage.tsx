@@ -1,0 +1,271 @@
+import { useState, useEffect, useCallback } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { loadBrandFile, searchBrands, collapseBrands } from '../lib/brands/loader';
+import type { BrandItem, LoadProgress, VendorConfig } from '../lib/brands/types';
+import { loadSession, saveOAuthState } from '../lib/storage';
+import { getSessionInfo } from '../lib/api';
+import { buildAuthorizationUrl, generatePKCE } from '../lib/smart/oauth';
+import ProviderSearch from '../components/ProviderSearch';
+import ProviderCard from '../components/ProviderCard';
+import StatusMessage from '../components/StatusMessage';
+
+const MAX_DISPLAY_ITEMS = 100;
+
+export default function ProviderSelectPage() {
+  const { sessionId } = useParams<{ sessionId: string }>();
+  const navigate = useNavigate();
+
+  // Loading state
+  const [loadProgress, setLoadProgress] = useState<LoadProgress | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Data
+  const [allItems, setAllItems] = useState<BrandItem[]>([]);
+  const [vendors, setVendors] = useState<Record<string, VendorConfig>>({});
+  const [filteredItems, setFilteredItems] = useState<BrandItem[]>([]);
+  const [query, setQuery] = useState('');
+
+  // Modal state
+  const [selectedItem, setSelectedItem] = useState<BrandItem | null>(null);
+  const [connecting, setConnecting] = useState(false);
+
+  // Load session and brand data
+  useEffect(() => {
+    if (!sessionId) return;
+
+    const init = async () => {
+      try {
+        // Get session info including vendor configs
+        const info = await getSessionInfo(sessionId);
+        if (!info.vendors || Object.keys(info.vendors).length === 0) {
+          setError('No healthcare providers configured');
+          return;
+        }
+        setVendors(info.vendors);
+
+        // Load brand files from all configured vendors
+        const allBrandItems: BrandItem[] = [];
+        for (const [vendorName, config] of Object.entries(info.vendors)) {
+          try {
+            const items = await loadBrandFile(config.brandFile, setLoadProgress);
+            // Tag items with vendor info
+            for (const item of items) {
+              (item as any)._vendor = vendorName;
+            }
+            allBrandItems.push(...items);
+          } catch (err) {
+            console.warn(`Failed to load brand file for ${vendorName}:`, err);
+          }
+        }
+
+        if (allBrandItems.length === 0) {
+          setError('Failed to load provider directory');
+          return;
+        }
+
+        setAllItems(allBrandItems);
+        setFilteredItems(allBrandItems.slice(0, MAX_DISPLAY_ITEMS));
+        setLoadProgress({ phase: 'ready', bytesLoaded: 0 });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to initialize');
+      }
+    };
+
+    init();
+  }, [sessionId]);
+
+  // Handle search
+  const handleSearch = useCallback(
+    (q: string) => {
+      setQuery(q);
+      if (!q.trim()) {
+        setFilteredItems(allItems.slice(0, MAX_DISPLAY_ITEMS));
+        return;
+      }
+
+      const matches = searchBrands(allItems, q);
+      const collapsed = collapseBrands(allItems, matches);
+      setFilteredItems(collapsed.slice(0, MAX_DISPLAY_ITEMS));
+    },
+    [allItems]
+  );
+
+  // Handle provider selection
+  const handleSelectProvider = (item: BrandItem) => {
+    setSelectedItem(item);
+  };
+
+  // Handle connect (start OAuth)
+  const handleConnect = async () => {
+    if (!selectedItem || !sessionId) return;
+
+    const vendorName = (selectedItem as any)._vendor as string;
+    const vendorConfig = vendors[vendorName];
+    if (!vendorConfig) {
+      setError('Vendor configuration not found');
+      return;
+    }
+
+    const endpoint = selectedItem.endpoints[0];
+    if (!endpoint) {
+      setError('No FHIR endpoint available for this provider');
+      return;
+    }
+
+    setConnecting(true);
+    setError(null);
+
+    try {
+      // Generate PKCE
+      const pkce = await generatePKCE();
+
+      // Use configured redirect URI (must match what's registered with EHR)
+      const redirectUri = vendorConfig.redirectUrl || `${window.location.origin}/connect/${sessionId}/callback`;
+
+      // Build authorization URL
+      const { authUrl, state, tokenEndpoint } = await buildAuthorizationUrl({
+        fhirBaseUrl: endpoint.url,
+        clientId: vendorConfig.clientId,
+        scopes: vendorConfig.scopes,
+        redirectUri,
+        pkce,
+      });
+
+      // Save state for callback
+      const session = loadSession();
+      saveOAuthState({
+        sessionId,
+        publicKeyJwk: session?.publicKeyJwk || null,
+        providers: session?.providers || [],
+        oauth: {
+          state,
+          codeVerifier: pkce.codeVerifier,
+          tokenEndpoint,
+          fhirBaseUrl: endpoint.url,
+          clientId: vendorConfig.clientId,
+          redirectUri,
+          providerName: selectedItem.displayName,
+        },
+      });
+
+      // Redirect to authorization server
+      window.location.href = authUrl;
+    } catch (err) {
+      setConnecting(false);
+      setError(err instanceof Error ? err.message : 'Failed to start authorization');
+    }
+  };
+
+  // Format progress message
+  const getProgressMessage = () => {
+    if (!loadProgress) return 'Initializing...';
+    if (loadProgress.phase === 'fetching') {
+      const mb = (loadProgress.bytesLoaded / 1024 / 1024).toFixed(1);
+      if (loadProgress.totalBytes) {
+        const total = (loadProgress.totalBytes / 1024 / 1024).toFixed(1);
+        const pct = Math.round((loadProgress.bytesLoaded / loadProgress.totalBytes) * 100);
+        return `Loading providers... ${mb}/${total} MB (${pct}%)`;
+      }
+      return `Loading providers... ${mb} MB`;
+    }
+    if (loadProgress.phase === 'parsing') {
+      return 'Processing provider directory...';
+    }
+    return '';
+  };
+
+  // Loading state
+  if (loadProgress?.phase !== 'ready' && !error) {
+    return (
+      <div className="connect-container">
+        <div className="connect-card">
+          <h1>🏥 Select Your Provider</h1>
+          <StatusMessage status="loading" message={getProgressMessage()} />
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="connect-container">
+        <div className="connect-card">
+          <h1>🏥 Select Your Provider</h1>
+          <StatusMessage status="error" message={error} />
+          <button className="btn" onClick={() => navigate(`/connect/${sessionId}`)}>
+            ← Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="provider-select-container">
+      <div className="provider-select-header">
+        <button
+          className="back-button"
+          onClick={() => navigate(`/connect/${sessionId}`)}
+        >
+          ← Back
+        </button>
+        <h1>Select Your Healthcare Provider</h1>
+        <p>
+          Search for your hospital, clinic, or healthcare system.
+          {allItems.length > 0 && ` ${allItems.length.toLocaleString()} providers available.`}
+        </p>
+      </div>
+
+      <ProviderSearch onSearch={handleSearch} placeholder="Search by name, city, or state..." />
+
+      <div className="provider-results">
+        {filteredItems.length === 0 ? (
+          <p className="no-results">No providers found matching "{query}"</p>
+        ) : (
+          <>
+            <p className="results-count">
+              {query
+                ? `Showing ${filteredItems.length} result${filteredItems.length !== 1 ? 's' : ''}`
+                : `Showing ${filteredItems.length} of ${allItems.length.toLocaleString()} providers`}
+            </p>
+            <div className="provider-grid">
+              {filteredItems.map((item) => (
+                <ProviderCard key={item.id} item={item} onClick={handleSelectProvider} />
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Confirmation Modal */}
+      {selectedItem && (
+        <div className="modal-backdrop" onClick={() => !connecting && setSelectedItem(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Connect to {selectedItem.displayName}?</h2>
+            <p>
+              You will be redirected to sign in to your patient portal.
+              After signing in, your health records will be securely transferred.
+            </p>
+            {selectedItem.brandName !== selectedItem.displayName && (
+              <p className="modal-brand">Part of: {selectedItem.brandName}</p>
+            )}
+            {error && <StatusMessage status="error" message={error} />}
+            <div className="modal-buttons">
+              <button
+                className="btn btn-secondary"
+                onClick={() => setSelectedItem(null)}
+                disabled={connecting}
+              >
+                Cancel
+              </button>
+              <button className="btn" onClick={handleConnect} disabled={connecting}>
+                {connecting ? 'Connecting...' : 'Connect'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

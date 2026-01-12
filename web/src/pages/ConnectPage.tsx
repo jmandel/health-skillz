@@ -1,5 +1,5 @@
 import { useEffect, useCallback } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useSessionStore } from '../store/session';
 import { getSessionInfo, finalizeSession } from '../lib/api';
 import { saveSession, loadSession } from '../lib/storage';
@@ -9,6 +9,7 @@ import StatusMessage from '../components/StatusMessage';
 export default function ConnectPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const store = useSessionStore();
 
   // Initialize session - restore from storage or fetch from server
@@ -18,15 +19,27 @@ export default function ConnectPage() {
     const init = async () => {
       // Check if we have saved state (returning from OAuth)
       const saved = loadSession();
-      if (saved && saved.sessionId === sessionId) {
-        store.setSession(sessionId, saved.publicKeyJwk, saved.publicKeyJwk);
-        store.setProviders(saved.providers);
+      if (saved && saved.sessionId === sessionId && saved.publicKeyJwk) {
+        store.setSession(sessionId, saved.publicKeyJwk);
         
-        // Check if returning from EHR connector with new provider
+        // Always fetch latest provider list from server
+        try {
+          const info = await getSessionInfo(sessionId);
+          store.setProviders(info.providers);
+          // Update local storage with latest
+          saveSession({
+            sessionId,
+            publicKeyJwk: saved.publicKeyJwk,
+            providers: info.providers,
+          });
+        } catch {
+          // Fall back to local storage
+          store.setProviders(saved.providers);
+        }
+        
+        // Clean up URL if returning from provider
         const providerAdded = searchParams.get('provider_added');
         if (providerAdded === 'true') {
-          // Refresh provider count from what we know
-          // The actual encrypted data was already stored server-side
           window.history.replaceState({}, '', `/connect/${sessionId}`);
         }
         store.setStatus('idle');
@@ -39,13 +52,14 @@ export default function ConnectPage() {
         const info = await getSessionInfo(sessionId);
         
         // Store server's public key (AI agent's key for E2E encryption)
-        store.setSession(sessionId, info.publicKey, info.publicKey);
+        store.setSession(sessionId, info.publicKey);
+        store.setProviders(info.providers);
         
         // Save to sessionStorage for ehretriever's encryption code to read
         saveSession({
           sessionId,
           publicKeyJwk: info.publicKey,
-          providers: [],
+          providers: info.providers,
         });
         
         store.setStatus('idle');
@@ -60,19 +74,16 @@ export default function ConnectPage() {
   const startConnect = useCallback(() => {
     if (!sessionId || !store.publicKeyJwk) return;
     
-    // Save state before redirect (ehretriever's encryption code reads from this)
+    // Save state before redirect
     saveSession({
       sessionId,
       publicKeyJwk: store.publicKeyJwk,
       providers: store.providers,
     });
     
-    // Redirect to ehretriever (same tab)
-    // ehretriever will encrypt client-side and POST to /api/receive-ehr
-    const origin = window.location.origin;
-    const ehrUrl = `${origin}/ehr-connect/ehretriever.html?brandTags=epic#deliver-to:health-skillz`;
-    window.location.href = ehrUrl;
-  }, [sessionId, store.publicKeyJwk, store.providers]);
+    // Navigate to provider selection page
+    navigate(`/connect/${sessionId}/select`);
+  }, [sessionId, store.publicKeyJwk, store.providers, navigate]);
 
   const handleFinalize = useCallback(async () => {
     if (!sessionId) return;

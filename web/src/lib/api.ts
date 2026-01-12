@@ -1,9 +1,14 @@
 // API client for health-skillz server
 
+import type { VendorConfig } from './brands/types';
+
 export interface SessionInfo {
   sessionId: string;
   publicKey: JsonWebKey;
   status: string;
+  providerCount: number;
+  providers: Provider[];
+  vendors?: Record<string, VendorConfig>;
 }
 
 export interface Provider {
@@ -45,6 +50,25 @@ export async function sendEncryptedData(
   return res.json();
 }
 
+export async function sendEncryptedEhrData(
+  sessionId: string,
+  payload: EncryptedPayload
+): Promise<{ success: boolean; providerCount: number; redirectTo: string }> {
+  const res = await fetch(`${BASE_URL}/api/receive-ehr`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ...payload,
+      sessionId,
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Server returned ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function finalizeSession(
   sessionId: string
 ): Promise<{ success: boolean; providerCount: number }> {
@@ -56,23 +80,4 @@ export async function finalizeSession(
     throw new Error(text || `Server returned ${res.status}`);
   }
   return res.json();
-}
-
-// Get unencrypted EHR data that was POSTed by ehretriever
-export async function getReceivedEhrData(sessionId: string): Promise<unknown | null> {
-  const res = await fetch(`${BASE_URL}/api/receive-ehr/${sessionId}`);
-  if (res.status === 404) {
-    return null;
-  }
-  if (!res.ok) {
-    throw new Error(`Failed to get EHR data: ${res.status}`);
-  }
-  return res.json();
-}
-
-// Clear unencrypted EHR data after encryption
-export async function clearReceivedEhrData(sessionId: string): Promise<void> {
-  await fetch(`${BASE_URL}/api/receive-ehr/${sessionId}`, {
-    method: 'DELETE',
-  });
 }

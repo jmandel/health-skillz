@@ -4,10 +4,21 @@ import type { Provider } from './api';
 
 const STORAGE_KEY = 'health_skillz_session';
 
+export interface OAuthState {
+  state: string;
+  codeVerifier: string;
+  tokenEndpoint: string;
+  fhirBaseUrl: string;
+  clientId: string;
+  redirectUri: string;
+  providerName: string;
+}
+
 export interface PersistedSession {
   sessionId: string;
-  publicKeyJwk: JsonWebKey;
+  publicKeyJwk: JsonWebKey | null;
   providers: Provider[];
+  oauth?: OAuthState;
 }
 
 export function saveSession(session: PersistedSession): void {
@@ -32,6 +43,20 @@ export function updateProviders(providers: Provider[]): void {
   const session = loadSession();
   if (session) {
     session.providers = providers;
+    saveSession(session);
+  }
+}
+
+// Save OAuth state before redirect
+export function saveOAuthState(session: PersistedSession): void {
+  saveSession(session);
+}
+
+// Clear OAuth state after successful exchange
+export function clearOAuthState(): void {
+  const session = loadSession();
+  if (session) {
+    delete session.oauth;
     saveSession(session);
   }
 }

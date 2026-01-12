@@ -392,16 +392,41 @@ const server = Bun.serve({
     // API: Get session info (for React SPA)
     if (path.startsWith("/api/session/") && req.method === "GET") {
       const sessionId = path.replace("/api/session/", "");
-      const row = db.query("SELECT status, public_key FROM sessions WHERE id = ?").get(sessionId) as any;
+      const row = db.query("SELECT status, public_key, encrypted_data FROM sessions WHERE id = ?").get(sessionId) as any;
       
       if (!row) {
         return new Response("Session not found or expired", { status: 404, headers: corsHeaders });
+      }
+      
+      const encryptedData = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
+      const providers = encryptedData.map((p: any) => ({
+        name: p.providerName,
+        connectedAt: p.connectedAt
+      }));
+      
+      // Build vendor configs from config.brands
+      const vendors: Record<string, any> = {};
+      for (const brand of config.brands || []) {
+        // Extract vendor name from tags (e.g., "epic" from ["epic", "sandbox"])
+        const vendorName = brand.tags?.[0] || brand.name;
+        if (!vendors[vendorName]) {
+          vendors[vendorName] = {
+            clientId: brand.clientId,
+            scopes: brand.scopes || 'patient/*.rs',
+            brandFile: brand.file?.replace('./', '/static/ehr-connect/') || `/static/ehr-connect/brands/${brand.name}.json`,
+            tags: brand.tags || [],
+            redirectUrl: brand.redirectURL || `${baseURL}/connect/callback`,
+          };
+        }
       }
       
       return Response.json({
         sessionId,
         publicKey: row.public_key ? JSON.parse(row.public_key) : null,
         status: row.status,
+        providerCount: providers.length,
+        providers,
+        vendors,
       }, { headers: corsHeaders });
     }
 
