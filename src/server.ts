@@ -1,13 +1,14 @@
 import { Database } from "bun:sqlite";
 import { readFileSync, existsSync, readdirSync } from "fs";
-import { join, relative } from "path";
-import { Glob } from "bun";
+import { join } from "path";
+
+// Import HTML for Bun's fullstack server - serves the React SPA
+import homepage from "./index.html";
 
 // Load config
 const configPath = process.env.CONFIG_PATH || "./config.json";
 const config = JSON.parse(readFileSync(configPath, "utf-8"));
 
-// Override baseURL from env if set
 if (process.env.BASE_URL) {
   config.server.baseURL = process.env.BASE_URL;
 }
@@ -28,54 +29,47 @@ db.run(`
   )
 `);
 
-// Migration: add columns if missing (for existing DBs)
+// Migrations
 const migrations = [
   "ALTER TABLE sessions ADD COLUMN providers TEXT DEFAULT '[]'",
   "ALTER TABLE sessions ADD COLUMN public_key TEXT",
   "ALTER TABLE sessions ADD COLUMN encrypted_data TEXT",
-  "ALTER TABLE sessions ADD COLUMN temp_ehr_data TEXT",
 ];
 for (const sql of migrations) {
   try { db.run(sql); } catch (e) { /* Column already exists */ }
 }
 
-// Types for provider data
-interface ProviderData {
-  name: string;
-  connectedAt: string;
-  fhir: Record<string, any[]>;
-  attachments: any[];
-}
-
-// Cleanup expired sessions periodically
+// Cleanup expired sessions
 const timeoutMs = (config.session?.timeoutMinutes || 60) * 60 * 1000;
 setInterval(() => {
   const cutoff = Math.floor((Date.now() - timeoutMs) / 1000);
   db.run("DELETE FROM sessions WHERE created_at < ?", [cutoff]);
 }, 5 * 60 * 1000);
 
-// Build skill zip with placeholders filled in
-async function buildSkillZipWithConfig(): Promise<Response> {
+// Generate session ID
+function generateSessionId(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Build skill zip
+async function buildSkillZip(): Promise<Response> {
   const skillDir = "./skill/health-record-assistant";
-  
   if (!existsSync(skillDir)) {
-    return new Response("Skill source not found", { status: 404 });
+    return new Response("Skill not found", { status: 404 });
   }
 
-  // Build zip using shell
   const { $ } = await import("bun");
   const tempDir = `/tmp/skill-build-${Date.now()}`;
-  
+
   try {
-    // Create temp directory with filled-in files
     await $`mkdir -p ${tempDir}/health-record-assistant/references`;
-    
-    // Process SKILL.md
+
     let skillMd = readFileSync(join(skillDir, "SKILL.md"), "utf-8");
     skillMd = skillMd.replaceAll("{{BASE_URL}}", baseURL);
     await Bun.write(`${tempDir}/health-record-assistant/SKILL.md`, skillMd);
-    
-    // Process references
+
     const refsDir = join(skillDir, "references");
     if (existsSync(refsDir)) {
       for (const file of readdirSync(refsDir)) {
@@ -84,15 +78,11 @@ async function buildSkillZipWithConfig(): Promise<Response> {
         await Bun.write(`${tempDir}/health-record-assistant/references/${file}`, content);
       }
     }
-    
-    // Create zip
+
     await $`cd ${tempDir} && zip -r skill.zip health-record-assistant/`;
-    
     const zipData = await Bun.file(`${tempDir}/skill.zip`).arrayBuffer();
-    
-    // Cleanup
     await $`rm -rf ${tempDir}`;
-    
+
     return new Response(zipData, {
       headers: {
         "Content-Type": "application/zip",
@@ -102,51 +92,8 @@ async function buildSkillZipWithConfig(): Promise<Response> {
   } catch (e) {
     console.error("Error building skill zip:", e);
     await $`rm -rf ${tempDir}`.catch(() => {});
-    return new Response("Failed to build skill package", { status: 500 });
+    return new Response("Failed to build skill", { status: 500 });
   }
-}
-
-// Generate random session ID
-function generateSessionId(): string {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
-}
-
-// Merge data from multiple providers into single structure
-function mergeProviderData(providers: ProviderData[]): { fhir: Record<string, any[]>; attachments: any[]; providers: { name: string; connectedAt: string }[] } {
-  const merged: Record<string, any[]> = {};
-  const attachments: any[] = [];
-  
-  for (const provider of providers) {
-    // Merge FHIR resources by type
-    for (const [resourceType, resources] of Object.entries(provider.fhir)) {
-      if (!merged[resourceType]) {
-        merged[resourceType] = [];
-      }
-      // Tag each resource with provider source
-      for (const resource of resources as any[]) {
-        merged[resourceType].push({
-          ...resource,
-          _sourceProvider: provider.name
-        });
-      }
-    }
-    
-    // Merge attachments with provider tag
-    for (const att of provider.attachments) {
-      attachments.push({
-        ...att,
-        _sourceProvider: provider.name
-      });
-    }
-  }
-  
-  return { 
-    fhir: merged, 
-    attachments,
-    providers: providers.map(p => ({ name: p.name, connectedAt: p.connectedAt }))
-  };
 }
 
 // CORS headers
@@ -156,45 +103,67 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
-// Main server
+// Build vendor configs from config.brands
+function getVendors() {
+  const vendors: Record<string, any> = {};
+  for (const brand of config.brands || []) {
+    const vendorName = brand.tags?.[0] || brand.name;
+    if (!vendors[vendorName]) {
+      vendors[vendorName] = {
+        clientId: brand.clientId,
+        scopes: brand.scopes || 'patient/*.rs',
+        brandFile: brand.file?.replace('./brands/', '/static/brands/') || `/static/brands/${brand.name}.json`,
+        tags: brand.tags || [],
+        redirectUrl: brand.redirectURL || `${baseURL}/connect/callback`,
+      };
+    }
+  }
+  return vendors;
+}
+
+// Main server with Bun routes
 const server = Bun.serve({
   port,
+  development: process.env.NODE_ENV !== 'production',
+
+  routes: {
+    // SPA routes - all handled by React Router
+    "/": homepage,
+    "/connect/:sessionId": homepage,
+    "/connect/:sessionId/select": homepage,
+    "/connect/:sessionId/callback": homepage,
+  },
+
   async fetch(req) {
     const url = new URL(req.url);
     const path = url.pathname;
 
-    // Handle CORS preflight
+    // CORS preflight
     if (req.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders });
     }
 
     // API: Create session
     if (path === "/api/session" && req.method === "POST") {
-      const sessionId = generateSessionId();
-      
-      // Require public key for E2E encryption
       let publicKey: string | null = null;
       try {
         const body = await req.json() as { publicKey?: any };
         if (body.publicKey) {
-          // Store JWK as JSON string
           publicKey = JSON.stringify(body.publicKey);
         }
-      } catch (e) {
-        // No body or invalid JSON
-      }
-      
+      } catch (e) {}
+
       if (!publicKey) {
         return Response.json({
           error: "public_key_required",
-          error_description: "E2E encryption is required. Please provide a publicKey (ECDH P-256 JWK) in the request body."
+          error_description: "E2E encryption required. Provide publicKey (ECDH P-256 JWK)."
         }, { status: 400, headers: corsHeaders });
       }
-      
+
+      const sessionId = generateSessionId();
       db.run("INSERT INTO sessions (id, public_key) VALUES (?, ?)", [sessionId, publicKey]);
-      
-      console.log(`Created session: ${sessionId} (E2E encrypted)`);
-      
+      console.log(`Created session: ${sessionId}`);
+
       return Response.json({
         sessionId,
         userUrl: `${baseURL}/connect/${sessionId}`,
@@ -202,252 +171,121 @@ const server = Bun.serve({
       }, { headers: corsHeaders });
     }
 
-    // API: Poll for data (with long-polling support)
+    // API: Poll for data
     if (path.startsWith("/api/poll/") && req.method === "GET") {
       const sessionId = path.replace("/api/poll/", "");
-      const url = new URL(req.url);
       const timeout = Math.min(parseInt(url.searchParams.get("timeout") || "30"), 60) * 1000;
-      const pollInterval = 500; // Check every 500ms
       const startTime = Date.now();
-      
-      // Long-poll: keep checking until ready or timeout
+
       while (Date.now() - startTime < timeout) {
-        const row = db.query("SELECT status, providers, public_key, encrypted_data FROM sessions WHERE id = ?").get(sessionId) as any;
-        
+        const row = db.query("SELECT status, encrypted_data FROM sessions WHERE id = ?").get(sessionId) as any;
         if (!row) {
           return new Response("Session not found", { status: 404, headers: corsHeaders });
         }
-        
+
         const encryptedData = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
-        const providerCount = encryptedData.length;
-        
-        // Return immediately if finalized
-        if (row.status === "finalized" && providerCount > 0) {
+        if (row.status === "finalized" && encryptedData.length > 0) {
           return Response.json({
             ready: true,
             encryptedProviders: encryptedData,
-            providerCount
+            providerCount: encryptedData.length
           }, { headers: corsHeaders });
         }
-        
-        // Wait before next check
-        await new Promise(resolve => setTimeout(resolve, pollInterval));
+
+        await new Promise(r => setTimeout(r, 500));
       }
-      
-      // Timeout reached - return current state
+
       const row = db.query("SELECT status, encrypted_data FROM sessions WHERE id = ?").get(sessionId) as any;
-      if (!row) {
-        return new Response("Session not found", { status: 404, headers: corsHeaders });
-      }
+      if (!row) return new Response("Session not found", { status: 404, headers: corsHeaders });
       const encryptedData = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
-      const providerCount = encryptedData.length;
-      const providerInfo = encryptedData.map((p: any) => ({ name: p.providerName, connectedAt: p.connectedAt }));
-      
-      return Response.json({ 
-        ready: false, 
+
+      return Response.json({
+        ready: false,
         status: row.status,
-        providerCount,
-        providers: providerInfo,
-        message: "Still waiting for user to connect and finalize. Keep polling."
+        providerCount: encryptedData.length,
+        providers: encryptedData.map((p: any) => ({ name: p.providerName, connectedAt: p.connectedAt })),
       }, { headers: corsHeaders });
     }
 
-    // API: Receive data (appends to providers list, or stores encrypted blob)
-    if (path.startsWith("/api/data/") && req.method === "POST") {
-      const sessionId = path.replace("/api/data/", "");
-      const row = db.query("SELECT status, providers, public_key, encrypted_data FROM sessions WHERE id = ?").get(sessionId) as any;
-      
-      if (!row) {
-        return new Response("Session not found", { status: 404, headers: corsHeaders });
-      }
-      if (row.status === "finalized") {
-        return new Response("Session already finalized", { status: 400, headers: corsHeaders });
-      }
-      
-      try {
-        const data = await req.json() as any;
-        
-        // Require encrypted data format
-        if (!data.encrypted || !data.ephemeralPublicKey || !data.iv || !data.ciphertext) {
-          return Response.json({
-            error: "encryption_required",
-            error_description: "Data must be encrypted. Required fields: encrypted, ephemeralPublicKey, iv, ciphertext"
-          }, { status: 400, headers: corsHeaders });
-        }
-        
-        // Store encrypted blob - we can't read it, just pass it through
-        const existingEncrypted = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
-        existingEncrypted.push({
-          ephemeralPublicKey: data.ephemeralPublicKey,
-          iv: data.iv,
-          ciphertext: data.ciphertext,
-          providerName: data.providerName || 'Unknown Provider',
-          connectedAt: new Date().toISOString()
-        });
-        
-        db.run(
-          "UPDATE sessions SET encrypted_data = ?, status = 'collecting' WHERE id = ?",
-          [JSON.stringify(existingEncrypted), sessionId]
-        );
-        console.log(`Received encrypted data for session ${sessionId} (total: ${existingEncrypted.length} providers)`);
-        return Response.json({ 
-          success: true, 
-          providerCount: existingEncrypted.length
-        }, { headers: corsHeaders });
-      } catch (e) {
-        return new Response("Invalid JSON", { status: 400, headers: corsHeaders });
-      }
-    }
-
-    // API: Receive encrypted EHR data from ehretriever
-    // Data is encrypted client-side, we just store the opaque blob
-    // Session ID comes in the request body (set by client-side encryption code)
+    // API: Receive encrypted EHR data
     if (path === "/api/receive-ehr" && req.method === "POST") {
       try {
         const data = await req.json() as any;
-        
-        // Validate required fields
-        if (!data.sessionId) {
-          return Response.json({ success: false, error: "missing_session_id" }, { status: 400, headers: corsHeaders });
+        if (!data.sessionId || !data.encrypted || !data.ephemeralPublicKey || !data.iv || !data.ciphertext) {
+          return Response.json({ success: false, error: "missing_fields" }, { status: 400, headers: corsHeaders });
         }
-        if (!data.encrypted || !data.ephemeralPublicKey || !data.iv || !data.ciphertext) {
-          return Response.json({ success: false, error: "missing_encryption_fields" }, { status: 400, headers: corsHeaders });
-        }
-        
-        const sessionId = data.sessionId;
-        const row = db.query("SELECT id, encrypted_data, status FROM sessions WHERE id = ?").get(sessionId) as any;
-        
-        if (!row) {
-          return Response.json({ success: false, error: "session_not_found" }, { status: 404, headers: corsHeaders });
-        }
-        if (row.status === "finalized") {
-          return Response.json({ success: false, error: "session_finalized" }, { status: 400, headers: corsHeaders });
-        }
-        
-        // Store the encrypted blob (we can't read it)
-        const existingEncrypted = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
-        existingEncrypted.push({
+
+        const row = db.query("SELECT encrypted_data, status FROM sessions WHERE id = ?").get(data.sessionId) as any;
+        if (!row) return Response.json({ success: false, error: "session_not_found" }, { status: 404, headers: corsHeaders });
+        if (row.status === "finalized") return Response.json({ success: false, error: "session_finalized" }, { status: 400, headers: corsHeaders });
+
+        const existing = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
+        existing.push({
           ephemeralPublicKey: data.ephemeralPublicKey,
           iv: data.iv,
           ciphertext: data.ciphertext,
           providerName: data.providerName || 'Unknown Provider',
           connectedAt: new Date().toISOString()
         });
-        
-        db.run(
-          "UPDATE sessions SET encrypted_data = ?, status = 'collecting' WHERE id = ?",
-          [JSON.stringify(existingEncrypted), sessionId]
-        );
-        
-        console.log(`Received encrypted EHR data for session ${sessionId} (${existingEncrypted.length} providers)`);
-        
+
+        db.run("UPDATE sessions SET encrypted_data = ?, status = 'collecting' WHERE id = ?",
+          [JSON.stringify(existing), data.sessionId]);
+        console.log(`Received EHR data for ${data.sessionId} (${existing.length} providers)`);
+
         return Response.json({
           success: true,
-          providerCount: existingEncrypted.length,
-          redirectTo: `${baseURL}/connect/${sessionId}?provider_added=true`
+          providerCount: existing.length,
+          redirectTo: `${baseURL}/connect/${data.sessionId}?provider_added=true`
         }, { headers: corsHeaders });
       } catch (e) {
-        console.error('Error receiving EHR data:', e);
         return Response.json({ success: false, error: "processing_error" }, { status: 500, headers: corsHeaders });
       }
     }
 
-    // API: Finalize session (user is done adding providers)
+    // API: Finalize session
     if (path.startsWith("/api/finalize/") && req.method === "POST") {
       const sessionId = path.replace("/api/finalize/", "");
-      const row = db.query("SELECT status, providers, public_key, encrypted_data FROM sessions WHERE id = ?").get(sessionId) as any;
-      
-      if (!row) {
-        return new Response("Session not found", { status: 404, headers: corsHeaders });
-      }
-      if (row.status === "finalized") {
-        return Response.json({ success: true, alreadyFinalized: true }, { headers: corsHeaders });
-      }
-      
+      const row = db.query("SELECT status, encrypted_data FROM sessions WHERE id = ?").get(sessionId) as any;
+      if (!row) return new Response("Session not found", { status: 404, headers: corsHeaders });
+      if (row.status === "finalized") return Response.json({ success: true, alreadyFinalized: true }, { headers: corsHeaders });
+
       const encryptedData = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
-      const providerCount = encryptedData.length;
-      
-      if (providerCount === 0) {
-        return new Response("No providers connected yet", { status: 400, headers: corsHeaders });
-      }
-      
+      if (encryptedData.length === 0) return new Response("No providers connected", { status: 400, headers: corsHeaders });
+
       db.run("UPDATE sessions SET status = 'finalized' WHERE id = ?", [sessionId]);
-      console.log(`Finalized session ${sessionId} with ${providerCount} provider(s)`);
-      
-      return Response.json({ 
-        success: true, 
-        providerCount
-      }, { headers: corsHeaders });
+      console.log(`Finalized session ${sessionId}`);
+      return Response.json({ success: true, providerCount: encryptedData.length }, { headers: corsHeaders });
     }
 
-    // API: Get session info (for React SPA)
+    // API: Get session info
     if (path.startsWith("/api/session/") && req.method === "GET") {
       const sessionId = path.replace("/api/session/", "");
       const row = db.query("SELECT status, public_key, encrypted_data FROM sessions WHERE id = ?").get(sessionId) as any;
-      
-      if (!row) {
-        return new Response("Session not found or expired", { status: 404, headers: corsHeaders });
-      }
-      
+      if (!row) return new Response("Session not found", { status: 404, headers: corsHeaders });
+
       const encryptedData = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
-      const providers = encryptedData.map((p: any) => ({
-        name: p.providerName,
-        connectedAt: p.connectedAt
-      }));
-      
-      // Build vendor configs from config.brands
-      const vendors: Record<string, any> = {};
-      for (const brand of config.brands || []) {
-        // Extract vendor name from tags (e.g., "epic" from ["epic", "sandbox"])
-        const vendorName = brand.tags?.[0] || brand.name;
-        if (!vendors[vendorName]) {
-          vendors[vendorName] = {
-            clientId: brand.clientId,
-            scopes: brand.scopes || 'patient/*.rs',
-            brandFile: brand.file?.replace('./brands/', '/static/brands/') || `/static/brands/${brand.name}.json`,
-            tags: brand.tags || [],
-            redirectUrl: brand.redirectURL || `${baseURL}/connect/callback`,
-          };
-        }
-      }
-      
       return Response.json({
         sessionId,
         publicKey: row.public_key ? JSON.parse(row.public_key) : null,
         status: row.status,
-        providerCount: providers.length,
-        providers,
-        vendors,
+        providerCount: encryptedData.length,
+        providers: encryptedData.map((p: any) => ({ name: p.providerName, connectedAt: p.connectedAt })),
+        vendors: getVendors(),
       }, { headers: corsHeaders });
     }
 
-    // SPA: Serve React app for / and /connect/*
-    if (path === "/" || path.startsWith("/connect/")) {
-      const spaPath = "./dist/index.html";
-      if (existsSync(spaPath)) {
-        return new Response(Bun.file(spaPath), {
-          headers: { "Content-Type": "text/html" },
-        });
-      }
-      return new Response("App not built. Run: bun run build:web", { status: 500 });
-    }
-
-    // Skill markdown (with placeholders filled in)
+    // Skill markdown
     if (path === "/health-record-assistant.md") {
       const mdPath = "./skill/health-record-assistant/SKILL.md";
-      if (!existsSync(mdPath)) {
-        return new Response("Skill not found", { status: 404 });
-      }
+      if (!existsSync(mdPath)) return new Response("Not found", { status: 404 });
       let content = readFileSync(mdPath, "utf-8");
       content = content.replaceAll("{{BASE_URL}}", baseURL);
-      return new Response(content, {
-        headers: { "Content-Type": "text/markdown" },
-      });
+      return new Response(content, { headers: { "Content-Type": "text/markdown" } });
     }
 
-    // Skill zip download (with placeholders filled in)
+    // Skill zip
     if (path === "/skill.zip") {
-      return await buildSkillZipWithConfig();
+      return await buildSkillZip();
     }
 
     // Health check
@@ -455,59 +293,26 @@ const server = Bun.serve({
       return new Response("ok");
     }
 
-    // Static files: /static/*
+    // Static files
     if (path.startsWith("/static/")) {
       const filePath = "." + path;
-      if (existsSync(filePath)) {
-        return new Response(Bun.file(filePath));
-      }
+      if (existsSync(filePath)) return new Response(Bun.file(filePath));
     }
 
-    // SPA assets (JS, CSS, sourcemaps from dist/)
-    if (path.endsWith('.js') || path.endsWith('.css') || path.endsWith('.js.map')) {
-      const filePath = "./dist" + path;
-      if (existsSync(filePath)) {
-        const contentType = path.endsWith('.js') ? 'application/javascript' :
-                           path.endsWith('.css') ? 'text/css' :
-                           path.endsWith('.map') ? 'application/json' : 'application/octet-stream';
-        return new Response(Bun.file(filePath), {
-          headers: { 'Content-Type': contentType }
-        });
-      }
-    }
-
-    // OAuth callback - redirect to React app with session from storage
+    // OAuth callback redirect
     if (path === "/ehr-connect/callback" || path === "/connect/callback") {
       const params = url.search;
-      const html = `<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Completing authorization...</title>
-</head>
-<body>
-    <p>Completing authorization...</p>
-    <script>
-        const sessionInfo = sessionStorage.getItem('health_skillz_session');
-        const params = '${params}';
-        if (sessionInfo) {
-            try {
-                const { sessionId } = JSON.parse(sessionInfo);
-                if (sessionId) {
-                    window.location.replace('/connect/' + sessionId + '/callback' + params);
-                } else {
-                    throw new Error('No session ID');
-                }
-            } catch (e) {
-                document.body.innerHTML = '<p>Error: ' + e.message + '. Please start over.</p>';
-            }
-        } else {
-            document.body.innerHTML = '<p>Error: No session found. Please start over.</p>';
-        }
-    </script>
-</body>
-</html>`;
-      return new Response(html, { headers: { "Content-Type": "text/html" } });
+      return new Response(`<!DOCTYPE html>
+<html><head><title>Redirecting...</title></head>
+<body><script>
+const s = sessionStorage.getItem('health_skillz_session');
+if (s) {
+  try {
+    const { sessionId } = JSON.parse(s);
+    if (sessionId) window.location.replace('/connect/' + sessionId + '/callback${params}');
+  } catch(e) { document.body.textContent = 'Error: ' + e.message; }
+} else { document.body.textContent = 'No session found'; }
+</script></body></html>`, { headers: { "Content-Type": "text/html" } });
     }
 
     return new Response("Not found", { status: 404 });
