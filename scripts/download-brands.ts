@@ -42,8 +42,8 @@ async function main() {
   
   console.log(`Processing ${rawData.entry?.length || 0} entries...`);
   
-  // Index resources by ID
-  const resourcesById = new Map<string, any>();
+  // Index resources by fullUrl (urn:uuid format) and by ID
+  const resourcesByUrl = new Map<string, any>();
   const organizations: any[] = [];
   const endpoints: any[] = [];
   
@@ -51,23 +51,24 @@ async function main() {
     const resource = entry.resource;
     if (!resource) continue;
     
-    if (resource.id) {
-      resourcesById.set(`${resource.resourceType}/${resource.id}`, resource);
+    // Index by fullUrl (urn:uuid:...) for reference lookups
+    if (entry.fullUrl) {
+      resourcesByUrl.set(entry.fullUrl, resource);
     }
     
     if (resource.resourceType === "Organization") {
-      organizations.push(resource);
+      organizations.push({ ...resource, _fullUrl: entry.fullUrl });
     } else if (resource.resourceType === "Endpoint") {
-      endpoints.push(resource);
+      endpoints.push({ ...resource, _fullUrl: entry.fullUrl });
     }
   }
   
   console.log(`Found ${organizations.length} organizations, ${endpoints.length} endpoints`);
   
-  // Build endpoint lookup
-  const endpointById = new Map<string, any>();
+  // Build endpoint lookup by fullUrl
+  const endpointByUrl = new Map<string, any>();
   for (const ep of endpoints) {
-    endpointById.set(`Endpoint/${ep.id}`, {
+    endpointByUrl.set(ep._fullUrl, {
       url: ep.address,
       name: ep.name,
       connectionType: ep.connectionType?.code,
@@ -98,10 +99,21 @@ async function main() {
       item.itemType = "facility";
       item.brandRef = org.partOf.reference;
       
-      const parent = resourcesById.get(org.partOf.reference);
+      const parent = resourcesByUrl.get(org.partOf.reference);
       if (parent) {
         item.brandName = parent.name || item.brandName;
         item.brandId = parent.id;
+        
+        // Get endpoints from parent brand
+        if (parent.endpoint?.length > 0) {
+          item.endpoints = [];
+          for (const epRef of parent.endpoint) {
+            const ep = endpointByUrl.get(epRef.reference);
+            if (ep) {
+              item.endpoints.push(ep);
+            }
+          }
+        }
       }
       
       facilities.push(item);
@@ -112,7 +124,7 @@ async function main() {
       item.endpoints = [];
       
       for (const epRef of org.endpoint) {
-        const ep = endpointById.get(epRef.reference);
+        const ep = endpointByUrl.get(epRef.reference);
         if (ep) {
           item.endpoints.push(ep);
         }
