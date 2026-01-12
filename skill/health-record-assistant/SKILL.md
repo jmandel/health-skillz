@@ -41,7 +41,7 @@ const response = await fetch('{{BASE_URL}}/api/session', {
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ publicKey: publicKeyJwk })
 });
-const { sessionId, userUrl, pollUrl, encrypted } = await response.json();
+const { sessionId, userUrl, pollUrl } = await response.json();
 
 // Store private key for later decryption
 const privateKey = keyPair.privateKey;
@@ -66,7 +66,7 @@ Use long-polling (server waits up to 30s before returning):
 ```javascript
 const checkForData = async () => {
   const result = await fetch(pollUrl + '?timeout=30').then(r => r.json());
-  return result; // { ready: boolean, encrypted: boolean, ... }
+  return result; // { ready: boolean, encryptedProviders?: [...], ... }
 };
 
 // Poll until ready
@@ -84,7 +84,7 @@ While polling, you can ask the user what they'd like to know about their records
 
 ### Step 4: Decrypt and Analyze the Data
 
-If encrypted, decrypt each provider's data:
+Decrypt each provider's data:
 
 ```javascript
 async function decryptProviderData(encryptedProvider, privateKey) {
@@ -122,27 +122,21 @@ async function decryptProviderData(encryptedProvider, privateKey) {
 }
 
 // Decrypt all providers and merge
-let data;
-if (result.encrypted) {
-  const decryptedProviders = await Promise.all(
-    result.encryptedProviders.map(ep => decryptProviderData(ep, privateKey))
-  );
-  
-  // Merge all providers' data
-  data = {
-    fhir: {},
-    attachments: []
-  };
-  for (const provider of decryptedProviders) {
-    for (const [resourceType, resources] of Object.entries(provider.fhir || {})) {
-      if (!data.fhir[resourceType]) data.fhir[resourceType] = [];
-      data.fhir[resourceType].push(...resources);
-    }
-    data.attachments.push(...(provider.attachments || []));
+const decryptedProviders = await Promise.all(
+  result.encryptedProviders.map(ep => decryptProviderData(ep, privateKey))
+);
+
+// Merge all providers' data
+const data = {
+  fhir: {},
+  attachments: []
+};
+for (const provider of decryptedProviders) {
+  for (const [resourceType, resources] of Object.entries(provider.fhir || {})) {
+    if (!data.fhir[resourceType]) data.fhir[resourceType] = [];
+    data.fhir[resourceType].push(...resources);
   }
-} else {
-  // Unencrypted (legacy) - data is directly available
-  data = result.data;
+  data.attachments.push(...(provider.attachments || []));
 }
 ```
 
@@ -335,24 +329,4 @@ For testing with Epic's sandbox:
 - Username: `fhircamila`
 - Password: `epicepic1`
 
-## LOINC Code Quick Reference
 
-| Test | LOINC | Normal Range (typical) |
-|------|-------|------------------------|
-| Glucose (fasting) | 1558-6 | 70-100 mg/dL |
-| Glucose (random) | 2345-7 | 70-140 mg/dL |
-| Hemoglobin A1c | 4548-4 | <5.7% |
-| Total Cholesterol | 2093-3 | <200 mg/dL |
-| HDL | 2085-9 | >40 mg/dL |
-| LDL | 13457-7 | <100 mg/dL |
-| Triglycerides | 2571-8 | <150 mg/dL |
-| Creatinine | 2160-0 | 0.7-1.3 mg/dL |
-| BUN | 3094-0 | 7-20 mg/dL |
-| eGFR | 33914-3 | >60 mL/min |
-| Hemoglobin | 718-7 | 12-17 g/dL |
-| WBC | 6690-2 | 4.5-11 K/uL |
-| Platelets | 777-3 | 150-400 K/uL |
-| TSH | 3016-3 | 0.4-4.0 mIU/L |
-| Systolic BP | 8480-6 | <120 mmHg |
-| Diastolic BP | 8462-4 | <80 mmHg |
-| BMI | 39156-5 | 18.5-24.9 |

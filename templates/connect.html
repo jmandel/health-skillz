@@ -153,23 +153,15 @@
         <div id="status" class="status"></div>
         
         <div class="info" id="security-info">
-            <p>Your data is transmitted securely using the SMART on FHIR standard.</p>
+            <p>🔒 <strong>End-to-end encrypted</strong>: Your health data is encrypted in your browser before transmission. Only Claude can decrypt it.</p>
         </div>
-        
-        <script>
-            // Update security info based on encryption status
-            if (PUBLIC_KEY_JWK) {
-                document.getElementById('security-info').innerHTML = 
-                    '<p>🔒 <strong>End-to-end encrypted</strong>: Your health data is encrypted in your browser before transmission. Only Claude can decrypt it.</p>';
-            }
-        </script>
     </div>
 
     <script>
         const SESSION_ID = '{{SESSION_ID}}';
         const CURRENT_ORIGIN = window.location.origin;
         const EHR_CONNECT_URL = CURRENT_ORIGIN + '/ehr-connect/ehretriever.html?brandTags=epic';
-        const PUBLIC_KEY_JWK = '{{PUBLIC_KEY}}' ? JSON.parse('{{PUBLIC_KEY}}') : null;
+        const PUBLIC_KEY_JWK = JSON.parse('{{PUBLIC_KEY}}');
         
         let connectorWindow = null;
         let connectedProviders = [];
@@ -344,19 +336,14 @@
             
             if (event.data && event.data.fhir) {
                 try {
-                    let dataToSend = event.data;
-                    let providerName = event.data.fhir?.Patient?.[0]?.managingOrganization?.display || 'Unknown Provider';
+                    status.className = 'status loading';
+                    status.innerHTML = '<span class="spinner"></span> Encrypting data...';
                     
-                    // Encrypt if public key is available
-                    if (PUBLIC_KEY_JWK) {
-                        status.className = 'status loading';
-                        status.innerHTML = '<span class="spinner"></span> Encrypting data...';
-                        dataToSend = await encryptData(event.data, PUBLIC_KEY_JWK);
-                        providerName = dataToSend.providerName;
-                    }
+                    const dataToSend = await encryptData(event.data, PUBLIC_KEY_JWK);
+                    const providerName = dataToSend.providerName;
                     
                     status.className = 'status loading';
-                    status.innerHTML = '<span class="spinner"></span> Sending' + (PUBLIC_KEY_JWK ? ' encrypted' : '') + ' data to server...';
+                    status.innerHTML = '<span class="spinner"></span> Sending encrypted data to server...';
                     
                     const response = await fetch('/api/data/' + SESSION_ID, {
                         method: 'POST',
@@ -381,9 +368,8 @@
                         updateUI();
                         resetButtons();
                         
-                        const encryptedNote = PUBLIC_KEY_JWK ? ' (encrypted)' : '';
                         status.className = 'status info';
-                        status.innerHTML = '✓ Provider connected' + encryptedNote + '! Add more providers or click "Done" when ready.';
+                        status.innerHTML = '✓ Provider connected (encrypted)! Add more providers or click "Done" when ready.';
                         
                         if (connectorWindow && !connectorWindow.closed) {
                             connectorWindow.close();

@@ -308,8 +308,7 @@ Health data is end-to-end encrypted so the server never sees plaintext health re
 
 ### Data Handling
 
-- **Transit (encrypted mode)**: Ciphertext flows through server; plaintext never leaves browser/Claude
-- **Transit (legacy mode)**: Data flows user browser → our server → Claude
+- **Transit**: Ciphertext flows through server; plaintext never leaves browser/Claude
 - **Storage**: SQLite, auto-deleted after 1 hour
 - **No persistence**: Health data not logged or retained
 
@@ -325,7 +324,7 @@ Health data is end-to-end encrypted so the server never sees plaintext health re
 
 Create a new session for health data retrieval.
 
-**Request body (optional, for E2E encryption):**
+**Request body (required):**
 ```json
 {
   "publicKey": {
@@ -342,8 +341,7 @@ Create a new session for health data retrieval.
 {
   "sessionId": "d2d5a05d63f8ff899755d3da58a76522",
   "userUrl": "https://health-skillz.exe.xyz/connect/d2d5a05d...",
-  "pollUrl": "https://health-skillz.exe.xyz/api/poll/d2d5a05d...",
-  "encrypted": true
+  "pollUrl": "https://health-skillz.exe.xyz/api/poll/d2d5a05d..."
 }
 ```
 
@@ -355,7 +353,6 @@ Check if health data is ready. Supports long-polling with `?timeout=N` (max 60s)
 ```json
 {
   "ready": false,
-  "encrypted": true,
   "status": "collecting",
   "providerCount": 1,
   "providers": [{"name": "Epic Hospital", "connectedAt": "2024-01-15T10:30:00Z"}],
@@ -363,11 +360,10 @@ Check if health data is ready. Supports long-polling with `?timeout=N` (max 60s)
 }
 ```
 
-**Response (complete, encrypted):**
+**Response (complete):**
 ```json
 {
   "ready": true,
-  "encrypted": true,
   "providerCount": 2,
   "encryptedProviders": [
     {
@@ -381,23 +377,11 @@ Check if health data is ready. Supports long-polling with `?timeout=N` (max 60s)
 }
 ```
 
-**Response (complete, unencrypted/legacy):**
-```json
-{
-  "ready": true,
-  "encrypted": false,
-  "data": {
-    "fhir": {...},
-    "attachments": [...]
-  }
-}
-```
-
 ### POST /api/data/:sessionId
 
 Receive health data from the EHR connector (called by wrapper page).
 
-**Request body (encrypted):**
+**Request body:**
 ```json
 {
   "encrypted": true,
@@ -408,17 +392,9 @@ Receive health data from the EHR connector (called by wrapper page).
 }
 ```
 
-**Request body (unencrypted/legacy):**
-```json
-{
-  "fhir": {...},
-  "attachments": [...]
-}
-```
-
 **Response:**
 ```json
-{"success": true, "providerCount": 1, "encrypted": true}
+{"success": true, "providerCount": 1}
 ```
 
 ### POST /api/finalize/:sessionId
@@ -427,7 +403,7 @@ Mark session as complete (user is done adding providers).
 
 **Response:**
 ```json
-{"success": true, "providerCount": 2, "encrypted": true}
+{"success": true, "providerCount": 2}
 ```
 
 ## File Structure
