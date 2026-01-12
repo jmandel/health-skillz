@@ -41,10 +41,7 @@ async function buildSkillZipWithConfig(): Promise<Response> {
     return new Response("Skill source not found", { status: 404 });
   }
 
-  // Use Bun's built-in zip writer
-  const { BlobWriter, ZipWriter, TextReader } = await import("@aspect-build/bun-archive-zip").catch(() => null) || {};
-  
-  // Fallback: build zip using shell if library not available
+  // Build zip using shell
   const { $ } = await import("bun");
   const tempDir = `/tmp/skill-build-${Date.now()}`;
   

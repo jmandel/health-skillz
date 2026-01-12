@@ -30,7 +30,7 @@ async function main() {
     throw new Error(`Failed to download: ${response.status} ${response.statusText}`);
   }
   
-  const rawData = await response.json();
+  const rawData = await response.json() as Record<string, any>;
   const rawPath = join(RAW_DIR, "epic-brands.json");
   writeFileSync(rawPath, JSON.stringify(rawData));
   console.log(`Saved raw data to ${rawPath}`);
