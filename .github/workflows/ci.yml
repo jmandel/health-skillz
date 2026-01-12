@@ -23,7 +23,7 @@ jobs:
         run: bun install
 
       - name: Type check
-        run: bun x tsc --noEmit --skipLibCheck src/server.ts scripts/*.ts
+        run: bun x tsc --noEmit
 
       - name: Build skill package
         run: bun run build:skill
