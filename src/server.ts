@@ -185,33 +185,50 @@ const server = Bun.serve({
       }, { headers: corsHeaders });
     }
 
-    // API: Poll for data
+    // API: Poll for data (with long-polling support)
     if (path.startsWith("/api/poll/") && req.method === "GET") {
       const sessionId = path.replace("/api/poll/", "");
-      const row = db.query("SELECT status, providers FROM sessions WHERE id = ?").get(sessionId) as any;
+      const url = new URL(req.url);
+      const timeout = Math.min(parseInt(url.searchParams.get("timeout") || "30"), 60) * 1000;
+      const pollInterval = 500; // Check every 500ms
+      const startTime = Date.now();
       
+      // Long-poll: keep checking until ready or timeout
+      while (Date.now() - startTime < timeout) {
+        const row = db.query("SELECT status, providers FROM sessions WHERE id = ?").get(sessionId) as any;
+        
+        if (!row) {
+          return new Response("Session not found", { status: 404, headers: corsHeaders });
+        }
+        
+        const providers: ProviderData[] = JSON.parse(row.providers || '[]');
+        
+        // Return immediately if finalized
+        if (row.status === "finalized" && providers.length > 0) {
+          const mergedData = mergeProviderData(providers);
+          return new Response(
+            JSON.stringify({ ready: true, data: mergedData, providerCount: providers.length }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        
+        // Wait before next check
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+      }
+      
+      // Timeout reached - return current state
+      const row = db.query("SELECT status, providers FROM sessions WHERE id = ?").get(sessionId) as any;
       if (!row) {
         return new Response("Session not found", { status: 404, headers: corsHeaders });
       }
-      
       const providers: ProviderData[] = JSON.parse(row.providers || '[]');
       
-      // Only return ready when finalized (user clicked "Done")
-      if (row.status === "finalized" && providers.length > 0) {
-        // Merge all provider data into single structure
-        const mergedData = mergeProviderData(providers);
-        return new Response(
-          JSON.stringify({ ready: true, data: mergedData, providerCount: providers.length }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      
-      // Return status info for collecting state
       return Response.json({ 
         ready: false, 
         status: row.status,
         providerCount: providers.length,
-        providers: providers.map(p => ({ name: p.name, connectedAt: p.connectedAt }))
+        providers: providers.map(p => ({ name: p.name, connectedAt: p.connectedAt })),
+        message: "Still waiting for user to connect and finalize. Keep polling."
       }, { headers: corsHeaders });
     }
 

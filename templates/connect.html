@@ -203,6 +203,12 @@
         function openConnector() {
             const status = document.getElementById('status');
             
+            // Store session info for OAuth callback recovery
+            sessionStorage.setItem('health_skillz_session', JSON.stringify({
+                sessionId: SESSION_ID,
+                origin: CURRENT_ORIGIN
+            }));
+            
             const connectorUrl = EHR_CONNECT_URL + '#deliver-to-opener:' + encodeURIComponent(CURRENT_ORIGIN);
             connectorWindow = window.open(connectorUrl, 'ehrConnector', 'width=900,height=700');
             

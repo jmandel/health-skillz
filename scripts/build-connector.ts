@@ -84,9 +84,23 @@ async function main() {
 <body>
     <p>Completing authorization...</p>
     <script>
-        // Pass the OAuth callback params to ehretriever.html
+        // Restore the delivery hash from sessionStorage (survives OAuth redirect)
+        // The ehretriever clears its delivery keys on load, so we need to re-inject the hash
+        let hash = '';
+        try {
+            const sessionInfo = sessionStorage.getItem('health_skillz_session');
+            if (sessionInfo) {
+                const { origin } = JSON.parse(sessionInfo);
+                if (origin) {
+                    hash = '#deliver-to-opener:' + encodeURIComponent(origin);
+                }
+            }
+        } catch (e) {
+            console.warn('Could not restore session info:', e);
+        }
+        
         const params = window.location.search;
-        const newUrl = window.location.origin + '/ehr-connect/ehretriever.html' + params + window.location.hash;
+        const newUrl = window.location.origin + '/ehr-connect/ehretriever.html' + params + hash;
         window.location.replace(newUrl);
     </script>
 </body>
