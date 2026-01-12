@@ -17,12 +17,13 @@ cd health-skillz
 cp config.json.example config.json
 # Edit config.json with your SMART on FHIR client IDs
 
-# Install & Build
+# Install & Setup
 bun install
-bun run setup  # Downloads brands, builds connector, packages skill
+bun run setup  # Downloads brands, packages skill
 
 # Run
-bun run start
+bun run dev    # Development with hot reload
+bun run start  # Production
 ```
 
 ## Configuration
@@ -42,8 +43,7 @@ Edit `config.json`:
       "tags": ["epic", "sandbox"],
       "clientId": "YOUR_CLIENT_ID",
       "scopes": "patient/*.rs",
-      "redirectURL": "https://your-domain.com/ehr-connect/callback",
-      "note": "Test credentials: fhircamila / epicepic1"
+      "redirectURL": "https://your-domain.com/connect/callback"
     }
   ]
 }
@@ -54,7 +54,7 @@ Edit `config.json`:
 To use with real EHRs, register your app:
 
 1. **Epic**: https://fhir.epic.com/Developer/Apps
-2. Set redirect URI to: `https://your-domain.com/ehr-connect/ehretriever.html`
+2. Set redirect URI to: `https://your-domain.com/connect/callback`
 3. Request scopes: `patient/*.rs`
 4. Add the client ID to your config.json
 
@@ -63,22 +63,24 @@ To use with real EHRs, register your app:
 ```
 health-skillz/
 ├── src/
-│   └── server.ts         # Bun server
+│   ├── server.ts         # Bun server with API routes
+│   ├── index.html        # HTML entry (auto-bundled by Bun)
+│   └── client/           # React frontend
+│       ├── main.tsx
+│       ├── App.tsx
+│       ├── pages/        # Route components
+│       ├── components/   # UI components
+│       ├── lib/          # SMART OAuth, FHIR client, crypto
+│       └── store/        # Zustand state
 ├── scripts/
 │   ├── download-brands.ts    # Fetch Epic endpoint directory
-│   ├── build-connector.ts    # Build EHR connector
 │   └── package-skill.ts      # Package Claude skill
-├── templates/
-│   ├── index.html        # Homepage
-│   └── connect.html      # Connection wrapper page
 ├── skill/
 │   └── health-record-assistant/
-│       ├── SKILL.md      # Claude skill definition
+│       ├── SKILL.md          # Claude skill definition
 │       └── references/
-│           └── FHIR-GUIDE.md
-├── brands/               # Processed endpoint data
-├── static/
-│   └── ehr-connect/      # Built EHR connector
+├── brands/                   # Processed endpoint data
+├── static/brands/            # Brand files served to frontend
 └── config.json
 ```
 
@@ -86,23 +88,34 @@ health-skillz/
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/session` | POST | Create new session |
-| `/api/poll/{id}` | GET | Poll for health data |
-| `/api/data/{id}` | POST | Receive data from connector |
-| `/connect/{id}` | GET | User-facing connection page |
+| `/api/session` | POST | Create new session (requires publicKey) |
+| `/api/session/{id}` | GET | Get session info + vendor config |
+| `/api/poll/{id}` | GET | Long-poll for health data |
+| `/api/receive-ehr` | POST | Receive encrypted EHR data |
+| `/api/finalize/{id}` | POST | Mark session complete |
+| `/connect/{id}` | GET | User connection page |
+| `/connect/{id}/select` | GET | Provider search page |
+| `/connect/{id}/callback` | GET | OAuth callback |
 | `/skill.zip` | GET | Download Claude skill |
-| `/health-record-assistant.md` | GET | View skill markdown |
 
 ## How It Works
 
-1. Claude creates a session via POST `/api/session`
-2. User clicks the returned `userUrl`
-3. User authenticates with their patient portal
-4. EHR connector fetches FHIR data via SMART on FHIR
-5. Data is sent back via postMessage to wrapper page
-6. Wrapper page POSTs data to `/api/data/{id}`
-7. Claude polls `/api/poll/{id}` until data is ready
-8. Claude analyzes the FHIR data
+1. Claude creates a session via POST `/api/session` with ECDH public key
+2. User clicks the returned `userUrl` → React app loads
+3. User searches for their healthcare provider
+4. User authenticates via SMART on FHIR OAuth
+5. React app fetches FHIR data directly from EHR
+6. Data is encrypted client-side with session public key
+7. Encrypted data POSTed to `/api/receive-ehr`
+8. Claude polls `/api/poll/{id}` until data ready
+9. Claude decrypts and analyzes the FHIR data
+
+## Architecture
+
+- **Bun fullstack**: Server imports HTML, Bun auto-bundles React/CSS
+- **E2E encryption**: Data encrypted in browser, server never sees plaintext
+- **SMART on FHIR**: OAuth + FHIR fetching happens client-side
+- **No external dependencies**: Native EHR retrieval, no health-record-mcp
 
 ## License
 

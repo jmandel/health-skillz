@@ -322,6 +322,6 @@ We need to make this available to the frontend.
 - [x] Phase 5: Integration (OAuthCallbackPage, updated routes)
 
 ### Remaining
-- [ ] Phase 6: Cleanup - remove build-connector.ts, update docs
+- [x] Phase 6: Cleanup - consolidated to src/, updated docs
 - [ ] Testing with Epic sandbox end-to-end
 - [ ] Load testing with large brand files (epic-prod.json is 62MB)

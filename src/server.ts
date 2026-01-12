@@ -299,8 +299,8 @@ const server = Bun.serve({
       if (existsSync(filePath)) return new Response(Bun.file(filePath));
     }
 
-    // OAuth callback redirect
-    if (path === "/ehr-connect/callback" || path === "/connect/callback") {
+    // OAuth callback redirect (for registered redirect URLs without session ID)
+    if (path === "/connect/callback") {
       const params = url.search;
       return new Response(`<!DOCTYPE html>
 <html><head><title>Redirecting...</title></head>
