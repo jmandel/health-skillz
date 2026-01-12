@@ -113,15 +113,6 @@ function generateSessionId(): string {
   return Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
 }
 
-// Read template file and substitute variables
-function renderTemplate(name: string, vars: Record<string, string>): string {
-  let html = readFileSync(join("templates", name), "utf-8");
-  for (const [key, value] of Object.entries(vars)) {
-    html = html.replaceAll(`{{${key}}}`, value);
-  }
-  return html;
-}
-
 // Merge data from multiple providers into single structure
 function mergeProviderData(providers: ProviderData[]): { fhir: Record<string, any[]>; attachments: any[]; providers: { name: string; connectedAt: string }[] } {
   const merged: Record<string, any[]> = {};
@@ -413,7 +404,7 @@ const server = Bun.serve({
           vendors[vendorName] = {
             clientId: brand.clientId,
             scopes: brand.scopes || 'patient/*.rs',
-            brandFile: brand.file?.replace('./', '/static/ehr-connect/') || `/static/ehr-connect/brands/${brand.name}.json`,
+            brandFile: brand.file?.replace('./brands/', '/static/brands/') || `/static/brands/${brand.name}.json`,
             tags: brand.tags || [],
             redirectUrl: brand.redirectURL || `${baseURL}/connect/callback`,
           };
@@ -438,22 +429,7 @@ const server = Bun.serve({
           headers: { "Content-Type": "text/html" },
         });
       }
-      // Fallback to templates if SPA not built
-      if (path.startsWith("/connect/")) {
-        const sessionId = path.replace("/connect/", "");
-        const row = db.query("SELECT status, public_key FROM sessions WHERE id = ?").get(sessionId) as any;
-        if (!row) {
-          return new Response("Session not found or expired", { status: 404 });
-        }
-        const html = renderTemplate("connect.html", {
-          SESSION_ID: sessionId,
-          BASE_URL: baseURL,
-          PUBLIC_KEY: row.public_key || '',
-        });
-        return new Response(html, { headers: { "Content-Type": "text/html" } });
-      }
-      const html = renderTemplate("index.html", { BASE_URL: baseURL });
-      return new Response(html, { headers: { "Content-Type": "text/html" } });
+      return new Response("App not built. Run: bun run build:web", { status: 500 });
     }
 
     // Skill markdown (with placeholders filled in)
@@ -495,21 +471,8 @@ const server = Bun.serve({
       }
     }
 
-    // EHR connector files: /ehr-connect/*
-    if (path.startsWith("/ehr-connect/")) {
-      // Handle /ehr-connect/callback -> callback.html (OAuth redirect)
-      let filePath = "./static" + path;
-      if (path === "/ehr-connect/callback") {
-        filePath = "./static/ehr-connect/callback.html";
-      }
-      if (existsSync(filePath)) {
-        return new Response(Bun.file(filePath));
-      }
-    }
-
-    // OAuth callback handler for localhost:3001/ehr-callback (Epic sandbox)
-    if (path === "/ehr-callback") {
-      // Redirect to the ehretriever with OAuth params preserved
+    // OAuth callback - redirect to React app with session from storage
+    if (path === "/ehr-connect/callback" || path === "/connect/callback") {
       const params = url.search;
       const html = `<!DOCTYPE html>
 <html>
@@ -520,21 +483,22 @@ const server = Bun.serve({
 <body>
     <p>Completing authorization...</p>
     <script>
-        // Restore the delivery hash from sessionStorage
-        let hash = '';
-        try {
-            const sessionInfo = sessionStorage.getItem('health_skillz_session');
-            if (sessionInfo) {
-                const { origin } = JSON.parse(sessionInfo);
-                if (origin) {
-                    hash = '#deliver-to-opener:' + encodeURIComponent(origin);
+        const sessionInfo = sessionStorage.getItem('health_skillz_session');
+        const params = '${params}';
+        if (sessionInfo) {
+            try {
+                const { sessionId } = JSON.parse(sessionInfo);
+                if (sessionId) {
+                    window.location.replace('/connect/' + sessionId + '/callback' + params);
+                } else {
+                    throw new Error('No session ID');
                 }
+            } catch (e) {
+                document.body.innerHTML = '<p>Error: ' + e.message + '. Please start over.</p>';
             }
-        } catch (e) {
-            console.warn('Could not restore session info:', e);
+        } else {
+            document.body.innerHTML = '<p>Error: No session found. Please start over.</p>';
         }
-        const newUrl = window.location.origin + '/ehr-connect/ehretriever.html' + '${params}' + hash;
-        window.location.replace(newUrl);
     </script>
 </body>
 </html>`;

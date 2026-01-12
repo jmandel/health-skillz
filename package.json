@@ -6,15 +6,10 @@
   "scripts": {
     "start": "bun run src/server.ts",
     "dev": "bun run --watch src/server.ts",
-    "test:server": "CONFIG_PATH=./config.local.json bun run src/server.ts",
-    "test:callback": "bun run src/callback-server.ts",
-    "test:web": "cd web && bun run dev --port 8001",
-    "build:web": "cd web && bun run build",
+    "build:web": "cd web && bun run build.ts",
     "build:brands": "bun run scripts/download-brands.ts",
-    "build:connector": "bun run scripts/build-connector.ts",
-    "build:connector:test": "CONFIG_PATH=./config.local.json bun run scripts/build-connector.ts",
     "build:skill": "bun run scripts/package-skill.ts",
-    "setup": "bun run build:brands && bun run build:connector && bun run build:skill && bun run build:web"
+    "setup": "bun run build:brands && bun run build:skill && bun run build:web"
   },
   "dependencies": {},
   "devDependencies": {
