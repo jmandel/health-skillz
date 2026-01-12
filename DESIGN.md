@@ -18,9 +18,9 @@ Health Skillz is a **Claude Skill** that enables Claude to securely fetch and an
 
 ### Non-Goals (for MVP)
 
-- End-to-end encryption (data transits through our server briefly)
+- ~~End-to-end encryption~~ **Now implemented!**
 - Long-term data storage (sessions expire after 1 hour)
-- Multi-provider aggregation in single session (connect to one provider at a time)
+- ~~Multi-provider aggregation~~ **Now implemented!**
 - Direct EHR write-back
 
 ## Architecture
@@ -264,9 +264,52 @@ const notes = data.attachments
 
 ## Security Considerations
 
+### End-to-End Encryption
+
+Health data is end-to-end encrypted so the server never sees plaintext health records:
+
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐
+│   Claude    │     │   Server     │     │   Browser   │
+│             │     │              │     │             │
+│ 1. Generate │     │              │     │             │
+│    ECDH     │     │              │     │             │
+│    keypair  │     │              │     │             │
+│             │     │              │     │             │
+│ 2. POST     │────>│ 3. Store     │     │             │
+│    publicKey│     │    publicKey │     │             │
+│             │     │              │     │             │
+│             │     │ 4. Serve     │────>│ 5. Fetch    │
+│             │     │    page with │     │    FHIR     │
+│             │     │    publicKey │     │    data     │
+│             │     │              │     │             │
+│             │     │              │<────│ 6. Encrypt  │
+│             │     │ 7. Store     │     │    with     │
+│             │     │    ciphertext│     │    ECDH+AES │
+│             │     │    (opaque)  │     │             │
+│             │     │              │     │             │
+│ 8. Poll     │<────│ 9. Return    │     │             │
+│    receives │     │    encrypted │     │             │
+│    blob     │     │    blob      │     │             │
+│             │     │              │     │             │
+│ 10. Decrypt │     │              │     │             │
+│     with    │     │              │     │             │
+│     private │     │              │     │             │
+│     key     │     │              │     │             │
+└─────────────┘     └──────────────┘     └─────────────┘
+```
+
+**Encryption details:**
+- **Key exchange**: ECDH with P-256 curve
+- **Encryption**: AES-256-GCM
+- **Per-provider keys**: Each provider connection uses a fresh ephemeral keypair
+- **Server sees**: Only encrypted ciphertext, ephemeral public key, IV
+- **Server cannot**: Decrypt any health data
+
 ### Data Handling
 
-- **Transit**: Data flows user browser → our server → Claude
+- **Transit (encrypted mode)**: Ciphertext flows through server; plaintext never leaves browser/Claude
+- **Transit (legacy mode)**: Data flows user browser → our server → Claude
 - **Storage**: SQLite, auto-deleted after 1 hour
 - **No persistence**: Health data not logged or retained
 
@@ -276,39 +319,73 @@ const notes = data.attachments
 - **Session auth**: Random 32-char hex session IDs
 - **No user accounts**: Stateless, session-based only
 
-### Future Enhancements
-
-1. **End-to-end encryption**: Claude generates keypair, data encrypted in browser
-2. **Direct delivery**: Skip server entirely with browser-to-Claude encryption
-
 ## API Reference
 
 ### POST /api/session
 
 Create a new session for health data retrieval.
 
+**Request body (optional, for E2E encryption):**
+```json
+{
+  "publicKey": {
+    "kty": "EC",
+    "crv": "P-256",
+    "x": "...",
+    "y": "..."
+  }
+}
+```
+
 **Response:**
 ```json
 {
   "sessionId": "d2d5a05d63f8ff899755d3da58a76522",
   "userUrl": "https://health-skillz.exe.xyz/connect/d2d5a05d...",
-  "pollUrl": "https://health-skillz.exe.xyz/api/poll/d2d5a05d..."
+  "pollUrl": "https://health-skillz.exe.xyz/api/poll/d2d5a05d...",
+  "encrypted": true
 }
 ```
 
 ### GET /api/poll/:sessionId
 
-Check if health data is ready.
+Check if health data is ready. Supports long-polling with `?timeout=N` (max 60s).
 
 **Response (pending):**
 ```json
-{"ready": false}
+{
+  "ready": false,
+  "encrypted": true,
+  "status": "collecting",
+  "providerCount": 1,
+  "providers": [{"name": "Epic Hospital", "connectedAt": "2024-01-15T10:30:00Z"}],
+  "message": "Still waiting for user to connect and finalize. Keep polling."
+}
 ```
 
-**Response (complete):**
+**Response (complete, encrypted):**
 ```json
 {
   "ready": true,
+  "encrypted": true,
+  "providerCount": 2,
+  "encryptedProviders": [
+    {
+      "ephemeralPublicKey": {"kty": "EC", "crv": "P-256", ...},
+      "iv": [1, 2, 3, ...],
+      "ciphertext": [4, 5, 6, ...],
+      "providerName": "Epic Hospital",
+      "connectedAt": "2024-01-15T10:30:00Z"
+    }
+  ]
+}
+```
+
+**Response (complete, unencrypted/legacy):**
+```json
+{
+  "ready": true,
+  "encrypted": false,
   "data": {
     "fhir": {...},
     "attachments": [...]
@@ -320,11 +397,37 @@ Check if health data is ready.
 
 Receive health data from the EHR connector (called by wrapper page).
 
-**Request body:** `ClientFullEHR` JSON
+**Request body (encrypted):**
+```json
+{
+  "encrypted": true,
+  "ephemeralPublicKey": {"kty": "EC", "crv": "P-256", ...},
+  "iv": [1, 2, 3, ...],
+  "ciphertext": [4, 5, 6, ...],
+  "providerName": "Epic Hospital"
+}
+```
+
+**Request body (unencrypted/legacy):**
+```json
+{
+  "fhir": {...},
+  "attachments": [...]
+}
+```
 
 **Response:**
 ```json
-{"success": true}
+{"success": true, "providerCount": 1, "encrypted": true}
+```
+
+### POST /api/finalize/:sessionId
+
+Mark session as complete (user is done adding providers).
+
+**Response:**
+```json
+{"success": true, "providerCount": 2, "encrypted": true}
 ```
 
 ## File Structure

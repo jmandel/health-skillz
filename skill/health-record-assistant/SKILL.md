@@ -20,13 +20,31 @@ Fetch and analyze electronic health records from patient portals using SMART on 
 
 ## How to Connect
 
-### Step 1: Create a Session
+### Step 1: Create a Session with End-to-End Encryption
+
+Generate an ECDH keypair and create an encrypted session:
 
 ```javascript
+// Generate keypair for E2E encryption
+const keyPair = await crypto.subtle.generateKey(
+  { name: 'ECDH', namedCurve: 'P-256' },
+  true,  // extractable (need to export public key)
+  ['deriveKey']
+);
+
+// Export public key to send to server
+const publicKeyJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey);
+
+// Create session with public key
 const response = await fetch('{{BASE_URL}}/api/session', {
-  method: 'POST'
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ publicKey: publicKeyJwk })
 });
-const { sessionId, userUrl, pollUrl } = await response.json();
+const { sessionId, userUrl, pollUrl, encrypted } = await response.json();
+
+// Store private key for later decryption
+const privateKey = keyPair.privateKey;
 ```
 
 ### Step 2: Show the User a Link
@@ -38,23 +56,97 @@ Present `userUrl` to the user as a clickable link:
 > [Connect Your Health Records]({userUrl})
 >
 > You'll sign into your patient portal (like Epic MyChart), and your records will be securely transferred for analysis.
+> 
+> 🔒 Your data is end-to-end encrypted - only this conversation can decrypt it.
 
 ### Step 3: Poll Until Data is Ready
 
-Poll every 5 seconds until `ready` is `true`:
+Use long-polling (server waits up to 30s before returning):
 
 ```javascript
 const checkForData = async () => {
-  const result = await fetch(pollUrl).then(r => r.json());
-  return result; // { ready: boolean, data?: {...} }
+  const result = await fetch(pollUrl + '?timeout=30').then(r => r.json());
+  return result; // { ready: boolean, encrypted: boolean, ... }
 };
+
+// Poll until ready
+let result;
+do {
+  result = await checkForData();
+  if (!result.ready) {
+    // Optionally tell user how many providers connected
+    console.log(`Waiting... ${result.providerCount} provider(s) connected`);
+  }
+} while (!result.ready);
 ```
 
 While polling, you can ask the user what they'd like to know about their records.
 
-### Step 4: Analyze the Data
+### Step 4: Decrypt and Analyze the Data
 
-Once `ready` is `true`, the `data` object contains:
+If encrypted, decrypt each provider's data:
+
+```javascript
+async function decryptProviderData(encryptedProvider, privateKey) {
+  // Import the ephemeral public key from the encrypted package
+  const ephemeralPublicKey = await crypto.subtle.importKey(
+    'jwk',
+    encryptedProvider.ephemeralPublicKey,
+    { name: 'ECDH', namedCurve: 'P-256' },
+    false,
+    []
+  );
+  
+  // Derive the shared secret
+  const sharedKey = await crypto.subtle.deriveKey(
+    { name: 'ECDH', public: ephemeralPublicKey },
+    privateKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['decrypt']
+  );
+  
+  // Decrypt the data
+  const iv = new Uint8Array(encryptedProvider.iv);
+  const ciphertext = new Uint8Array(encryptedProvider.ciphertext);
+  
+  const decrypted = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv },
+    sharedKey,
+    ciphertext
+  );
+  
+  // Parse the decrypted JSON
+  const decoder = new TextDecoder();
+  return JSON.parse(decoder.decode(decrypted));
+}
+
+// Decrypt all providers and merge
+let data;
+if (result.encrypted) {
+  const decryptedProviders = await Promise.all(
+    result.encryptedProviders.map(ep => decryptProviderData(ep, privateKey))
+  );
+  
+  // Merge all providers' data
+  data = {
+    fhir: {},
+    attachments: []
+  };
+  for (const provider of decryptedProviders) {
+    for (const [resourceType, resources] of Object.entries(provider.fhir || {})) {
+      if (!data.fhir[resourceType]) data.fhir[resourceType] = [];
+      data.fhir[resourceType].push(...resources);
+    }
+    data.attachments.push(...(provider.attachments || []));
+  }
+} else {
+  // Unencrypted (legacy) - data is directly available
+  data = result.data;
+}
+```
+
+Once decrypted, the `data` object contains:
 
 - **`data.fhir`** - FHIR resources organized by type
 - **`data.attachments`** - Extracted text from clinical documents (PDFs, notes)

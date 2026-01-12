@@ -22,15 +22,20 @@ db.run(`
     id TEXT PRIMARY KEY,
     created_at INTEGER DEFAULT (unixepoch()),
     providers TEXT DEFAULT '[]',
-    status TEXT DEFAULT 'pending'
+    status TEXT DEFAULT 'pending',
+    public_key TEXT,
+    encrypted_data TEXT
   )
 `);
 
-// Migration: add providers column if missing (for existing DBs)
-try {
-  db.run(`ALTER TABLE sessions ADD COLUMN providers TEXT DEFAULT '[]'`);
-} catch (e) {
-  // Column already exists
+// Migration: add columns if missing (for existing DBs)
+const migrations = [
+  "ALTER TABLE sessions ADD COLUMN providers TEXT DEFAULT '[]'",
+  "ALTER TABLE sessions ADD COLUMN public_key TEXT",
+  "ALTER TABLE sessions ADD COLUMN encrypted_data TEXT",
+];
+for (const sql of migrations) {
+  try { db.run(sql); } catch (e) { /* Column already exists */ }
 }
 
 // Types for provider data
@@ -174,14 +179,30 @@ const server = Bun.serve({
     // API: Create session
     if (path === "/api/session" && req.method === "POST") {
       const sessionId = generateSessionId();
-      db.run("INSERT INTO sessions (id) VALUES (?)", [sessionId]);
       
-      console.log(`Created session: ${sessionId}`);
+      // Check for public key in request body (for E2E encryption)
+      let publicKey: string | null = null;
+      let encrypted = false;
+      try {
+        const body = await req.json() as { publicKey?: any };
+        if (body.publicKey) {
+          // Store JWK as JSON string
+          publicKey = JSON.stringify(body.publicKey);
+          encrypted = true;
+        }
+      } catch (e) {
+        // No body or invalid JSON - that's fine, encryption is optional
+      }
+      
+      db.run("INSERT INTO sessions (id, public_key) VALUES (?, ?)", [sessionId, publicKey]);
+      
+      console.log(`Created session: ${sessionId}${encrypted ? ' (E2E encrypted)' : ''}`);
       
       return Response.json({
         sessionId,
         userUrl: `${baseURL}/connect/${sessionId}`,
         pollUrl: `${baseURL}/api/poll/${sessionId}`,
+        encrypted,
       }, { headers: corsHeaders });
     }
 
@@ -195,21 +216,37 @@ const server = Bun.serve({
       
       // Long-poll: keep checking until ready or timeout
       while (Date.now() - startTime < timeout) {
-        const row = db.query("SELECT status, providers FROM sessions WHERE id = ?").get(sessionId) as any;
+        const row = db.query("SELECT status, providers, public_key, encrypted_data FROM sessions WHERE id = ?").get(sessionId) as any;
         
         if (!row) {
           return new Response("Session not found", { status: 404, headers: corsHeaders });
         }
         
+        const isEncrypted = !!row.public_key;
+        const encryptedData = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
         const providers: ProviderData[] = JSON.parse(row.providers || '[]');
+        const providerCount = isEncrypted ? encryptedData.length : providers.length;
         
         // Return immediately if finalized
-        if (row.status === "finalized" && providers.length > 0) {
-          const mergedData = mergeProviderData(providers);
-          return new Response(
-            JSON.stringify({ ready: true, data: mergedData, providerCount: providers.length }),
-            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
+        if (row.status === "finalized" && providerCount > 0) {
+          if (isEncrypted) {
+            // Return encrypted blobs - Claude will decrypt
+            return Response.json({
+              ready: true,
+              encrypted: true,
+              encryptedProviders: encryptedData,
+              providerCount
+            }, { headers: corsHeaders });
+          } else {
+            // Return plaintext merged data
+            const mergedData = mergeProviderData(providers);
+            return Response.json({
+              ready: true,
+              encrypted: false,
+              data: mergedData,
+              providerCount
+            }, { headers: corsHeaders });
+          }
         }
         
         // Wait before next check
@@ -217,25 +254,32 @@ const server = Bun.serve({
       }
       
       // Timeout reached - return current state
-      const row = db.query("SELECT status, providers FROM sessions WHERE id = ?").get(sessionId) as any;
+      const row = db.query("SELECT status, providers, public_key, encrypted_data FROM sessions WHERE id = ?").get(sessionId) as any;
       if (!row) {
         return new Response("Session not found", { status: 404, headers: corsHeaders });
       }
+      const isEncrypted = !!row.public_key;
+      const encryptedData = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
       const providers: ProviderData[] = JSON.parse(row.providers || '[]');
+      const providerCount = isEncrypted ? encryptedData.length : providers.length;
+      const providerInfo = isEncrypted 
+        ? encryptedData.map((p: any) => ({ name: p.providerName, connectedAt: p.connectedAt }))
+        : providers.map(p => ({ name: p.name, connectedAt: p.connectedAt }));
       
       return Response.json({ 
         ready: false, 
+        encrypted: isEncrypted,
         status: row.status,
-        providerCount: providers.length,
-        providers: providers.map(p => ({ name: p.name, connectedAt: p.connectedAt })),
+        providerCount,
+        providers: providerInfo,
         message: "Still waiting for user to connect and finalize. Keep polling."
       }, { headers: corsHeaders });
     }
 
-    // API: Receive data (appends to providers list)
+    // API: Receive data (appends to providers list, or stores encrypted blob)
     if (path.startsWith("/api/data/") && req.method === "POST") {
       const sessionId = path.replace("/api/data/", "");
-      const row = db.query("SELECT status, providers FROM sessions WHERE id = ?").get(sessionId) as any;
+      const row = db.query("SELECT status, providers, public_key, encrypted_data FROM sessions WHERE id = ?").get(sessionId) as any;
       
       if (!row) {
         return new Response("Session not found", { status: 404, headers: corsHeaders });
@@ -245,7 +289,33 @@ const server = Bun.serve({
       }
       
       try {
-        const data = await req.json() as { fhir?: Record<string, any[]>; attachments?: any[]; providerName?: string };
+        const data = await req.json() as any;
+        
+        // Check if this is encrypted data
+        if (data.encrypted && data.ephemeralPublicKey && data.iv && data.ciphertext) {
+          // Store encrypted blob - we can't read it, just pass it through
+          const existingEncrypted = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
+          existingEncrypted.push({
+            ephemeralPublicKey: data.ephemeralPublicKey,
+            iv: data.iv,
+            ciphertext: data.ciphertext,
+            providerName: data.providerName || 'Unknown Provider',
+            connectedAt: new Date().toISOString()
+          });
+          
+          db.run(
+            "UPDATE sessions SET encrypted_data = ?, status = 'collecting' WHERE id = ?",
+            [JSON.stringify(existingEncrypted), sessionId]
+          );
+          console.log(`Received encrypted data for session ${sessionId} (total: ${existingEncrypted.length} providers)`);
+          return Response.json({ 
+            success: true, 
+            providerCount: existingEncrypted.length,
+            encrypted: true
+          }, { headers: corsHeaders });
+        }
+        
+        // Unencrypted data (legacy mode)
         const providers: ProviderData[] = JSON.parse(row.providers || '[]');
         
         // Extract provider name from Patient resource if available
@@ -282,7 +352,7 @@ const server = Bun.serve({
     // API: Finalize session (user is done adding providers)
     if (path.startsWith("/api/finalize/") && req.method === "POST") {
       const sessionId = path.replace("/api/finalize/", "");
-      const row = db.query("SELECT status, providers FROM sessions WHERE id = ?").get(sessionId) as any;
+      const row = db.query("SELECT status, providers, public_key, encrypted_data FROM sessions WHERE id = ?").get(sessionId) as any;
       
       if (!row) {
         return new Response("Session not found", { status: 404, headers: corsHeaders });
@@ -291,24 +361,29 @@ const server = Bun.serve({
         return Response.json({ success: true, alreadyFinalized: true }, { headers: corsHeaders });
       }
       
+      const isEncrypted = !!row.public_key;
+      const encryptedData = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
       const providers: ProviderData[] = JSON.parse(row.providers || '[]');
-      if (providers.length === 0) {
+      const providerCount = isEncrypted ? encryptedData.length : providers.length;
+      
+      if (providerCount === 0) {
         return new Response("No providers connected yet", { status: 400, headers: corsHeaders });
       }
       
       db.run("UPDATE sessions SET status = 'finalized' WHERE id = ?", [sessionId]);
-      console.log(`Finalized session ${sessionId} with ${providers.length} provider(s)`);
+      console.log(`Finalized session ${sessionId} with ${providerCount} provider(s)${isEncrypted ? ' (encrypted)' : ''}`);
       
       return Response.json({ 
         success: true, 
-        providerCount: providers.length 
+        providerCount,
+        encrypted: isEncrypted
       }, { headers: corsHeaders });
     }
 
     // Page: Connect wrapper
     if (path.startsWith("/connect/")) {
       const sessionId = path.replace("/connect/", "");
-      const row = db.query("SELECT status FROM sessions WHERE id = ?").get(sessionId);
+      const row = db.query("SELECT status, public_key FROM sessions WHERE id = ?").get(sessionId) as any;
       
       if (!row) {
         return new Response("Session not found or expired", { status: 404 });
@@ -317,6 +392,7 @@ const server = Bun.serve({
       const html = renderTemplate("connect.html", {
         SESSION_ID: sessionId,
         BASE_URL: baseURL,
+        PUBLIC_KEY: row.public_key || '',
       });
       
       return new Response(html, {
