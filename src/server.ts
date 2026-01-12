@@ -33,6 +33,7 @@ const migrations = [
   "ALTER TABLE sessions ADD COLUMN providers TEXT DEFAULT '[]'",
   "ALTER TABLE sessions ADD COLUMN public_key TEXT",
   "ALTER TABLE sessions ADD COLUMN encrypted_data TEXT",
+  "ALTER TABLE sessions ADD COLUMN temp_ehr_data TEXT",
 ];
 for (const sql of migrations) {
   try { db.run(sql); } catch (e) { /* Column already exists */ }
@@ -307,6 +308,93 @@ const server = Bun.serve({
       }
     }
 
+    // API: Receive unencrypted EHR data from ehretriever (temporary storage)
+    // This data will be encrypted client-side and re-POSTed to /api/data/:id
+    if (path.startsWith("/api/receive-ehr/") && req.method === "POST") {
+      const sessionId = path.replace("/api/receive-ehr/", "");
+      const row = db.query("SELECT id FROM sessions WHERE id = ?").get(sessionId) as any;
+      
+      if (!row) {
+        return Response.json({ success: false, error: "session_not_found" }, { status: 404, headers: corsHeaders });
+      }
+      
+      try {
+        const data = await req.json();
+        // Store temporarily - will be cleared after client encrypts and re-sends
+        db.run(
+          "UPDATE sessions SET temp_ehr_data = ? WHERE id = ?",
+          [JSON.stringify(data), sessionId]
+        );
+        console.log(`Received unencrypted EHR data for session ${sessionId} (temporary)`);
+        
+        // Return redirect URL for ehretriever
+        return Response.json({
+          success: true,
+          redirectTo: `${baseURL}/connect/${sessionId}?ehr_delivered=true`
+        }, { headers: corsHeaders });
+      } catch (e) {
+        return Response.json({ success: false, error: "invalid_json" }, { status: 400, headers: corsHeaders });
+      }
+    }
+
+    // API: Receive unencrypted EHR data with session from sessionStorage marker
+    // ehretriever POSTs here, we look up sessionId from the health_skillz_session in sessionStorage
+    // Since we can't read sessionStorage server-side, we use a cookie set by the connect page
+    if (path === "/api/receive-ehr-with-session" && req.method === "POST") {
+      // Get sessionId from cookie
+      const cookies = req.headers.get('cookie') || '';
+      const sessionMatch = cookies.match(/health_skillz_session_id=([^;]+)/);
+      const sessionId = sessionMatch ? sessionMatch[1] : null;
+      
+      if (!sessionId) {
+        return Response.json({ 
+          success: false, 
+          error: "session_not_found",
+          error_description: "No session cookie found. Please start from the connect page."
+        }, { status: 400, headers: corsHeaders });
+      }
+      
+      const row = db.query("SELECT id FROM sessions WHERE id = ?").get(sessionId) as any;
+      if (!row) {
+        return Response.json({ success: false, error: "session_not_found" }, { status: 404, headers: corsHeaders });
+      }
+      
+      try {
+        const data = await req.json();
+        db.run(
+          "UPDATE sessions SET temp_ehr_data = ? WHERE id = ?",
+          [JSON.stringify(data), sessionId]
+        );
+        console.log(`Received unencrypted EHR data for session ${sessionId} (via cookie)`);
+        
+        return Response.json({
+          success: true,
+          redirectTo: `${baseURL}/connect/${sessionId}?ehr_delivered=true`
+        }, { headers: corsHeaders });
+      } catch (e) {
+        return Response.json({ success: false, error: "invalid_json" }, { status: 400, headers: corsHeaders });
+      }
+    }
+
+    // API: Get unencrypted EHR data (for client-side encryption)
+    if (path.startsWith("/api/receive-ehr/") && req.method === "GET") {
+      const sessionId = path.replace("/api/receive-ehr/", "");
+      const row = db.query("SELECT temp_ehr_data FROM sessions WHERE id = ?").get(sessionId) as any;
+      
+      if (!row || !row.temp_ehr_data) {
+        return new Response("No data", { status: 404, headers: corsHeaders });
+      }
+      
+      return Response.json(JSON.parse(row.temp_ehr_data), { headers: corsHeaders });
+    }
+
+    // API: Clear unencrypted EHR data
+    if (path.startsWith("/api/receive-ehr/") && req.method === "DELETE") {
+      const sessionId = path.replace("/api/receive-ehr/", "");
+      db.run("UPDATE sessions SET temp_ehr_data = NULL WHERE id = ?", [sessionId]);
+      return Response.json({ success: true }, { headers: corsHeaders });
+    }
+
     // API: Finalize session (user is done adding providers)
     if (path.startsWith("/api/finalize/") && req.method === "POST") {
       const sessionId = path.replace("/api/finalize/", "");
@@ -426,6 +514,40 @@ const server = Bun.serve({
       if (existsSync(filePath)) {
         return new Response(Bun.file(filePath));
       }
+    }
+
+    // OAuth callback handler for localhost:3001/ehr-callback (Epic sandbox)
+    if (path === "/ehr-callback") {
+      // Redirect to the ehretriever with OAuth params preserved
+      const params = url.search;
+      const html = `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Completing authorization...</title>
+</head>
+<body>
+    <p>Completing authorization...</p>
+    <script>
+        // Restore the delivery hash from sessionStorage
+        let hash = '';
+        try {
+            const sessionInfo = sessionStorage.getItem('health_skillz_session');
+            if (sessionInfo) {
+                const { origin } = JSON.parse(sessionInfo);
+                if (origin) {
+                    hash = '#deliver-to-opener:' + encodeURIComponent(origin);
+                }
+            }
+        } catch (e) {
+            console.warn('Could not restore session info:', e);
+        }
+        const newUrl = window.location.origin + '/ehr-connect/ehretriever.html' + '${params}' + hash;
+        window.location.replace(newUrl);
+    </script>
+</body>
+</html>`;
+      return new Response(html, { headers: { "Content-Type": "text/html" } });
     }
 
     return new Response("Not found", { status: 404 });

@@ -57,3 +57,22 @@ export async function finalizeSession(
   }
   return res.json();
 }
+
+// Get unencrypted EHR data that was POSTed by ehretriever
+export async function getReceivedEhrData(sessionId: string): Promise<unknown | null> {
+  const res = await fetch(`${BASE_URL}/api/receive-ehr/${sessionId}`);
+  if (res.status === 404) {
+    return null;
+  }
+  if (!res.ok) {
+    throw new Error(`Failed to get EHR data: ${res.status}`);
+  }
+  return res.json();
+}
+
+// Clear unencrypted EHR data after encryption
+export async function clearReceivedEhrData(sessionId: string): Promise<void> {
+  await fetch(`${BASE_URL}/api/receive-ehr/${sessionId}`, {
+    method: 'DELETE',
+  });
+}

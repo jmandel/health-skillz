@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun run --watch src/server.ts",
+    "dev:callback": "bun run src/callback-server.ts",
     "dev:web": "cd web && bun run dev",
     "start": "bun run src/server.ts",
     "build:web": "cd web && bun run build",

@@ -10,7 +10,7 @@ import { $ } from "bun";
 
 const PROJECT_DIR = dirname(dirname(import.meta.path));
 const HEALTH_RECORD_MCP = join(dirname(PROJECT_DIR), "health-record-mcp");
-const CONFIG_PATH = join(PROJECT_DIR, "config.json");
+const CONFIG_PATH = process.env.CONFIG_PATH || join(PROJECT_DIR, "config.json");
 
 async function main() {
   // Clone health-record-mcp if needed
@@ -29,9 +29,16 @@ async function main() {
   const config = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
   // Generate build config for health-record-mcp
+  // Single delivery endpoint - sessionId is read from sessionStorage on the server side
+  const deliveryEndpoints = {
+    "health-skillz": {
+      postUrl: `${config.server.baseURL}/api/receive-ehr-with-session`
+    }
+  };
+  
   const buildConfig = {
     retrieverConfig: {
-      deliveryEndpoints: {},
+      deliveryEndpoints,
       brandFiles: config.brands.map((b: any) => ({
         url: b.file,
         tags: b.tags,

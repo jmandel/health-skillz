@@ -1,7 +1,7 @@
-import { useEffect, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useEffect, useCallback, useState } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useSessionStore } from '../store/session';
-import { getSessionInfo, sendEncryptedData, finalizeSession } from '../lib/api';
+import { getSessionInfo, sendEncryptedData, finalizeSession, getReceivedEhrData, clearReceivedEhrData } from '../lib/api';
 import { encryptData } from '../lib/crypto';
 import { saveSession, loadSession, updateProviders } from '../lib/storage';
 import ProviderList from '../components/ProviderList';
@@ -9,9 +9,11 @@ import StatusMessage from '../components/StatusMessage';
 
 export default function ConnectPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
+  const [searchParams] = useSearchParams();
   const store = useSessionStore();
+  const [returningFromEhr, setReturningFromEhr] = useState(false);
 
-  // Initialize session - either restore from storage or fetch from server
+  // Initialize session - restore from storage or fetch from server
   useEffect(() => {
     if (!sessionId) return;
 
@@ -21,6 +23,12 @@ export default function ConnectPage() {
       if (saved && saved.sessionId === sessionId) {
         store.setSession(sessionId, saved.publicKeyJwk, saved.privateKeyJwk);
         store.setProviders(saved.providers);
+        
+        // Check if returning from EHR connector with data
+        const ehrDelivered = searchParams.get('ehr_delivered');
+        if (ehrDelivered === 'true') {
+          setReturningFromEhr(true);
+        }
         return;
       }
 
@@ -30,14 +38,13 @@ export default function ConnectPage() {
         const info = await getSessionInfo(sessionId);
         
         // Store server's public key (AI agent's key for E2E encryption)
-        // We don't need a local keypair - we encrypt TO the AI's public key
-        store.setSession(sessionId, info.publicKey, info.publicKey); // publicKey twice since we only need it for encryption
+        store.setSession(sessionId, info.publicKey, info.publicKey);
         
         // Save to sessionStorage for OAuth redirect recovery
         saveSession({
           sessionId,
           publicKeyJwk: info.publicKey,
-          privateKeyJwk: info.publicKey, // Not used, but keeps interface consistent
+          privateKeyJwk: info.publicKey,
           providers: [],
         });
         
@@ -48,24 +55,34 @@ export default function ConnectPage() {
     };
 
     init();
-  }, [sessionId]);
+  }, [sessionId, searchParams]);
 
-  // Listen for postMessage from EHR connector popup
+  // Handle returning from EHR connector - fetch, encrypt, and send data
   useEffect(() => {
-    const handleMessage = async (event: MessageEvent) => {
-      // Only accept messages from same origin
-      if (event.origin !== window.location.origin) return;
-      if (!event.data?.fhir) return;
-      if (!store.publicKeyJwk || !sessionId) return;
+    if (!returningFromEhr || !sessionId || !store.publicKeyJwk) return;
 
+    const processEhrData = async () => {
       try {
+        store.setStatus('loading');
+        
+        // Fetch the unencrypted data that ehretriever POSTed
+        const ehrData = await getReceivedEhrData(sessionId);
+        if (!ehrData) {
+          store.setStatus('idle');
+          setReturningFromEhr(false);
+          return;
+        }
+
         store.setStatus('encrypting');
-        const encrypted = await encryptData(event.data, store.publicKeyJwk);
+        const encrypted = await encryptData(ehrData, store.publicKeyJwk!);
 
         store.setStatus('sending');
         const result = await sendEncryptedData(sessionId, encrypted);
 
         if (result.success) {
+          // Clear the temporary unencrypted data
+          await clearReceivedEhrData(sessionId);
+          
           const provider = {
             name: encrypted.providerName,
             connectedAt: new Date().toISOString(),
@@ -75,20 +92,35 @@ export default function ConnectPage() {
           store.setStatus('idle');
         }
       } catch (err) {
-        store.setError(err instanceof Error ? err.message : 'Failed to send data');
+        store.setError(err instanceof Error ? err.message : 'Failed to process EHR data');
+      } finally {
+        setReturningFromEhr(false);
+        // Clean up URL
+        window.history.replaceState({}, '', `/connect/${sessionId}`);
       }
     };
 
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [sessionId, store.publicKeyJwk, store.providers]);
+    processEhrData();
+  }, [returningFromEhr, sessionId, store.publicKeyJwk]);
 
-  const openConnector = useCallback(() => {
+  const startConnect = useCallback(() => {
+    if (!sessionId) return;
+    
+    // Save state before redirect
+    const saved = loadSession();
+    if (saved) {
+      saveSession({ ...saved, providers: store.providers });
+    }
+    
+    // Set cookie with sessionId for the receive endpoint
+    document.cookie = `health_skillz_session_id=${sessionId}; path=/; max-age=3600; SameSite=Lax`;
+    
+    // Redirect to ehretriever (same tab, not popup)
+    // ehretriever will POST to /api/receive-ehr-with-session and redirect back
     const origin = window.location.origin;
-    const connectorUrl = `${origin}/ehr-connect/ehretriever.html?brandTags=epic#deliver-to-opener:${encodeURIComponent(origin)}`;
-    window.open(connectorUrl, 'ehrConnector', 'width=900,height=700');
-    store.setStatus('connecting');
-  }, []);
+    const ehrUrl = `${origin}/ehr-connect/ehretriever.html?brandTags=epic#deliver-to:health-skillz`;
+    window.location.href = ehrUrl;
+  }, [sessionId, store.providers]);
 
   const handleFinalize = useCallback(async () => {
     if (!sessionId) return;
@@ -105,7 +137,7 @@ export default function ConnectPage() {
   }, [sessionId]);
 
   // Loading state
-  if (store.status === 'loading') {
+  if (store.status === 'loading' && !store.sessionId) {
     return (
       <div className="connect-container">
         <div className="connect-card">
@@ -143,7 +175,7 @@ export default function ConnectPage() {
   }
 
   const hasProviders = store.providers.length > 0;
-  const isWorking = ['connecting', 'encrypting', 'sending'].includes(store.status);
+  const isWorking = ['loading', 'connecting', 'encrypting', 'sending'].includes(store.status);
 
   return (
     <div className="connect-container">
@@ -160,7 +192,7 @@ export default function ConnectPage() {
             </p>
             <button
               className="btn"
-              onClick={openConnector}
+              onClick={startConnect}
               disabled={isWorking}
             >
               Connect to a Health Provider
@@ -174,7 +206,7 @@ export default function ConnectPage() {
             <div className="button-group">
               <button
                 className="btn btn-secondary"
-                onClick={openConnector}
+                onClick={startConnect}
                 disabled={isWorking}
               >
                 ➕ Add Another Provider
@@ -190,20 +222,23 @@ export default function ConnectPage() {
           </>
         )}
 
-        {store.status !== 'idle' && (
+        {isWorking && (
           <StatusMessage
-            status={store.status === 'error' ? 'error' : 'loading'}
+            status="loading"
             message={
-              store.error ||
-              (store.status === 'connecting'
-                ? 'Complete sign-in in the popup window...'
+              store.status === 'loading'
+                ? 'Processing...'
                 : store.status === 'encrypting'
                 ? 'Encrypting data...'
                 : store.status === 'sending'
-                ? 'Sending encrypted data to server...'
-                : '')
+                ? 'Sending encrypted data...'
+                : 'Connecting...'
             }
           />
+        )}
+
+        {store.status === 'error' && store.error && (
+          <StatusMessage status="error" message={store.error} />
         )}
 
         <div className="security-info">
