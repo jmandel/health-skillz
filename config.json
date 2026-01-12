@@ -10,7 +10,7 @@
       "tags": ["epic", "sandbox"],
       "clientId": "012662a7-8a52-4b22-8252-f58b9b52e8c9",
       "scopes": "patient/*.rs",
-      "redirectURL": "https://health-skillz.exe.xyz/ehr-connect/callback",
+      "redirectURL": "https://health-skillz.exe.xyz/ehr-connect/ehretriever.html",
       "note": "Epic Sandbox - Username 'fhircamila', Password 'epicepic1'"
     },
     {
@@ -19,7 +19,7 @@
       "tags": ["epic", "prod"],
       "clientId": "012662a7-8a52-4b22-8252-f58b9b52e8c9",
       "scopes": "patient/*.rs",
-      "redirectURL": "https://health-skillz.exe.xyz/ehr-connect/callback"
+      "redirectURL": "https://health-skillz.exe.xyz/ehr-connect/ehretriever.html"
     }
   ],
   "session": {
