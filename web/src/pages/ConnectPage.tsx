@@ -1,9 +1,8 @@
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useSessionStore } from '../store/session';
-import { getSessionInfo, sendEncryptedData, finalizeSession, getReceivedEhrData, clearReceivedEhrData } from '../lib/api';
-import { encryptData } from '../lib/crypto';
-import { saveSession, loadSession, updateProviders } from '../lib/storage';
+import { getSessionInfo, finalizeSession } from '../lib/api';
+import { saveSession, loadSession } from '../lib/storage';
 import ProviderList from '../components/ProviderList';
 import StatusMessage from '../components/StatusMessage';
 
@@ -11,7 +10,6 @@ export default function ConnectPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const [searchParams] = useSearchParams();
   const store = useSessionStore();
-  const [returningFromEhr, setReturningFromEhr] = useState(false);
 
   // Initialize session - restore from storage or fetch from server
   useEffect(() => {
@@ -21,14 +19,17 @@ export default function ConnectPage() {
       // Check if we have saved state (returning from OAuth)
       const saved = loadSession();
       if (saved && saved.sessionId === sessionId) {
-        store.setSession(sessionId, saved.publicKeyJwk, saved.privateKeyJwk);
+        store.setSession(sessionId, saved.publicKeyJwk, saved.publicKeyJwk);
         store.setProviders(saved.providers);
         
-        // Check if returning from EHR connector with data
-        const ehrDelivered = searchParams.get('ehr_delivered');
-        if (ehrDelivered === 'true') {
-          setReturningFromEhr(true);
+        // Check if returning from EHR connector with new provider
+        const providerAdded = searchParams.get('provider_added');
+        if (providerAdded === 'true') {
+          // Refresh provider count from what we know
+          // The actual encrypted data was already stored server-side
+          window.history.replaceState({}, '', `/connect/${sessionId}`);
         }
+        store.setStatus('idle');
         return;
       }
 
@@ -40,11 +41,10 @@ export default function ConnectPage() {
         // Store server's public key (AI agent's key for E2E encryption)
         store.setSession(sessionId, info.publicKey, info.publicKey);
         
-        // Save to sessionStorage for OAuth redirect recovery
+        // Save to sessionStorage for ehretriever's encryption code to read
         saveSession({
           sessionId,
           publicKeyJwk: info.publicKey,
-          privateKeyJwk: info.publicKey,
           providers: [],
         });
         
@@ -57,70 +57,22 @@ export default function ConnectPage() {
     init();
   }, [sessionId, searchParams]);
 
-  // Handle returning from EHR connector - fetch, encrypt, and send data
-  useEffect(() => {
-    if (!returningFromEhr || !sessionId || !store.publicKeyJwk) return;
-
-    const processEhrData = async () => {
-      try {
-        store.setStatus('loading');
-        
-        // Fetch the unencrypted data that ehretriever POSTed
-        const ehrData = await getReceivedEhrData(sessionId);
-        if (!ehrData) {
-          store.setStatus('idle');
-          setReturningFromEhr(false);
-          return;
-        }
-
-        store.setStatus('encrypting');
-        const encrypted = await encryptData(ehrData, store.publicKeyJwk!);
-
-        store.setStatus('sending');
-        const result = await sendEncryptedData(sessionId, encrypted);
-
-        if (result.success) {
-          // Clear the temporary unencrypted data
-          await clearReceivedEhrData(sessionId);
-          
-          const provider = {
-            name: encrypted.providerName,
-            connectedAt: new Date().toISOString(),
-          };
-          store.addProvider(provider);
-          updateProviders([...store.providers, provider]);
-          store.setStatus('idle');
-        }
-      } catch (err) {
-        store.setError(err instanceof Error ? err.message : 'Failed to process EHR data');
-      } finally {
-        setReturningFromEhr(false);
-        // Clean up URL
-        window.history.replaceState({}, '', `/connect/${sessionId}`);
-      }
-    };
-
-    processEhrData();
-  }, [returningFromEhr, sessionId, store.publicKeyJwk]);
-
   const startConnect = useCallback(() => {
-    if (!sessionId) return;
+    if (!sessionId || !store.publicKeyJwk) return;
     
-    // Save state before redirect
-    const saved = loadSession();
-    if (saved) {
-      saveSession({ ...saved, providers: store.providers });
-    }
+    // Save state before redirect (ehretriever's encryption code reads from this)
+    saveSession({
+      sessionId,
+      publicKeyJwk: store.publicKeyJwk,
+      providers: store.providers,
+    });
     
-    // Set cookie with sessionId for the receive endpoint
-    document.cookie = `health_skillz_session_id=${sessionId}; path=/; max-age=3600; SameSite=Lax`;
-    
-    // Redirect to ehretriever (same tab, not popup)
-    // ehretriever will POST to /api/receive-ehr-with-session and redirect back
+    // Redirect to ehretriever (same tab)
+    // ehretriever will encrypt client-side and POST to /api/receive-ehr
     const origin = window.location.origin;
     const ehrUrl = `${origin}/ehr-connect/ehretriever.html?brandTags=epic#deliver-to:health-skillz`;
     window.location.href = ehrUrl;
-  }, [sessionId, store.providers]);
+  }, [sessionId, store.publicKeyJwk, store.providers]);
 
   const handleFinalize = useCallback(async () => {
     if (!sessionId) return;

@@ -7,7 +7,6 @@ const STORAGE_KEY = 'health_skillz_session';
 export interface PersistedSession {
   sessionId: string;
   publicKeyJwk: JsonWebKey;
-  privateKeyJwk: JsonWebKey;
   providers: Provider[];
 }
 

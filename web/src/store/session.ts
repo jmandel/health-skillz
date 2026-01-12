@@ -6,14 +6,13 @@ export type Status = 'idle' | 'loading' | 'connecting' | 'encrypting' | 'sending
 interface SessionState {
   sessionId: string | null;
   publicKeyJwk: JsonWebKey | null;
-  privateKeyJwk: JsonWebKey | null;
   providers: Provider[];
   status: Status;
   error: string | null;
 }
 
 interface SessionActions {
-  setSession: (id: string, publicKey: JsonWebKey, privateKey: JsonWebKey) => void;
+  setSession: (id: string, publicKey: JsonWebKey, _unused?: JsonWebKey) => void;
   addProvider: (provider: Provider) => void;
   setProviders: (providers: Provider[]) => void;
   setStatus: (status: Status) => void;
@@ -24,7 +23,6 @@ interface SessionActions {
 const initialState: SessionState = {
   sessionId: null,
   publicKeyJwk: null,
-  privateKeyJwk: null,
   providers: [],
   status: 'idle',
   error: null,
@@ -33,11 +31,10 @@ const initialState: SessionState = {
 export const useSessionStore = create<SessionState & SessionActions>((set) => ({
   ...initialState,
 
-  setSession: (id, publicKey, privateKey) =>
+  setSession: (id, publicKey) =>
     set({
       sessionId: id,
       publicKeyJwk: publicKey,
-      privateKeyJwk: privateKey,
       status: 'idle',
       error: null,
     }),

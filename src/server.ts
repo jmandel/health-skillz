@@ -308,91 +308,57 @@ const server = Bun.serve({
       }
     }
 
-    // API: Receive unencrypted EHR data from ehretriever (temporary storage)
-    // This data will be encrypted client-side and re-POSTed to /api/data/:id
-    if (path.startsWith("/api/receive-ehr/") && req.method === "POST") {
-      const sessionId = path.replace("/api/receive-ehr/", "");
-      const row = db.query("SELECT id FROM sessions WHERE id = ?").get(sessionId) as any;
-      
-      if (!row) {
-        return Response.json({ success: false, error: "session_not_found" }, { status: 404, headers: corsHeaders });
-      }
-      
+    // API: Receive encrypted EHR data from ehretriever
+    // Data is encrypted client-side, we just store the opaque blob
+    // Session ID comes in the request body (set by client-side encryption code)
+    if (path === "/api/receive-ehr" && req.method === "POST") {
       try {
-        const data = await req.json();
-        // Store temporarily - will be cleared after client encrypts and re-sends
-        db.run(
-          "UPDATE sessions SET temp_ehr_data = ? WHERE id = ?",
-          [JSON.stringify(data), sessionId]
-        );
-        console.log(`Received unencrypted EHR data for session ${sessionId} (temporary)`);
+        const data = await req.json() as any;
         
-        // Return redirect URL for ehretriever
-        return Response.json({
-          success: true,
-          redirectTo: `${baseURL}/connect/${sessionId}?ehr_delivered=true`
-        }, { headers: corsHeaders });
-      } catch (e) {
-        return Response.json({ success: false, error: "invalid_json" }, { status: 400, headers: corsHeaders });
-      }
-    }
-
-    // API: Receive unencrypted EHR data with session from sessionStorage marker
-    // ehretriever POSTs here, we look up sessionId from the health_skillz_session in sessionStorage
-    // Since we can't read sessionStorage server-side, we use a cookie set by the connect page
-    if (path === "/api/receive-ehr-with-session" && req.method === "POST") {
-      // Get sessionId from cookie
-      const cookies = req.headers.get('cookie') || '';
-      const sessionMatch = cookies.match(/health_skillz_session_id=([^;]+)/);
-      const sessionId = sessionMatch ? sessionMatch[1] : null;
-      
-      if (!sessionId) {
-        return Response.json({ 
-          success: false, 
-          error: "session_not_found",
-          error_description: "No session cookie found. Please start from the connect page."
-        }, { status: 400, headers: corsHeaders });
-      }
-      
-      const row = db.query("SELECT id FROM sessions WHERE id = ?").get(sessionId) as any;
-      if (!row) {
-        return Response.json({ success: false, error: "session_not_found" }, { status: 404, headers: corsHeaders });
-      }
-      
-      try {
-        const data = await req.json();
+        // Validate required fields
+        if (!data.sessionId) {
+          return Response.json({ success: false, error: "missing_session_id" }, { status: 400, headers: corsHeaders });
+        }
+        if (!data.encrypted || !data.ephemeralPublicKey || !data.iv || !data.ciphertext) {
+          return Response.json({ success: false, error: "missing_encryption_fields" }, { status: 400, headers: corsHeaders });
+        }
+        
+        const sessionId = data.sessionId;
+        const row = db.query("SELECT id, encrypted_data, status FROM sessions WHERE id = ?").get(sessionId) as any;
+        
+        if (!row) {
+          return Response.json({ success: false, error: "session_not_found" }, { status: 404, headers: corsHeaders });
+        }
+        if (row.status === "finalized") {
+          return Response.json({ success: false, error: "session_finalized" }, { status: 400, headers: corsHeaders });
+        }
+        
+        // Store the encrypted blob (we can't read it)
+        const existingEncrypted = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
+        existingEncrypted.push({
+          ephemeralPublicKey: data.ephemeralPublicKey,
+          iv: data.iv,
+          ciphertext: data.ciphertext,
+          providerName: data.providerName || 'Unknown Provider',
+          connectedAt: new Date().toISOString()
+        });
+        
         db.run(
-          "UPDATE sessions SET temp_ehr_data = ? WHERE id = ?",
-          [JSON.stringify(data), sessionId]
+          "UPDATE sessions SET encrypted_data = ?, status = 'collecting' WHERE id = ?",
+          [JSON.stringify(existingEncrypted), sessionId]
         );
-        console.log(`Received unencrypted EHR data for session ${sessionId} (via cookie)`);
+        
+        console.log(`Received encrypted EHR data for session ${sessionId} (${existingEncrypted.length} providers)`);
         
         return Response.json({
           success: true,
-          redirectTo: `${baseURL}/connect/${sessionId}?ehr_delivered=true`
+          providerCount: existingEncrypted.length,
+          redirectTo: `${baseURL}/connect/${sessionId}?provider_added=true`
         }, { headers: corsHeaders });
       } catch (e) {
-        return Response.json({ success: false, error: "invalid_json" }, { status: 400, headers: corsHeaders });
+        console.error('Error receiving EHR data:', e);
+        return Response.json({ success: false, error: "processing_error" }, { status: 500, headers: corsHeaders });
       }
-    }
-
-    // API: Get unencrypted EHR data (for client-side encryption)
-    if (path.startsWith("/api/receive-ehr/") && req.method === "GET") {
-      const sessionId = path.replace("/api/receive-ehr/", "");
-      const row = db.query("SELECT temp_ehr_data FROM sessions WHERE id = ?").get(sessionId) as any;
-      
-      if (!row || !row.temp_ehr_data) {
-        return new Response("No data", { status: 404, headers: corsHeaders });
-      }
-      
-      return Response.json(JSON.parse(row.temp_ehr_data), { headers: corsHeaders });
-    }
-
-    // API: Clear unencrypted EHR data
-    if (path.startsWith("/api/receive-ehr/") && req.method === "DELETE") {
-      const sessionId = path.replace("/api/receive-ehr/", "");
-      db.run("UPDATE sessions SET temp_ehr_data = NULL WHERE id = ?", [sessionId]);
-      return Response.json({ success: true }, { headers: corsHeaders });
     }
 
     // API: Finalize session (user is done adding providers)

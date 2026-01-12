@@ -1,14 +1,14 @@
 {
   "server": {
-    "port": 8000,
-    "baseURL": "http://localhost:8000"
+    "port": 8001,
+    "baseURL": "http://localhost:8001"
   },
   "brands": [
     {
       "name": "epic-sandbox",
       "file": "./brands/epic-sandbox.json",
       "tags": ["epic", "sandbox"],
-      "clientId": "012662a7-8a52-4b22-8252-f58b9b52e8c9",
+      "clientId": "6a424079-77de-418b-94c7-485d08ffc3f7",
       "scopes": "patient/*.rs",
       "redirectURL": "http://localhost:3001/ehr-callback",
       "note": "Epic Sandbox - Username 'fhircamila', Password 'epicepic1'"

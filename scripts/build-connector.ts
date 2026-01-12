@@ -29,10 +29,10 @@ async function main() {
   const config = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
   // Generate build config for health-record-mcp
-  // Single delivery endpoint - sessionId is read from sessionStorage on the server side
+  // Single delivery endpoint - data is encrypted client-side before POST
   const deliveryEndpoints = {
     "health-skillz": {
-      postUrl: `${config.server.baseURL}/api/receive-ehr-with-session`
+      postUrl: `${config.server.baseURL}/api/receive-ehr`
     }
   };
   
@@ -114,6 +114,77 @@ async function main() {
 </html>`;
   writeFileSync(join(staticDir, "callback.html"), callbackHtml);
   console.log("Created callback.html for OAuth redirect");
+
+  // Patch the bundle to encrypt data before POSTing
+  const bundlePath = join(staticDir, "dist", "ehretriever.bundle.js");
+  let bundleCode = readFileSync(bundlePath, "utf-8");
+  
+  // Inject encryption function and modify the delivery code
+  const encryptionCode = `
+// Injected by health-skillz: client-side encryption before delivery
+window.__healthSkillzEncrypt = async function(data) {
+  const sessionInfo = sessionStorage.getItem('health_skillz_session');
+  if (!sessionInfo) throw new Error('No session info found');
+  const { publicKeyJwk, sessionId } = JSON.parse(sessionInfo);
+  if (!publicKeyJwk || !sessionId) throw new Error('Missing publicKey or sessionId');
+  
+  // Import public key
+  const publicKey = await crypto.subtle.importKey(
+    'jwk', publicKeyJwk,
+    { name: 'ECDH', namedCurve: 'P-256' },
+    false, []
+  );
+  
+  // Generate ephemeral keypair
+  const ephemeralKeyPair = await crypto.subtle.generateKey(
+    { name: 'ECDH', namedCurve: 'P-256' },
+    true, ['deriveKey']
+  );
+  const ephemeralPublicKeyJwk = await crypto.subtle.exportKey('jwk', ephemeralKeyPair.publicKey);
+  
+  // Derive shared key
+  const sharedKey = await crypto.subtle.deriveKey(
+    { name: 'ECDH', public: publicKey },
+    ephemeralKeyPair.privateKey,
+    { name: 'AES-GCM', length: 256 },
+    false, ['encrypt']
+  );
+  
+  // Encrypt
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encoder = new TextEncoder();
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    sharedKey,
+    encoder.encode(JSON.stringify(data))
+  );
+  
+  const providerName = data?.fhir?.Patient?.[0]?.managingOrganization?.display || 'Unknown Provider';
+  
+  return {
+    sessionId,
+    encrypted: true,
+    ephemeralPublicKey: ephemeralPublicKeyJwk,
+    iv: Array.from(iv),
+    ciphertext: Array.from(new Uint8Array(ciphertext)),
+    providerName
+  };
+};
+`;
+  
+  // Prepend encryption function
+  bundleCode = encryptionCode + bundleCode;
+  
+  // Replace the direct POST with encrypted POST
+  // Find: body: JSON.stringify(fetchedClientFullEhrObject)
+  // Replace with: body: JSON.stringify(await window.__healthSkillzEncrypt(fetchedClientFullEhrObject))
+  bundleCode = bundleCode.replace(
+    /body:\s*JSON\.stringify\(fetchedClientFullEhrObject\)/g,
+    'body: JSON.stringify(await window.__healthSkillzEncrypt(fetchedClientFullEhrObject))'
+  );
+  
+  writeFileSync(bundlePath, bundleCode);
+  console.log("Patched bundle with client-side encryption");
 
   console.log("\n✓ EHR connector build complete!");
   console.log(`Files in: ${staticDir}`);
