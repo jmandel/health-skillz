@@ -29,8 +29,8 @@ export default function ConnectPage() {
       try {
         const info = await getSessionInfo(sessionId);
         
-        // Store server's public key (Claude's key for E2E encryption)
-        // We don't need a local keypair - we encrypt TO Claude's public key
+        // Store server's public key (AI agent's key for E2E encryption)
+        // We don't need a local keypair - we encrypt TO the AI's public key
         store.setSession(sessionId, info.publicKey, info.publicKey); // publicKey twice since we only need it for encryption
         
         // Save to sessionStorage for OAuth redirect recovery
@@ -135,7 +135,7 @@ export default function ConnectPage() {
           <h1>🏥 Connect Your Health Records</h1>
           <StatusMessage
             status="success"
-            message="Success! Your health records have been sent. You can close this window and return to Claude."
+            message="Success! Your health records have been sent. You can close this window and return to your AI agent."
           />
         </div>
       </div>
@@ -156,7 +156,7 @@ export default function ConnectPage() {
             <p>
               Click the button below to securely connect to your healthcare provider's
               patient portal. You can connect multiple providers before sending your data
-              to Claude.
+              to your AI agent.
             </p>
             <button
               className="btn"
@@ -184,7 +184,7 @@ export default function ConnectPage() {
                 onClick={handleFinalize}
                 disabled={isWorking}
               >
-                ✅ Done - Send to Claude
+                ✅ Done - Send to AI
               </button>
             </div>
           </>
@@ -209,7 +209,7 @@ export default function ConnectPage() {
         <div className="security-info">
           <p>
             🔒 <strong>End-to-end encrypted</strong>: Your health data is encrypted in your
-            browser before transmission. Only Claude can decrypt it.
+            browser before transmission. Only your AI agent can decrypt it.
           </p>
         </div>
       </div>

@@ -2,9 +2,9 @@ export default function HomePage() {
   return (
     <>
       <div className="hero">
-        <h1>🏥 Health Record Assistant</h1>
+        <h1>🏥 Health Record Skill</h1>
         <p>
-          A Claude Skill for analyzing your personal health records using SMART on FHIR
+          A Skill for analyzing your personal health records using SMART on FHIR
         </p>
       </div>
 
@@ -12,7 +12,7 @@ export default function HomePage() {
         <div className="card">
           <h2>What is this?</h2>
           <p>
-            Health Record Assistant is a <strong>Claude Skill</strong> that enables Claude to
+            Health Record Skill is a <strong>Skill</strong> that enables your AI agent to
             securely fetch and analyze your electronic health records directly from your
             healthcare provider's patient portal (like Epic MyChart).
           </p>
@@ -28,7 +28,7 @@ export default function HomePage() {
             </div>
             <div className="feature">
               <h4>⚡ Easy Setup</h4>
-              <p>Install the skill, ask Claude to analyze your records. One-click connection.</p>
+              <p>Install the skill, ask your AI to analyze your records. One-click connection.</p>
             </div>
             <div className="feature">
               <h4>📝 Open Source</h4>
@@ -39,7 +39,7 @@ export default function HomePage() {
 
         <div className="card">
           <h2>Install the Skill</h2>
-          <p>Download and install the skill in Claude:</p>
+          <p>Download and install the skill:</p>
           <div style={{ margin: '24px 0' }}>
             <a href="/skill.zip" className="btn">
               📥 Download Skill (.zip)
@@ -49,19 +49,19 @@ export default function HomePage() {
             </a>
           </div>
           <p>
-            <strong>To install:</strong> Claude Settings → Capabilities → Skills → Upload .zip
+            <strong>To install:</strong> Settings → Capabilities → Skills → Upload .zip
           </p>
         </div>
 
         <div className="card">
           <h2>How It Works</h2>
-          <h3>1. Ask Claude</h3>
+          <h3>1. Ask Your AI</h3>
           <pre>
             <code>"Can you analyze my health records?"</code>
           </pre>
 
           <h3>2. Connect Your Records</h3>
-          <p>Claude provides a secure link. Click it, select your provider, sign in.</p>
+          <p>Your AI provides a secure link. Click it, select your provider, sign in.</p>
 
           <h3>3. Get Insights</h3>
           <ul>
@@ -76,15 +76,15 @@ export default function HomePage() {
         <div className="card">
           <h2>Architecture</h2>
           <div className="architecture">
-{`User asks Claude → Claude creates session → User clicks link
+{`User asks AI → AI creates session → User clicks link
     ↓
 User signs into patient portal (Epic MyChart, etc.)
     ↓
 SMART on FHIR fetches health data
     ↓
-Data sent to this server, Claude polls until ready
+Data sent to this server, AI polls until ready
     ↓
-Claude analyzes: labs, meds, conditions, notes`}
+AI analyzes: labs, meds, conditions, notes`}
           </div>
         </div>
 
