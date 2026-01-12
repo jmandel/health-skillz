@@ -6,3 +6,9 @@ skill/*.zip
 *.db
 *.db-journal
 .env
+
+# React build output
+dist/
+
+# Web dependencies
+web/node_modules/

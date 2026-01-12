@@ -335,32 +335,46 @@ const server = Bun.serve({
       }, { headers: corsHeaders });
     }
 
-    // Page: Connect wrapper
-    if (path.startsWith("/connect/")) {
-      const sessionId = path.replace("/connect/", "");
+    // API: Get session info (for React SPA)
+    if (path.startsWith("/api/session/") && req.method === "GET") {
+      const sessionId = path.replace("/api/session/", "");
       const row = db.query("SELECT status, public_key FROM sessions WHERE id = ?").get(sessionId) as any;
       
       if (!row) {
-        return new Response("Session not found or expired", { status: 404 });
+        return new Response("Session not found or expired", { status: 404, headers: corsHeaders });
       }
       
-      const html = renderTemplate("connect.html", {
-        SESSION_ID: sessionId,
-        BASE_URL: baseURL,
-        PUBLIC_KEY: row.public_key || '',
-      });
-      
-      return new Response(html, {
-        headers: { "Content-Type": "text/html" },
-      });
+      return Response.json({
+        sessionId,
+        publicKey: row.public_key ? JSON.parse(row.public_key) : null,
+        status: row.status,
+      }, { headers: corsHeaders });
     }
 
-    // Page: Home
-    if (path === "/") {
+    // SPA: Serve React app for / and /connect/*
+    if (path === "/" || path.startsWith("/connect/")) {
+      const spaPath = "./dist/index.html";
+      if (existsSync(spaPath)) {
+        return new Response(Bun.file(spaPath), {
+          headers: { "Content-Type": "text/html" },
+        });
+      }
+      // Fallback to templates if SPA not built
+      if (path.startsWith("/connect/")) {
+        const sessionId = path.replace("/connect/", "");
+        const row = db.query("SELECT status, public_key FROM sessions WHERE id = ?").get(sessionId) as any;
+        if (!row) {
+          return new Response("Session not found or expired", { status: 404 });
+        }
+        const html = renderTemplate("connect.html", {
+          SESSION_ID: sessionId,
+          BASE_URL: baseURL,
+          PUBLIC_KEY: row.public_key || '',
+        });
+        return new Response(html, { headers: { "Content-Type": "text/html" } });
+      }
       const html = renderTemplate("index.html", { BASE_URL: baseURL });
-      return new Response(html, {
-        headers: { "Content-Type": "text/html" },
-      });
+      return new Response(html, { headers: { "Content-Type": "text/html" } });
     }
 
     // Skill markdown (with placeholders filled in)
@@ -389,6 +403,14 @@ const server = Bun.serve({
     // Static files: /static/*
     if (path.startsWith("/static/")) {
       const filePath = "." + path;
+      if (existsSync(filePath)) {
+        return new Response(Bun.file(filePath));
+      }
+    }
+
+    // SPA assets (JS, CSS, etc. from dist/)
+    if (path.startsWith("/assets/")) {
+      const filePath = "./dist" + path;
       if (existsSync(filePath)) {
         return new Response(Bun.file(filePath));
       }

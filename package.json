@@ -5,11 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "bun run --watch src/server.ts",
+    "dev:web": "cd web && bun run dev",
     "start": "bun run src/server.ts",
+    "build:web": "cd web && bun run build",
     "build:brands": "bun run scripts/download-brands.ts",
     "build:connector": "bun run scripts/build-connector.ts",
     "build:skill": "bun run scripts/package-skill.ts",
-    "setup": "bun run build:brands && bun run build:connector && bun run build:skill"
+    "setup": "bun run build:brands && bun run build:connector && bun run build:skill && bun run build:web"
   },
   "dependencies": {},
   "devDependencies": {
