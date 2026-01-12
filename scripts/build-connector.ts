@@ -74,6 +74,26 @@ async function main() {
     }
   }
 
+  // Create OAuth callback handler
+  const callbackHtml = `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Completing authorization...</title>
+</head>
+<body>
+    <p>Completing authorization...</p>
+    <script>
+        // Pass the OAuth callback params to ehretriever.html
+        const params = window.location.search;
+        const newUrl = window.location.origin + '/ehr-connect/ehretriever.html' + params + window.location.hash;
+        window.location.replace(newUrl);
+    </script>
+</body>
+</html>`;
+  writeFileSync(join(staticDir, "callback.html"), callbackHtml);
+  console.log("Created callback.html for OAuth redirect");
+
   console.log("\n✓ EHR connector build complete!");
   console.log(`Files in: ${staticDir}`);
 }

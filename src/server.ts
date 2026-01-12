@@ -348,7 +348,11 @@ const server = Bun.serve({
 
     // EHR connector files: /ehr-connect/*
     if (path.startsWith("/ehr-connect/")) {
-      const filePath = "./static" + path;
+      // Handle /ehr-connect/callback -> callback.html (OAuth redirect)
+      let filePath = "./static" + path;
+      if (path === "/ehr-connect/callback") {
+        filePath = "./static/ehr-connect/callback.html";
+      }
       if (existsSync(filePath)) {
         return new Response(Bun.file(filePath));
       }
