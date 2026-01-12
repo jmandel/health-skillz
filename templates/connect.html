@@ -37,12 +37,19 @@
             cursor: pointer;
             border: none;
             transition: transform 0.2s, box-shadow 0.2s;
+            margin: 8px;
         }
         .button:hover:not(:disabled) {
             transform: translateY(-2px);
             box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
         }
         .button:disabled { opacity: 0.6; cursor: not-allowed; }
+        .button.secondary {
+            background: #6c757d;
+        }
+        .button.success {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+        }
         .status {
             margin-top: 24px;
             padding: 16px;
@@ -52,6 +59,7 @@
         .status.loading { display: block; background: #e3f2fd; color: #1565c0; }
         .status.success { display: block; background: #e8f5e9; color: #2e7d32; }
         .status.error { display: block; background: #ffebee; color: #c62828; }
+        .status.info { display: block; background: #fff3e0; color: #e65100; }
         .spinner {
             display: inline-block;
             width: 20px; height: 20px;
@@ -64,19 +72,83 @@
         }
         @keyframes spin { to { transform: rotate(360deg); } }
         .info { margin-top: 24px; font-size: 14px; color: #888; }
+        
+        /* Connected providers list */
+        .providers-list {
+            margin: 20px 0;
+            padding: 0;
+            list-style: none;
+        }
+        .providers-list li {
+            background: #f0f4f8;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .providers-list .provider-name {
+            font-weight: 600;
+            color: #333;
+        }
+        .providers-list .provider-time {
+            font-size: 12px;
+            color: #888;
+        }
+        .providers-list .check {
+            color: #28a745;
+            font-size: 20px;
+        }
+        
+        .button-group {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-top: 20px;
+        }
+        
+        .hidden { display: none !important; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🏥 Connect Your Health Records</h1>
-        <p>
-            Click the button below to securely connect to your healthcare provider's patient portal.
-            Your health data will be fetched and made available for analysis.
-        </p>
         
-        <button id="connectBtn" class="button" onclick="openConnector()">
-            Connect to My Health Records
-        </button>
+        <!-- Initial state -->
+        <div id="initial-view">
+            <p>
+                Click the button below to securely connect to your healthcare provider's patient portal.
+                You can connect multiple providers before sending your data to Claude.
+            </p>
+            
+            <button id="connectBtn" class="button" onclick="openConnector()">
+                Connect to a Health Provider
+            </button>
+        </div>
+        
+        <!-- After connecting at least one provider -->
+        <div id="connected-view" class="hidden">
+            <p>Connected providers:</p>
+            <ul id="providers-list" class="providers-list"></ul>
+            
+            <div class="button-group">
+                <button id="addMoreBtn" class="button secondary" onclick="openConnector()">
+                    ➕ Add Another Provider
+                </button>
+                <button id="doneBtn" class="button success" onclick="finalizeSession()">
+                    ✅ Done - Send to Claude
+                </button>
+            </div>
+        </div>
+        
+        <!-- Final success state -->
+        <div id="final-view" class="hidden">
+            <div class="status success" style="display: block;">
+                ✅ Success! Your health records have been sent.<br><br>
+                You can close this window and return to Claude.
+            </div>
+        </div>
         
         <div id="status" class="status"></div>
         
@@ -91,9 +163,44 @@
         const EHR_CONNECT_URL = CURRENT_ORIGIN + '/ehr-connect/ehretriever.html';
         
         let connectorWindow = null;
+        let connectedProviders = [];
+        
+        function updateUI() {
+            const initialView = document.getElementById('initial-view');
+            const connectedView = document.getElementById('connected-view');
+            const providersList = document.getElementById('providers-list');
+            
+            if (connectedProviders.length > 0) {
+                initialView.classList.add('hidden');
+                connectedView.classList.remove('hidden');
+                
+                providersList.innerHTML = connectedProviders.map(p => `
+                    <li>
+                        <div>
+                            <div class="provider-name">${escapeHtml(p.name)}</div>
+                            <div class="provider-time">Connected ${formatTime(p.connectedAt)}</div>
+                        </div>
+                        <span class="check">✓</span>
+                    </li>
+                `).join('');
+            } else {
+                initialView.classList.remove('hidden');
+                connectedView.classList.add('hidden');
+            }
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function formatTime(isoString) {
+            const date = new Date(isoString);
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
         
         function openConnector() {
-            const btn = document.getElementById('connectBtn');
             const status = document.getElementById('status');
             
             const connectorUrl = EHR_CONNECT_URL + '#deliver-to-opener:' + encodeURIComponent(CURRENT_ORIGIN);
@@ -105,17 +212,68 @@
                 return;
             }
             
-            btn.disabled = true;
-            btn.textContent = 'Waiting for connection...';
+            // Disable buttons while connecting
+            document.getElementById('connectBtn').disabled = true;
+            document.getElementById('addMoreBtn')?.setAttribute('disabled', 'true');
+            document.getElementById('doneBtn')?.setAttribute('disabled', 'true');
+            
             status.className = 'status loading';
             status.innerHTML = '<span class="spinner"></span> Complete sign-in in the popup window...';
+        }
+        
+        function resetButtons() {
+            document.getElementById('connectBtn').disabled = false;
+            document.getElementById('addMoreBtn')?.removeAttribute('disabled');
+            document.getElementById('doneBtn')?.removeAttribute('disabled');
+        }
+        
+        async function finalizeSession() {
+            const status = document.getElementById('status');
+            const doneBtn = document.getElementById('doneBtn');
+            
+            doneBtn.disabled = true;
+            doneBtn.textContent = 'Sending...';
+            status.className = 'status loading';
+            status.innerHTML = '<span class="spinner"></span> Finalizing session...';
+            
+            try {
+                const response = await fetch('/api/finalize/' + SESSION_ID, {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    const text = await response.text();
+                    throw new Error(text || 'Server returned ' + response.status);
+                }
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Show final success view
+                    document.getElementById('initial-view').classList.add('hidden');
+                    document.getElementById('connected-view').classList.add('hidden');
+                    document.getElementById('final-view').classList.remove('hidden');
+                    status.className = 'status';
+                    status.innerHTML = '';
+                    
+                    if (connectorWindow && !connectorWindow.closed) {
+                        connectorWindow.close();
+                    }
+                } else {
+                    throw new Error(result.error || 'Unknown error');
+                }
+            } catch (err) {
+                status.className = 'status error';
+                status.innerHTML = '❌ Error: ' + err.message;
+                doneBtn.disabled = false;
+                doneBtn.textContent = '✅ Done - Send to Claude';
+            }
         }
         
         window.addEventListener('message', async function(event) {
             if (event.origin !== CURRENT_ORIGIN) return;
             
             const status = document.getElementById('status');
-            const btn = document.getElementById('connectBtn');
             
             if (event.data && event.data.fhir) {
                 status.className = 'status loading';
@@ -128,39 +286,55 @@
                         body: JSON.stringify(event.data)
                     });
                     
-                    if (!response.ok) throw new Error('Server returned ' + response.status);
+                    if (!response.ok) {
+                        const text = await response.text();
+                        throw new Error(text || 'Server returned ' + response.status);
+                    }
+                    
                     const result = await response.json();
                     
                     if (result.success) {
-                        status.className = 'status success';
-                        status.innerHTML = '✅ Success! Your health records have been received.<br><br>You can close this window and return to Claude.';
-                        btn.style.display = 'none';
-                        if (connectorWindow && !connectorWindow.closed) connectorWindow.close();
+                        // Add to connected providers list
+                        connectedProviders.push({
+                            name: result.providerName || 'Provider ' + result.providerCount,
+                            connectedAt: new Date().toISOString()
+                        });
+                        
+                        updateUI();
+                        resetButtons();
+                        
+                        status.className = 'status info';
+                        status.innerHTML = '✓ Provider connected! Add more providers or click "Done" when ready.';
+                        
+                        if (connectorWindow && !connectorWindow.closed) {
+                            connectorWindow.close();
+                        }
                     } else {
                         throw new Error(result.error || 'Unknown error');
                     }
                 } catch (err) {
                     status.className = 'status error';
                     status.innerHTML = '❌ Error: ' + err.message;
-                    btn.disabled = false;
-                    btn.textContent = 'Connect to My Health Records';
+                    resetButtons();
                 }
             }
         });
         
+        // Check for closed popup
         setInterval(function() {
             if (connectorWindow && connectorWindow.closed) {
                 const status = document.getElementById('status');
-                const btn = document.getElementById('connectBtn');
-                if (!status.classList.contains('success') && status.classList.contains('loading')) {
+                if (status.classList.contains('loading')) {
                     status.className = 'status error';
-                    status.innerHTML = 'Window closed. Click the button to try again.';
-                    btn.disabled = false;
-                    btn.textContent = 'Connect to My Health Records';
+                    status.innerHTML = 'Window closed. Click to try again.';
+                    resetButtons();
                 }
                 connectorWindow = null;
             }
         }, 1000);
+        
+        // Initialize UI
+        updateUI();
     </script>
 </body>
 </html>
