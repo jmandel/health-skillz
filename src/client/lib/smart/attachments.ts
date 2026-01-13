@@ -8,8 +8,7 @@ export interface ProcessedAttachment {
   contentBase64: string | null;
 }
 
-const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB
-const MAX_ATTACHMENTS = 50;
+// No artificial limits - fetch all attachments regardless of size
 
 export type AttachmentProgressCallback = (completed: number, total: number) => void;
 
@@ -41,9 +40,7 @@ export async function extractAttachments(
       seen.add(key);
       
       toProcess.push({ node, resourceType, resourceId });
-      if (toProcess.length >= MAX_ATTACHMENTS) break;
     }
-    if (toProcess.length >= MAX_ATTACHMENTS) break;
   }
 
   const total = toProcess.length;
@@ -143,18 +140,7 @@ async function fetchAndProcessAttachment(
     return null;
   }
 
-  // Check size
-  const contentLength = response.headers.get('content-length');
-  if (contentLength && parseInt(contentLength) > MAX_ATTACHMENT_SIZE) {
-    console.warn(`Attachment too large: ${contentLength} bytes`);
-    return null;
-  }
-
   const blob = await response.blob();
-  if (blob.size > MAX_ATTACHMENT_SIZE) {
-    console.warn(`Attachment too large: ${blob.size} bytes`);
-    return null;
-  }
 
   // Convert to base64
   const base64 = await blobToBase64(blob);

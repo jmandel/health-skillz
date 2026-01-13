@@ -18,6 +18,28 @@ Fetch and analyze electronic health records from patient portals using SMART on 
 - User wants to identify care gaps or preventive care needs
 - User wants summaries of visits or clinical notes
 
+## Analysis Philosophy
+
+**Unless the user specifically asks for a live app or artifact**, you should:
+
+1. **Download data into your computational environment** and analyze it manually
+2. **Inspect structured data** by writing and running code to process FHIR resources
+3. **Read clinical notes in full** where relevant - grep through attachments, identify important notes, read them completely
+4. **Use your judgment** to evaluate what's clinically significant, iterate on your analysis, and refine your understanding
+5. **Synthesize thoughtful answers** based on your exploration of the data
+
+This approach is important because:
+- You can see intermediate results, catch errors, and improve your analysis
+- You can apply clinical reasoning as you explore, not just execute blind code
+- You can identify which notes are worth reading fully vs. skimming
+- Complex health questions often require iterative investigation
+
+**If the user wants a live artifact/app**, pre-processing is still valuable:
+- Do your exploratory analysis first
+- Identify the key data points and insights
+- Then build the artifact with pre-processed results or focused queries
+- This avoids shipping analysis code you can't see or debug
+
 ## How to Connect
 
 Helper scripts are provided in `scripts/` to simplify the workflow.
@@ -108,11 +130,11 @@ interface ProviderData {
 }
 
 interface Attachment {
-  resourceType: string;
-  resourceId: string;
-  contentType: string;
-  contentPlaintext: string;
-  contentBase64?: string;
+  resourceType: string;      // "DocumentReference" or "DiagnosticReport"
+  resourceId: string;        // FHIR resource ID this attachment came from
+  contentType: string;       // MIME type: "text/html", "text/rtf", "application/xml", etc.
+  contentPlaintext: string | null;  // Extracted plain text (for text formats)
+  contentBase64: string | null;     // Raw content, base64 encoded
 }
 ```
 
@@ -184,6 +206,21 @@ const conditions = data.fhir.Condition
     onsetDate: c.onsetDateTime
   }));
 ```
+
+### Understanding Attachments
+
+The `attachments` array contains clinical documents extracted from `DocumentReference` and `DiagnosticReport` resources. Each attachment has:
+
+- **`contentPlaintext`**: Extracted readable text (for HTML, RTF, XML, plain text formats)
+- **`contentBase64`**: Raw file content, base64 encoded (always present)
+- **`contentType`**: MIME type like `text/html`, `text/rtf`, `application/xml`
+
+Common patterns from Epic:
+- Most DocumentReferences have 2 attachments: one `text/html` and one `text/rtf` (same content, different formats)
+- RTF files contain Epic-specific markup that gets stripped during plaintext extraction
+- All attachments are fetched (no artificial limits)
+
+For analysis, use `contentPlaintext` - it's clean and searchable. The `contentBase64` is available if you need the original format.
 
 ### Example: Search Clinical Notes
 

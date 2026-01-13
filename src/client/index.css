@@ -91,6 +91,18 @@ body {
   background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
 }
 
+.btn-link {
+  background: transparent;
+  color: #667;
+  font-size: 0.9em;
+  padding: 8px 16px;
+}
+
+.btn-link:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #445;
+}
+
 /* Code */
 code {
   background: #f1f3f4;

@@ -42,11 +42,11 @@ export default function ConnectPage() {
         // Initialize empty providers list (tracked locally, not on server)
         store.setProviders([]);
         
-        // Save to sessionStorage
+        // Save to sessionStorage (metadata only, large data goes to IndexedDB)
         saveSession({
           sessionId,
           publicKeyJwk: info.publicKey,
-          providers: [],
+          providerSummaries: [],
         });
         
         store.setStatus('idle');
@@ -61,11 +61,11 @@ export default function ConnectPage() {
   const startConnect = useCallback(() => {
     if (!sessionId || !store.publicKeyJwk) return;
     
-    // Save state before redirect
+    // Save state before redirect (metadata only)
     saveSession({
       sessionId,
       publicKeyJwk: store.publicKeyJwk,
-      providers: store.providers,
+      providerSummaries: store.providers.map(p => ({ name: p.name, connectedAt: p.connectedAt })),
     });
     
     // Navigate to provider selection page
@@ -86,8 +86,8 @@ export default function ConnectPage() {
     }
   }, [sessionId]);
 
-  const handleDownload = useCallback(() => {
-    const data = getFullData();
+  const handleDownload = useCallback(async () => {
+    const data = await getFullData();
     if (!data) return;
     
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -136,16 +136,8 @@ export default function ConnectPage() {
             status="success"
             message="Success! Your health records have been sent to your AI agent."
           />
-          <div className="button-group" style={{ marginTop: '24px' }}>
-            <button className="btn btn-secondary" onClick={handleDownload}>
-              📥 Download My Records (JSON)
-            </button>
-            <button className="btn" onClick={handleClose}>
-              Close Window
-            </button>
-          </div>
-          <p className="security-info" style={{ marginTop: '16px' }}>
-            💡 The download contains your raw FHIR health data for your own records.
+          <p style={{ marginTop: '24px', color: '#666' }}>
+            You can close this window and return to your AI.
           </p>
         </div>
       </div>
@@ -197,6 +189,14 @@ export default function ConnectPage() {
                 ✅ Done - Send to AI
               </button>
             </div>
+            <button
+              className="btn btn-link"
+              onClick={handleDownload}
+              disabled={isWorking}
+              style={{ marginTop: '8px' }}
+            >
+              📥 Download My Records (JSON)
+            </button>
           </>
         )}
 

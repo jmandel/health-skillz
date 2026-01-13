@@ -78,9 +78,15 @@ export default function OAuthCallbackPage() {
           tokenResponse.access_token,
           patientId,
           (completed, total, current) => {
-            if (current.includes('attachments')) {
+            // current is either a resource type name (during resource fetch),
+            // "X/Y" format (during attachment fetch), or "Complete"
+            if (current === 'Complete') {
+              setProgress(p => ({ ...p, resources: `${total}/${total}`, attachments: 'done' }));
+            } else if (current.includes('/')) {
+              // Attachment progress: "0/50", "1/50", etc.
               setProgress(p => ({ ...p, resources: `${total}/${total}`, attachments: current }));
-            } else if (current !== 'Complete') {
+            } else {
+              // Resource fetch progress
               setProgress(p => ({ ...p, resources: `${completed}/${total}` }));
             }
           }
@@ -105,7 +111,7 @@ export default function OAuthCallbackPage() {
         setStatus('sending');
         await sendEncryptedEhrData(sessionId, encrypted);
 
-        addProviderData(sessionId, {
+        await addProviderData(sessionId, {
           name: oauth.providerName,
           fhirBaseUrl: oauth.fhirBaseUrl,
           connectedAt,

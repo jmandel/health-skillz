@@ -37,7 +37,7 @@ const RESOURCE_QUERIES = [
   { resourceType: 'Goal', params: {} },
 ];
 
-const MAX_PAGES_PER_RESOURCE = 10;
+// No page limits - follow all pagination links to get complete data
 const REQUEST_TIMEOUT_MS = 30000;
 const MAX_CONCURRENT_REQUESTS = 5;
 
@@ -75,8 +75,8 @@ export async function fetchPatientData(
       }
       const url = `${base}/${resourceType}?${searchParams}`;
 
-      // Fetch with pagination
-      const resources = await fetchWithPagination(url, accessToken, MAX_PAGES_PER_RESOURCE);
+      // Fetch with pagination - follow all pages
+      const resources = await fetchWithPagination(url, accessToken);
 
       // Store resources
       if (!result.fhir[resourceType]) {
@@ -116,18 +116,16 @@ export async function fetchPatientData(
 }
 
 /**
- * Fetch a FHIR search with pagination.
+ * Fetch a FHIR search with pagination - follows all pages.
  */
 async function fetchWithPagination(
   initialUrl: string,
-  accessToken: string,
-  maxPages: number
+  accessToken: string
 ): Promise<any[]> {
   const resources: any[] = [];
   let url: string | null = initialUrl;
-  let page = 0;
 
-  while (url && page < maxPages) {
+  while (url) {
     const response = await fetchWithTimeout(url, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -156,7 +154,6 @@ async function fetchWithPagination(
 
     // Find next page link
     url = bundle.link?.find((l) => l.relation === 'next')?.url || null;
-    page++;
   }
 
   return resources;
