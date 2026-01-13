@@ -2,29 +2,45 @@
 
 ## Data Structure
 
+The decrypted data contains an array of providers (one per connected health system):
+
 ```javascript
 {
-  "fhir": {
-    "Patient": [...],
-    "Condition": [...],
-    "MedicationRequest": [...],
-    "Observation": [...],
-    // more resource types...
-  },
-  "attachments": [
+  "providers": [
     {
-      "resourceType": "DocumentReference",
-      "contentPlaintext": "extracted clinical note text..."
+      "name": "UnityPoint Health",
+      "fhirBaseUrl": "https://epicfhir.unitypoint.org/.../R4",
+      "connectedAt": "2026-01-13T02:43:20.009Z",
+      "fhir": {
+        "Patient": [...],
+        "Condition": [...],
+        "MedicationRequest": [...],
+        "Observation": [...],
+        "DocumentReference": [...],
+        // more resource types...
+      },
+      "attachments": [
+        {
+          "resourceType": "DocumentReference",
+          "resourceId": "abc123",
+          "contentType": "text/html",
+          "contentPlaintext": "extracted clinical note text...",
+          "contentBase64": "PGh0bWw+Li4uPC9odG1sPg=="
+        }
+      ]
     }
   ]
 }
 ```
 
+For single-provider queries, use `data.providers[0]`. For multi-provider, iterate over all.
+
 ## Key Resource Types
 
 ### Patient
 ```javascript
-const patient = data.fhir.Patient[0];
+const provider = data.providers[0];
+const patient = provider.fhir.Patient[0];
 const name = `${patient.name?.[0]?.given?.join(' ')} ${patient.name?.[0]?.family}`;
 const dob = patient.birthDate;
 const age = new Date().getFullYear() - new Date(dob).getFullYear();
@@ -32,7 +48,7 @@ const age = new Date().getFullYear() - new Date(dob).getFullYear();
 
 ### Condition (Diagnoses)
 ```javascript
-const activeConditions = data.fhir.Condition
+const activeConditions = provider.fhir.Condition
   ?.filter(c => c.clinicalStatus?.coding?.[0]?.code === 'active')
   .map(c => ({
     name: c.code?.coding?.[0]?.display,
@@ -44,7 +60,7 @@ Status values: `active`, `inactive`, `resolved`, `remission`
 
 ### MedicationRequest
 ```javascript
-const meds = data.fhir.MedicationRequest?.map(m => ({
+const meds = provider.fhir.MedicationRequest?.map(m => ({
   name: m.medicationCodeableConcept?.coding?.[0]?.display,
   status: m.status, // active, completed, stopped
   dosage: m.dosageInstruction?.[0]?.text,
@@ -54,8 +70,8 @@ const meds = data.fhir.MedicationRequest?.map(m => ({
 
 ### Observation (Labs, Vitals)
 ```javascript
-function getObservations(data, loincCode) {
-  return data.fhir.Observation?.filter(obs =>
+function getObservations(provider, loincCode) {
+  return provider.fhir.Observation?.filter(obs =>
     obs.code?.coding?.some(c => c.code === loincCode)
   ).map(obs => ({
     value: obs.valueQuantity?.value ?? obs.valueString,
@@ -72,7 +88,7 @@ Interpretation codes: `H` (high), `L` (low), `N` (normal), `HH`/`LL` (critical)
 
 ### Procedure
 ```javascript
-const procedures = data.fhir.Procedure?.map(p => ({
+const procedures = provider.fhir.Procedure?.map(p => ({
   name: p.code?.coding?.[0]?.display,
   date: p.performedDateTime,
   status: p.status
@@ -81,7 +97,7 @@ const procedures = data.fhir.Procedure?.map(p => ({
 
 ### Immunization
 ```javascript
-const vaccines = data.fhir.Immunization?.map(i => ({
+const vaccines = provider.fhir.Immunization?.map(i => ({
   name: i.vaccineCode?.coding?.[0]?.display,
   date: i.occurrenceDateTime
 }));
@@ -89,7 +105,7 @@ const vaccines = data.fhir.Immunization?.map(i => ({
 
 ### AllergyIntolerance
 ```javascript
-const allergies = data.fhir.AllergyIntolerance?.map(a => ({
+const allergies = provider.fhir.AllergyIntolerance?.map(a => ({
   substance: a.code?.coding?.[0]?.display,
   reaction: a.reaction?.[0]?.manifestation?.[0]?.coding?.[0]?.display,
   severity: a.reaction?.[0]?.severity
@@ -98,7 +114,7 @@ const allergies = data.fhir.AllergyIntolerance?.map(a => ({
 
 ### Encounter (Visits)
 ```javascript
-const visits = data.fhir.Encounter?.map(e => ({
+const visits = provider.fhir.Encounter?.map(e => ({
   type: e.type?.[0]?.coding?.[0]?.display,
   date: e.period?.start,
   reason: e.reasonCode?.[0]?.coding?.[0]?.display
@@ -136,10 +152,10 @@ const visits = data.fhir.Encounter?.map(e => ({
 ## Searching Clinical Notes
 
 ```javascript
-function searchNotes(data, terms) {
+function searchNotes(provider, terms) {
   const termList = Array.isArray(terms) ? terms : [terms];
   
-  return data.attachments?.filter(att => {
+  return provider.attachments?.filter(att => {
     const text = (att.contentPlaintext || '').toLowerCase();
     return termList.some(t => text.includes(t.toLowerCase()));
   }).map(att => {
@@ -161,7 +177,7 @@ function searchNotes(data, terms) {
 }
 
 // Example: Find diabetes-related notes
-const notes = searchNotes(data, ['diabetes', 'a1c', 'metformin', 'glucose']);
+const notes = searchNotes(provider, ['diabetes', 'a1c', 'metformin', 'glucose']);
 ```
 
 ## Trend Analysis
@@ -179,15 +195,15 @@ function analyzeTrend(values) {
 }
 
 // Example
-const a1cValues = getObservations(data, '4548-4');
+const a1cValues = getObservations(provider, '4548-4');
 console.log('A1c trend:', analyzeTrend(a1cValues));
 ```
 
 ## Finding Abnormal Results
 
 ```javascript
-function findAbnormalLabs(data) {
-  return data.fhir.Observation?.filter(obs => {
+function findAbnormalLabs(provider) {
+  return provider.fhir.Observation?.filter(obs => {
     const code = obs.interpretation?.[0]?.coding?.[0]?.code;
     return ['H', 'L', 'HH', 'LL', 'A'].includes(code);
   }).map(obs => ({
