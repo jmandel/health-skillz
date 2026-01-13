@@ -98,18 +98,19 @@ export async function fetchPatientData(
   await Promise.all(queryPromises);
 
   // Extract attachments from DocumentReference and DiagnosticReport
-  onProgress?.(completedQueries, totalQueries + 1, 'Attachments');
-  
   const docRefs = result.fhir['DocumentReference'] || [];
   const diagReports = result.fhir['DiagnosticReport'] || [];
   
   result.attachments = await extractAttachments(
     [...docRefs, ...diagReports],
     base,
-    accessToken
+    accessToken,
+    (completed, total) => {
+      onProgress?.(completedQueries, totalQueries, `Attachments (${completed}/${total})`);
+    }
   );
 
-  onProgress?.(totalQueries + 1, totalQueries + 1, 'Complete');
+  onProgress?.(totalQueries, totalQueries, 'Complete');
 
   return result;
 }

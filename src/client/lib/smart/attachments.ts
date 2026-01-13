@@ -11,52 +11,64 @@ export interface ProcessedAttachment {
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB
 const MAX_ATTACHMENTS = 50;
 
+export type AttachmentProgressCallback = (completed: number, total: number) => void;
+
 /**
  * Extract and process attachments from DocumentReference and DiagnosticReport resources.
  */
 export async function extractAttachments(
   resources: any[],
   fhirBaseUrl: string,
-  accessToken: string
+  accessToken: string,
+  onProgress?: AttachmentProgressCallback
 ): Promise<ProcessedAttachment[]> {
   const attachments: ProcessedAttachment[] = [];
   const seen = new Set<string>();
 
+  // First pass: count total attachments to process
+  const toProcess: Array<{ node: any; resourceType: string; resourceId: string }> = [];
   for (const resource of resources) {
-    if (attachments.length >= MAX_ATTACHMENTS) break;
-
     const resourceType = resource.resourceType;
     const resourceId = resource.id;
-
-    // Find attachment URLs
-    const attachmentNodes = findAttachmentNodes(resource);
-
-    for (const node of attachmentNodes) {
-      if (attachments.length >= MAX_ATTACHMENTS) break;
-
-      const url = node.url;
+    const nodes = findAttachmentNodes(resource);
+    
+    for (const node of nodes) {
+      const url = node.url || (node.data ? `inline:${resourceId}` : null);
       if (!url) continue;
-
-      // Skip duplicates
+      
       const key = `${resourceType}/${resourceId}/${url}`;
       if (seen.has(key)) continue;
       seen.add(key);
-
-      try {
-        const processed = await fetchAndProcessAttachment(
-          node,
-          resourceType,
-          resourceId,
-          fhirBaseUrl,
-          accessToken
-        );
-        if (processed) {
-          attachments.push(processed);
-        }
-      } catch (err) {
-        console.warn(`Failed to process attachment ${url}:`, err);
-      }
+      
+      toProcess.push({ node, resourceType, resourceId });
+      if (toProcess.length >= MAX_ATTACHMENTS) break;
     }
+    if (toProcess.length >= MAX_ATTACHMENTS) break;
+  }
+
+  const total = toProcess.length;
+  onProgress?.(0, total);
+
+  // Second pass: fetch and process
+  for (let i = 0; i < toProcess.length; i++) {
+    const { node, resourceType, resourceId } = toProcess[i];
+    
+    try {
+      const processed = await fetchAndProcessAttachment(
+        node,
+        resourceType,
+        resourceId,
+        fhirBaseUrl,
+        accessToken
+      );
+      if (processed) {
+        attachments.push(processed);
+      }
+    } catch (err) {
+      console.warn(`Failed to process attachment:`, err);
+    }
+    
+    onProgress?.(i + 1, total);
   }
 
   return attachments;
