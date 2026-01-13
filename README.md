@@ -20,6 +20,7 @@ Claude will create a secure session and give you a link to connect your patient 
 
 - **Full data sync**: Pulls all your FHIR resources—labs, meds, conditions, procedures, immunizations, encounters
 - **Clinical notes**: Extracts full text from visit notes, discharge summaries, and other documents
+- **Multi-provider**: Connect multiple health systems in one session for comprehensive analysis
 - **End-to-end encrypted**: Data is encrypted in your browser before transmission; only Claude can decrypt it
 - **Download your data**: Get a complete JSON export of your records
 
@@ -105,31 +106,47 @@ Epic sandbox apps are approved instantly. Production apps require a brief review
 ```
 health-skillz/
 ├── src/
-│   ├── server.ts         # Bun server with API routes
-│   └── client/           # React frontend
-│       ├── pages/        # Route components  
-│       ├── lib/          # SMART OAuth, FHIR client, crypto
-│       └── store/        # Zustand state
+│   ├── server.ts           # Bun server with API routes
+│   ├── index.html          # HTML entry point
+│   └── client/             # React frontend
+│       ├── App.tsx         # React Router setup
+│       ├── pages/          # HomePage, ConnectPage, ProviderSelectPage, OAuthCallbackPage
+│       ├── components/     # ProviderSearch, ProviderCard, StatusMessage
+│       ├── lib/            # SMART OAuth, FHIR client, crypto, storage
+│       └── store/          # Zustand state management
 ├── scripts/
-│   ├── download-brands.ts    # Fetch Epic endpoint directory
-│   └── package-skill.ts      # Package Claude skill
+│   ├── download-brands.ts  # Fetch Epic endpoint directory
+│   └── package-skill.ts    # Package Claude skill zip
 ├── skill/
 │   └── health-record-assistant/
-│       ├── SKILL.md          # Claude skill instructions
-│       ├── scripts/          # create-session.ts, finalize-session.ts
-│       └── references/       # FHIR-GUIDE.md
-└── config.json
+│       ├── SKILL.md            # Claude skill instructions
+│       ├── scripts/            # create-session.ts, finalize-session.ts
+│       └── references/         # FHIR-GUIDE.md
+├── static/brands/          # Epic endpoint directory JSON
+└── config.json             # Server + SMART client configuration
 ```
 
 ### API Endpoints
 
+**Called by Claude (skill scripts):**
+
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/session` | POST | Create session (requires ECDH publicKey) |
-| `/api/session/{id}` | GET | Get session info + vendor config |
+| `/api/session` | POST | Create session (sends ECDH public key) |
 | `/api/poll/{id}` | GET | Long-poll for encrypted health data |
-| `/api/receive-ehr` | POST | Receive encrypted EHR data from browser |
-| `/api/finalize/{id}` | POST | Mark session complete |
+
+**Called by Browser (React app):**
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/session/{id}` | GET | Get session info + vendor config + public key |
+| `/api/receive-ehr` | POST | Send encrypted EHR data to server |
+| `/api/finalize/{id}` | POST | Mark session complete (user clicked "Done") |
+
+**Other:**
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
 | `/skill.zip` | GET | Download packaged Claude skill |
 
 ### Architecture

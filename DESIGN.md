@@ -12,16 +12,19 @@ Health Skillz is a **Claude Skill** that enables Claude to securely fetch and an
 
 2. **Secure, standards-based access** - Use SMART on FHIR, the same OAuth-based standard that powers patient-facing health apps, ensuring proper authorization
 
-3. **Rich analysis capabilities** - Provide Claude with both structured FHIR data (labs, meds, conditions) and unstructured clinical notes for comprehensive analysis
+3. **End-to-end encryption** - Health data is encrypted in the user's browser before transmission; only Claude can decrypt it. The server never sees plaintext health data.
 
-4. **Simple user experience** - One-click connection flow: user clicks a link, signs into their patient portal, done
+4. **Rich analysis capabilities** - Provide Claude with both structured FHIR data (labs, meds, conditions) and unstructured clinical notes for comprehensive analysis
 
-### Non-Goals (for MVP)
+5. **Multi-provider support** - Users can connect multiple healthcare providers in a single session for cross-provider analysis
 
-- ~~End-to-end encryption~~ **Now implemented!**
+6. **Simple user experience** - One-click connection flow: user clicks a link, signs into their patient portal, done
+
+### Non-Goals
+
 - Long-term data storage (sessions expire after 1 hour)
-- ~~Multi-provider aggregation~~ **Now implemented!**
 - Direct EHR write-back
+- Server-side data processing (all analysis happens in Claude)
 
 ## Architecture
 
@@ -29,57 +32,60 @@ Health Skillz is a **Claude Skill** that enables Claude to securely fetch and an
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              CLAUDE WEB UI                                   │
+│                              CLAUDE DESKTOP / WEB                            │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
 │  │  Claude with Health Record Assistant Skill                          │   │
-│  │  - Creates session via API                                          │   │
+│  │  - Generates ECDH keypair (keeps private key)                       │   │
+│  │  - Creates session via API (sends public key)                       │   │
 │  │  - Shows user connection link                                       │   │
-│  │  - Polls until data ready                                           │   │
-│  │  - Analyzes FHIR data with JavaScript                               │   │
+│  │  - Polls until encrypted data ready                                 │   │
+│  │  - Decrypts and analyzes FHIR data                                  │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 └──────────────────────────────────┬──────────────────────────────────────────┘
                                    │
                     ┌──────────────┴──────────────┐
-                    │     1. POST /api/session    │
-                    │     4. GET /api/poll/:id    │
+                    │  1. POST /api/session       │
+                    │     (with ECDH public key)  │
+                    │  5. GET /api/poll/:id       │
+                    │     (receives ciphertext)   │
                     ▼                             │
 ┌─────────────────────────────────────────────────┴───────────────────────────┐
-│                        HEALTH-SKILLZ.EXE.XYZ                                │
+│                         HEALTH-SKILLZ SERVER                                │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │  Bun Server (src/server.ts)                                         │   │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                 │   │
-│  │  │ /api/session│  │ /api/poll/* │  │ /api/data/* │                 │   │
-│  │  │   (create)  │  │   (poll)    │  │  (receive)  │                 │   │
-│  │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘                 │   │
-│  │         │                │                │                         │   │
-│  │         └────────────────┼────────────────┘                         │   │
-│  │                          ▼                                          │   │
-│  │                 ┌─────────────────┐                                 │   │
-│  │                 │  SQLite DB      │                                 │   │
-│  │                 │  - sessions     │                                 │   │
-│  │                 │  - health data  │                                 │   │
-│  │                 └─────────────────┘                                 │   │
+│  │  Bun Server (src/server.ts) + React SPA (src/client/)               │   │
+│  │                                                                      │   │
+│  │  API Endpoints:                                                      │   │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌───────────────┐                │   │
+│  │  │POST /api/   │  │GET /api/    │  │POST /api/     │                │   │
+│  │  │  session    │  │  poll/:id   │  │  receive-ehr  │                │   │
+│  │  │  (create)   │  │  (poll)     │  │  (encrypted)  │                │   │
+│  │  └──────┬──────┘  └──────┬──────┘  └───────┬───────┘                │   │
+│  │         │                │                 │                         │   │
+│  │         └────────────────┼─────────────────┘                         │   │
+│  │                          ▼                                           │   │
+│  │                 ┌─────────────────┐                                  │   │
+│  │                 │  SQLite DB      │                                  │   │
+│  │                 │  - sessions     │                                  │   │
+│  │                 │  - public keys  │                                  │   │
+│  │                 │  - ciphertext   │  ← Server stores only encrypted  │   │
+│  │                 └─────────────────┘    blobs, never plaintext        │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │  /connect/:id - Wrapper Page                                        │   │
-│  │  - Opens EHR connector popup                                        │   │
-│  │  - Receives data via postMessage                                    │   │
-│  │  - POSTs data to /api/data/:id                                      │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │  /ehr-connect/* - EHR Connector (Static)                            │   │
-│  │  - Provider selection UI                                            │   │
-│  │  - SMART on FHIR OAuth flow                                         │   │
-│  │  - FHIR data fetching                                               │   │
-│  │  - Document text extraction                                         │   │
+│  │  React SPA Routes (Bun fullstack):                                  │   │
+│  │                                                                      │   │
+│  │  /                        HomePage (skill download, docs)            │   │
+│  │  /connect/:sessionId      ConnectPage (session status, finalize)    │   │
+│  │  /connect/:sessionId/select   ProviderSelectPage (search providers) │   │
+│  │  /connect/:sessionId/callback OAuthCallbackPage (OAuth → fetch →    │   │
+│  │                                encrypt → send)                       │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────────┘
                                    │
                     ┌──────────────┴──────────────┐
                     │  2. User clicks link        │
-                    │  3. OAuth + Data fetch      │
+                    │  3. OAuth redirect flow     │
+                    │  4. FHIR fetch + encrypt    │
                     ▼                             │
 ┌─────────────────────────────────────────────────┴───────────────────────────┐
 │                         PATIENT PORTAL (e.g., Epic MyChart)                 │
@@ -87,7 +93,7 @@ Health Skillz is a **Claude Skill** that enables Claude to securely fetch and an
 │  │  SMART on FHIR Authorization Server                                 │   │
 │  │  - User authentication                                              │   │
 │  │  - Consent/authorization                                            │   │
-│  │  - Access token issuance                                            │   │
+│  │  - Access token issuance (with PKCE)                                │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
@@ -104,130 +110,217 @@ Health Skillz is a **Claude Skill** that enables Claude to securely fetch and an
 
 ```
 ┌───────┐          ┌────────────┐          ┌─────────────┐          ┌──────────┐
-│Claude │          │health-skillz│          │EHR Connector│          │Patient   │
-│+ Skill│          │  Server    │          │  (popup)    │          │Portal    │
+│Claude │          │health-skillz│          │   User's    │          │Patient   │
+│+ Skill│          │  Server    │          │   Browser   │          │Portal    │
 └───┬───┘          └─────┬──────┘          └──────┬──────┘          └────┬─────┘
     │                    │                        │                      │
-    │ 1. POST /api/session                        │                      │
+    │ 1. Generate ECDH keypair                    │                      │
+    │    (keep private key)                       │                      │
+    │                    │                        │                      │
+    │ 2. POST /api/session                        │                      │
+    │    {publicKey: ...}│                        │                      │
     │───────────────────>│                        │                      │
     │                    │                        │                      │
     │ {sessionId, userUrl, pollUrl}               │                      │
     │<───────────────────│                        │                      │
     │                    │                        │                      │
-    │ 2. Show link to user                        │                      │
+    │ 3. Show link to user                        │                      │
     │ "Click to connect: [userUrl]"               │                      │
     │                    │                        │                      │
-    │                    │ 3. User clicks link    │                      │
-    │                    │ GET /connect/:id       │                      │
+    │                    │ 4. User clicks link    │                      │
+    │                    │    GET /connect/:id    │                      │
     │                    │<───────────────────────│                      │
     │                    │                        │                      │
-    │                    │ 4. Wrapper opens popup │                      │
+    │                    │ 5. Serve React SPA     │                      │
+    │                    │    (with publicKey)    │                      │
     │                    │───────────────────────>│                      │
     │                    │                        │                      │
-    │                    │                        │ 5. User selects      │
-    │                    │                        │    provider          │
+    │                    │                        │ 6. User selects      │
+    │                    │                        │    provider, clicks  │
+    │                    │                        │    "Connect"         │
     │                    │                        │                      │
-    │                    │                        │ 6. SMART OAuth       │
-    │                    │                        │───────────────────────>
+    │                    │                        │ 7. OAuth redirect    │
+    │                    │                        │    (PKCE flow)       │
+    │                    │                        │─────────────────────>│
     │                    │                        │                      │
-    │                    │                        │ 7. User logs in      │
-    │                    │                        │    & authorizes      │
-    │                    │                        │<──────────────────────
+    │                    │                        │ 8. User logs in &    │
+    │                    │                        │    authorizes app    │
+    │                    │                        │<─────────────────────│
     │                    │                        │                      │
-    │                    │                        │ 8. Fetch FHIR data   │
-    │                    │                        │───────────────────────>
+    │                    │                        │ 9. OAuth callback    │
+    │                    │                        │    with auth code    │
+    │                    │                        │<─────────────────────│
+    │                    │                        │                      │
+    │                    │                        │ 10. Exchange code    │
+    │                    │                        │     for token        │
+    │                    │                        │─────────────────────>│
+    │                    │                        │                      │
+    │                    │                        │ 11. Fetch all FHIR   │
+    │                    │                        │     resources        │
+    │                    │                        │─────────────────────>│
     │                    │                        │                      │
     │                    │                        │ {Patient, Conditions,│
     │                    │                        │  Meds, Labs, Notes}  │
-    │                    │                        │<──────────────────────
+    │                    │                        │<─────────────────────│
     │                    │                        │                      │
-    │                    │ 9. postMessage(data)   │                      │
+    │                    │                        │ 12. Generate         │
+    │                    │                        │     ephemeral ECDH   │
+    │                    │                        │     keypair          │
+    │                    │                        │                      │
+    │                    │                        │ 13. Derive shared    │
+    │                    │                        │     secret with      │
+    │                    │                        │     Claude's pubkey  │
+    │                    │                        │                      │
+    │                    │                        │ 14. Encrypt data     │
+    │                    │                        │     with AES-256-GCM │
+    │                    │                        │                      │
+    │                    │ 15. POST /api/receive-ehr                     │
+    │                    │     {ephemeralPubKey,  │                      │
+    │                    │      iv, ciphertext}   │                      │
     │                    │<───────────────────────│                      │
     │                    │                        │                      │
-    │                    │ 10. POST /api/data/:id │                      │
-    │                    │    (from wrapper page) │                      │
+    │                    │ 16. Store ciphertext   │                      │
+    │                    │     (cannot decrypt)   │                      │
     │                    │                        │                      │
-    │ 11. Poll /api/poll/:id                      │                      │
+    │                    │                        │ 17. User clicks      │
+    │                    │                        │     "Done" or adds   │
+    │                    │                        │     more providers   │
+    │                    │                        │                      │
+    │                    │ 18. POST /api/finalize/:id                    │
+    │                    │<───────────────────────│                      │
+    │                    │                        │                      │
+    │ 19. Poll GET /api/poll/:id                  │                      │
     │───────────────────>│                        │                      │
     │                    │                        │                      │
-    │ {ready: true, data: {...}}                  │                      │
+    │ {ready: true,      │                        │                      │
+    │  encryptedProviders: [...]}                 │                      │
     │<───────────────────│                        │                      │
     │                    │                        │                      │
-    │ 12. Analyze with JS                         │                      │
-    │    (labs, meds, notes)                      │                      │
+    │ 20. Derive shared secret                    │                      │
+    │     with ephemeral pubkey                   │                      │
+    │                    │                        │                      │
+    │ 21. Decrypt with AES-256-GCM                │                      │
+    │                    │                        │                      │
+    │ 22. Analyze FHIR data                       │                      │
+    │     (labs, meds, notes)                     │                      │
     │                    │                        │                      │
 ```
 
 ## Key Design Decisions
 
-### 1. Popup + postMessage Pattern
+### 1. OAuth Redirect Flow (not popup)
 
-**Why not direct redirect?**
-- Claude needs to maintain context while user authenticates
-- Popup allows polling to continue in background
-- User can return to Claude tab when done
+The app uses a standard OAuth redirect flow within a single-page React application:
 
-**Why postMessage?**
-- Secure cross-origin communication
-- No server-side session needed during OAuth flow
-- Works with any SMART on FHIR endpoint
+1. User clicks "Connect" on provider selection page
+2. Browser redirects to EHR's authorization endpoint
+3. User authenticates and authorizes
+4. EHR redirects back to `/connect/:sessionId/callback`
+5. Callback page exchanges code for token, fetches data, encrypts, sends
+
+**Why redirect instead of popup?**
+- Simpler implementation with React Router
+- Better mobile support
+- Session state preserved via sessionStorage and URL state parameter
+- No cross-origin postMessage complexity
 
 ### 2. Session-Based Polling
 
 **Why polling instead of webhooks?**
-- Claude can't receive webhooks
-- Simple implementation
-- Works with Claude's execution model
+- Claude's skill environment can't receive webhooks
+- Simple, reliable implementation
+- Long-polling reduces latency (up to 60s timeout)
 
 **Session lifecycle:**
-1. Created when Claude calls `/api/session`
-2. Pending until data received
-3. Complete when data POSTed from wrapper
-4. Auto-deleted after 1 hour
+1. **Created**: Claude calls `POST /api/session` with ECDH public key
+2. **Collecting**: User connects providers, encrypted data accumulates
+3. **Finalized**: User clicks "Done", session marked complete
+4. **Expired**: Auto-deleted after 1 hour
 
-### 3. EHR Connector from health-record-mcp
+### 3. End-to-End Encryption
 
-**Why reuse health-record-mcp?**
-- Battle-tested SMART on FHIR implementation
-- Handles complex OAuth flows
-- Extracts text from PDFs, documents
-- Supports Epic endpoint directory
+**Why E2E encryption?**
+- Health data is highly sensitive (HIPAA, privacy)
+- Server operator doesn't need to see plaintext
+- Reduces liability and attack surface
+- User can trust that only Claude sees their data
 
-**Build-time configuration:**
-- Client IDs injected at build time
-- Redirect URLs configured per-environment
-- Brand files (endpoint directory) bundled
+**Crypto details:**
+- **Key exchange**: ECDH with P-256 curve
+- **Encryption**: AES-256-GCM (authenticated encryption)
+- **Per-provider ephemeral keys**: Each provider connection generates a fresh keypair for forward secrecy
+- **What's encrypted**: All health data including provider name, FHIR resources, attachments
 
-### 4. Data Structure
+### 4. Integrated SMART on FHIR Client
+
+The SMART on FHIR implementation is fully integrated into the React app (`src/client/lib/smart/`):
+
+- **oauth.ts**: PKCE generation, authorization URL building, token exchange
+- **client.ts**: FHIR resource fetching with pagination, reference resolution
+- **attachments.ts**: Document extraction (HTML, RTF, XML → plaintext)
+
+**Key features:**
+- PKCE (Proof Key for Code Exchange) for security
+- Concurrent fetching with semaphore (5 parallel requests)
+- Comprehensive resource coverage (US Core profiles)
+- Text extraction from clinical documents
+
+### 5. Browser-Side Data Storage
+
+During a session, the browser stores data locally:
+
+- **sessionStorage**: OAuth state, session metadata, provider summaries
+- **IndexedDB**: Full health data for multi-provider aggregation and download
+
+**Why browser storage?**
+- Enables "Download My Records" feature before encryption
+- Supports multi-provider aggregation in single session
+- Survives OAuth redirects
+- Large data (health records can be 10MB+) exceeds sessionStorage limits
+
+### 6. Data Structure
 
 ```typescript
-interface ClientFullEHR {
+interface ProviderData {
+  name: string;           // Provider display name
+  fhirBaseUrl: string;    // FHIR server URL
+  connectedAt: string;    // ISO timestamp
   fhir: {
-    Patient: Patient[];
-    Condition: Condition[];
-    MedicationRequest: MedicationRequest[];
-    Observation: Observation[];  // Labs, vitals
-    Procedure: Procedure[];
-    Immunization: Immunization[];
-    AllergyIntolerance: AllergyIntolerance[];
-    Encounter: Encounter[];
-    DocumentReference: DocumentReference[];
-    DiagnosticReport: DiagnosticReport[];
-    // ... other FHIR resources
+    Patient?: Patient[];
+    Condition?: Condition[];
+    MedicationRequest?: MedicationRequest[];
+    Observation?: Observation[];  // Labs, vitals
+    Procedure?: Procedure[];
+    Immunization?: Immunization[];
+    AllergyIntolerance?: AllergyIntolerance[];
+    Encounter?: Encounter[];
+    DocumentReference?: DocumentReference[];
+    DiagnosticReport?: DiagnosticReport[];
+    CareTeam?: CareTeam[];
+    Goal?: Goal[];
+    // Referenced resources
+    Practitioner?: Practitioner[];
+    Organization?: Organization[];
+    Location?: Location[];
+    Medication?: Medication[];
   };
-  attachments: {
-    resourceType: string;
-    resourceId: string;
-    contentType: string;
-    contentPlaintext: string;  // Extracted text from PDFs, notes
-  }[];
+  attachments: Attachment[];
+}
+
+interface Attachment {
+  resourceType: string;       // "DocumentReference" or "DiagnosticReport"
+  resourceId: string;         // FHIR resource ID
+  contentType: string;        // MIME type
+  contentPlaintext: string | null;  // Extracted text (for text formats)
+  contentBase64: string | null;     // Raw content, base64 encoded
 }
 ```
 
-**Why this structure?**
-- Preserves full FHIR fidelity
-- Attachments pre-extracted for easy text search
-- Claude can use JavaScript to query both
+**Design rationale:**
+- Each provider is a separate object (preserves data provenance)
+- FHIR resources grouped by type for easy querying
+- Attachments pre-extracted for text search
+- Referenced resources (Practitioner, Organization) fetched and included
 
 ## Claude Skill Design
 
@@ -236,6 +329,9 @@ interface ClientFullEHR {
 ```
 health-record-assistant/
 ├── SKILL.md              # Main instructions + API docs + JS examples
+├── scripts/
+│   ├── create-session.ts    # Create session with ECDH keypair
+│   └── finalize-session.ts  # Poll, decrypt, save to files
 └── references/
     └── FHIR-GUIDE.md     # LOINC codes, resource schemas
 ```
@@ -264,9 +360,7 @@ const notes = data.attachments
 
 ## Security Considerations
 
-### End-to-End Encryption
-
-Health data is end-to-end encrypted so the server never sees plaintext health records:
+### End-to-End Encryption Flow
 
 ```
 ┌─────────────┐     ┌──────────────┐     ┌─────────────┐
@@ -283,40 +377,54 @@ Health data is end-to-end encrypted so the server never sees plaintext health re
 │             │     │    page with │     │    FHIR     │
 │             │     │    publicKey │     │    data     │
 │             │     │              │     │             │
-│             │     │              │<────│ 6. Encrypt  │
-│             │     │ 7. Store     │     │    with     │
-│             │     │    ciphertext│     │    ECDH+AES │
+│             │     │              │     │ 6. Generate │
+│             │     │              │     │    ephemeral│
+│             │     │              │     │    keypair  │
+│             │     │              │     │             │
+│             │     │              │     │ 7. ECDH     │
+│             │     │              │     │    derive   │
+│             │     │              │     │    shared   │
+│             │     │              │     │    secret   │
+│             │     │              │     │             │
+│             │     │              │<────│ 8. Encrypt  │
+│             │     │ 9. Store     │     │    AES-GCM  │
+│             │     │    ciphertext│     │    + send   │
 │             │     │    (opaque)  │     │             │
 │             │     │              │     │             │
-│ 8. Poll     │<────│ 9. Return    │     │             │
+│ 10. Poll    │<────│ 11. Return   │     │             │
 │    receives │     │    encrypted │     │             │
 │    blob     │     │    blob      │     │             │
 │             │     │              │     │             │
-│ 10. Decrypt │     │              │     │             │
-│     with    │     │              │     │             │
-│     private │     │              │     │             │
-│     key     │     │              │     │             │
+│ 12. ECDH    │     │              │     │             │
+│    derive   │     │              │     │             │
+│    shared   │     │              │     │             │
+│    secret   │     │              │     │             │
+│             │     │              │     │             │
+│ 13. Decrypt │     │              │     │             │
+│    AES-GCM  │     │              │     │             │
 └─────────────┘     └──────────────┘     └─────────────┘
 ```
 
-**Encryption details:**
-- **Key exchange**: ECDH with P-256 curve
-- **Encryption**: AES-256-GCM
-- **Per-provider keys**: Each provider connection uses a fresh ephemeral keypair
-- **Server sees**: Only encrypted ciphertext, ephemeral public key, IV
-- **Server cannot**: Decrypt any health data
+**Security properties:**
+- **Confidentiality**: Server cannot decrypt health data
+- **Forward secrecy**: Each provider uses ephemeral keys; compromising one doesn't reveal others
+- **Authenticity**: AES-GCM provides authenticated encryption
+- **No key escrow**: Private key exists only in Claude's execution environment
 
 ### Data Handling
 
-- **Transit**: Ciphertext flows through server; plaintext never leaves browser/Claude
-- **Storage**: SQLite, auto-deleted after 1 hour
-- **No persistence**: Health data not logged or retained
+- **In transit**: Always encrypted (TLS + E2E)
+- **At rest on server**: Only ciphertext stored in SQLite
+- **At rest in browser**: Plaintext temporarily in IndexedDB (user's device)
+- **Retention**: Sessions auto-expire after 1 hour
+- **No logging**: Plaintext health data never logged
 
-### Authentication
+### Authentication & Authorization
 
-- **User auth**: Handled by patient portal (Epic, etc.)
-- **Session auth**: Random 32-char hex session IDs
+- **User auth**: Delegated to patient portal (Epic, etc.) via OAuth
+- **Session auth**: Random 32-character hex session IDs (128 bits entropy)
 - **No user accounts**: Stateless, session-based only
+- **PKCE**: Protects OAuth flow from code interception attacks
 
 ## API Reference
 
@@ -345,6 +453,28 @@ Create a new session for health data retrieval.
 }
 ```
 
+### GET /api/session/:sessionId
+
+Get session info including vendor configurations.
+
+**Response:**
+```json
+{
+  "sessionId": "d2d5a05d...",
+  "publicKey": {"kty": "EC", "crv": "P-256", ...},
+  "status": "pending",
+  "providerCount": 0,
+  "vendors": {
+    "epic-sandbox": {
+      "clientId": "...",
+      "scopes": "patient/*.rs",
+      "brandFiles": ["/static/brands/epic-sandbox.json"],
+      "redirectUrl": "https://health-skillz.exe.xyz/connect/callback"
+    }
+  }
+}
+```
+
 ### GET /api/poll/:sessionId
 
 Check if health data is ready. Supports long-polling with `?timeout=N` (max 60s).
@@ -354,9 +484,7 @@ Check if health data is ready. Supports long-polling with `?timeout=N` (max 60s)
 {
   "ready": false,
   "status": "collecting",
-  "providerCount": 1,
-  "providers": [{"name": "Epic Hospital", "connectedAt": "2024-01-15T10:30:00Z"}],
-  "message": "Still waiting for user to connect and finalize. Keep polling."
+  "providerCount": 1
 }
 ```
 
@@ -364,37 +492,38 @@ Check if health data is ready. Supports long-polling with `?timeout=N` (max 60s)
 ```json
 {
   "ready": true,
-  "providerCount": 2,
   "encryptedProviders": [
     {
       "ephemeralPublicKey": {"kty": "EC", "crv": "P-256", ...},
       "iv": [1, 2, 3, ...],
-      "ciphertext": [4, 5, 6, ...],
-      "providerName": "Epic Hospital",
-      "connectedAt": "2024-01-15T10:30:00Z"
+      "ciphertext": [4, 5, 6, ...]
     }
   ]
 }
 ```
 
-### POST /api/data/:sessionId
+### POST /api/receive-ehr
 
-Receive health data from the EHR connector (called by wrapper page).
+Receive encrypted health data from the browser.
 
 **Request body:**
 ```json
 {
+  "sessionId": "d2d5a05d...",
   "encrypted": true,
   "ephemeralPublicKey": {"kty": "EC", "crv": "P-256", ...},
   "iv": [1, 2, 3, ...],
-  "ciphertext": [4, 5, 6, ...],
-  "providerName": "Epic Hospital"
+  "ciphertext": [4, 5, 6, ...]
 }
 ```
 
 **Response:**
 ```json
-{"success": true, "providerCount": 1}
+{
+  "success": true,
+  "providerCount": 1,
+  "redirectTo": "https://health-skillz.exe.xyz/connect/d2d5a05d...?provider_added=true"
+}
 ```
 
 ### POST /api/finalize/:sessionId
@@ -411,45 +540,68 @@ Mark session as complete (user is done adding providers).
 ```
 health-skillz/
 ├── src/
-│   └── server.ts           # Bun HTTP server
+│   ├── server.ts              # Bun HTTP server + API routes
+│   ├── index.html             # HTML entry point for React SPA
+│   └── client/
+│       ├── App.tsx            # React Router configuration
+│       ├── main.tsx           # React entry point
+│       ├── index.css          # Styles
+│       ├── pages/
+│       │   ├── HomePage.tsx           # Skill download, documentation
+│       │   ├── ConnectPage.tsx        # Session status, add providers, finalize
+│       │   ├── ProviderSelectPage.tsx # Search and select healthcare provider
+│       │   └── OAuthCallbackPage.tsx  # OAuth callback, FHIR fetch, encrypt, send
+│       ├── components/
+│       │   ├── ProviderSearch.tsx     # Search input
+│       │   ├── ProviderCard.tsx       # Provider display card
+│       │   ├── ProviderList.tsx       # Connected providers list
+│       │   └── StatusMessage.tsx      # Loading/error/success messages
+│       ├── lib/
+│       │   ├── api.ts                 # Server API client
+│       │   ├── crypto.ts              # ECDH + AES-GCM encryption
+│       │   ├── storage.ts             # sessionStorage + IndexedDB helpers
+│       │   ├── smart/
+│       │   │   ├── oauth.ts           # PKCE, authorization URL, token exchange
+│       │   │   ├── client.ts          # FHIR resource fetching
+│       │   │   └── attachments.ts     # Document text extraction
+│       │   └── brands/
+│       │       ├── types.ts           # Brand/provider type definitions
+│       │       └── loader.ts          # Brand file loading and search
+│       └── store/
+│           └── session.ts             # Zustand state management
 ├── scripts/
-│   ├── download-brands.ts  # Fetch Epic endpoint directory
-│   ├── build-connector.ts  # Build EHR connector
-│   └── package-skill.ts    # Create skill .zip
-├── templates/
-│   ├── index.html          # Homepage
-│   └── connect.html        # Wrapper page
+│   ├── download-brands.ts    # Fetch Epic endpoint directory
+│   └── package-skill.ts      # Create skill .zip for distribution
 ├── skill/
 │   └── health-record-assistant/
-│       ├── SKILL.md
+│       ├── SKILL.md                   # Skill instructions for Claude
+│       ├── scripts/
+│       │   ├── create-session.ts      # Create session with ECDH keypair
+│       │   └── finalize-session.ts    # Poll, decrypt, save to files
 │       └── references/
-│           └── FHIR-GUIDE.md
-├── brands/                 # Processed endpoint data
+│           └── FHIR-GUIDE.md          # LOINC codes, resource schemas
 ├── static/
-│   └── ehr-connect/        # Built EHR connector
-├── config.json             # Server + SMART client config
+│   └── brands/               # Epic endpoint directory JSON files
+├── data/
+│   └── health-skillz.db      # SQLite database (sessions, ciphertext)
+├── config.json               # Server config + SMART client IDs
 ├── package.json
 └── README.md
 ```
 
-## Future Roadmap
+## Future Enhancements
 
-### Phase 2: Multi-Provider Support
-- Connect to multiple patient portals in sequence
-- Aggregate data before returning to Claude
-- Cross-provider analysis
-
-### Phase 3: End-to-End Encryption
-- Claude generates ECDH keypair
-- Data encrypted in user's browser
-- Server only sees ciphertext
-
-### Phase 4: Enhanced UX
+### Enhanced UX
 - Provider logos and branding
-- Geolocation-based provider suggestions  
-- Remember recent providers
+- Geolocation-based provider suggestions
+- Remember recent providers (with user consent)
 
-### Phase 5: Additional Data Sources
+### Additional Data Sources
 - Apple Health / Google Fit integration
 - Wearable device data
-- Patient-uploaded documents
+- Patient-uploaded documents (PDF, images)
+
+### Additional EHR Vendors
+- Cerner/Oracle Health
+- Athenahealth
+- Other SMART on FHIR compliant systems
