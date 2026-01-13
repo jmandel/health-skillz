@@ -78,12 +78,11 @@ export function getFhirData(): Record<string, any[]> | null {
 // === OAuth State Storage (keyed by state nonce) ===
 
 export function saveOAuthState(stateNonce: string, oauth: OAuthState): void {
-  // Use localStorage so it survives cross-origin redirects
-  localStorage.setItem(OAUTH_KEY_PREFIX + stateNonce, JSON.stringify(oauth));
+  sessionStorage.setItem(OAUTH_KEY_PREFIX + stateNonce, JSON.stringify(oauth));
 }
 
 export function loadOAuthState(stateNonce: string): OAuthState | null {
-  const raw = localStorage.getItem(OAUTH_KEY_PREFIX + stateNonce);
+  const raw = sessionStorage.getItem(OAUTH_KEY_PREFIX + stateNonce);
   if (!raw) return null;
   try {
     return JSON.parse(raw);
@@ -93,5 +92,5 @@ export function loadOAuthState(stateNonce: string): OAuthState | null {
 }
 
 export function clearOAuthState(stateNonce: string): void {
-  localStorage.removeItem(OAUTH_KEY_PREFIX + stateNonce);
+  sessionStorage.removeItem(OAUTH_KEY_PREFIX + stateNonce);
 }
