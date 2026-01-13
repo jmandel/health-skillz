@@ -87,6 +87,23 @@ export default function ConnectPage() {
     }
   }, [sessionId]);
 
+  const handleDownload = useCallback(() => {
+    const fhirData = getFhirData();
+    if (!fhirData) return;
+    
+    const blob = new Blob([JSON.stringify(fhirData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `health-records-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const handleClose = useCallback(() => {
+    window.close();
+  }, []);
+
   // Loading state
   if (store.status === 'loading' && !store.sessionId) {
     return (
@@ -109,23 +126,6 @@ export default function ConnectPage() {
       </div>
     );
   }
-
-  const handleDownload = useCallback(() => {
-    const fhirData = getFhirData();
-    if (!fhirData) return;
-    
-    const blob = new Blob([JSON.stringify(fhirData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `health-records-${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, []);
-
-  const handleClose = useCallback(() => {
-    window.close();
-  }, []);
 
   // Done state
   if (store.status === 'done') {
