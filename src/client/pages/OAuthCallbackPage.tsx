@@ -10,17 +10,16 @@ import StatusMessage from '../components/StatusMessage';
 type Phase = 'exchanging' | 'fetching' | 'encrypting' | 'sending' | 'done' | 'error';
 
 export default function OAuthCallbackPage() {
-  const { sessionId } = useParams<{ sessionId: string }>();
+  const { sessionId: urlSessionId } = useParams<{ sessionId: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
   const [phase, setPhase] = useState<Phase>('exchanging');
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState({ completed: 0, total: 0, current: '' });
+  const [resolvedSessionId, setResolvedSessionId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!sessionId) return;
-
     const code = searchParams.get('code');
     const state = searchParams.get('state');
     const errorParam = searchParams.get('error');
@@ -47,12 +46,14 @@ export default function OAuthCallbackPage() {
       return;
     }
 
-    // Verify sessionId matches
-    if (oauth.sessionId !== sessionId) {
-      setError('Session ID mismatch.');
+    // Get sessionId from URL or from OAuth state
+    const sessionId = urlSessionId || oauth.sessionId;
+    if (!sessionId) {
+      setError('No session ID found.');
       setPhase('error');
       return;
     }
+    setResolvedSessionId(sessionId);
 
     const processOAuth = async () => {
       try {
@@ -119,7 +120,7 @@ export default function OAuthCallbackPage() {
     };
 
     processOAuth();
-  }, [sessionId, searchParams, navigate]);
+  }, [urlSessionId, searchParams, navigate]);
 
   const getMessage = () => {
     switch (phase) {
@@ -159,8 +160,8 @@ export default function OAuthCallbackPage() {
             />
           </div>
         )}
-        {phase === 'error' && (
-          <button className="btn" onClick={() => navigate(`/connect/${sessionId}`)}>
+        {phase === 'error' && resolvedSessionId && (
+          <button className="btn" onClick={() => navigate(`/connect/${resolvedSessionId}`)}>
             ← Try Again
           </button>
         )}

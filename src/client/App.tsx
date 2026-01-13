@@ -13,6 +13,7 @@ export default function App() {
         <Route path="/connect/:sessionId" element={<ConnectPage />} />
         <Route path="/connect/:sessionId/select" element={<ProviderSelectPage />} />
         <Route path="/connect/:sessionId/callback" element={<OAuthCallbackPage />} />
+        <Route path="/connect/callback" element={<OAuthCallbackPage />} />
       </Routes>
     </BrowserRouter>
   );
