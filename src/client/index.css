@@ -520,3 +520,27 @@ footer a {
   margin: 24px auto 0;
   padding: 12px 32px;
 }
+
+/* Progress Table */
+.progress-table {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 8px 16px;
+  margin: 16px auto;
+  text-align: left;
+  max-width: 250px;
+}
+
+.progress-row {
+  display: contents;
+}
+
+.progress-label {
+  color: #666;
+  font-weight: 500;
+}
+
+.progress-value {
+  color: #333;
+  font-variant-numeric: tabular-nums;
+}

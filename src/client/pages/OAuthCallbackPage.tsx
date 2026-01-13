@@ -14,12 +14,16 @@ export default function OAuthCallbackPage() {
   const navigate = useNavigate();
   const store = useSessionStore();
 
-  const [progress, setProgress] = useState({ completed: 0, total: 0, current: '' });
+  const [progress, setProgress] = useState({ resources: '', attachments: '' });
   const [resolvedSessionId, setResolvedSessionId] = useState<string | null>(null);
+
+  const status = store.status;
+  const setStatus = store.setStatus;
+  const setError = store.setError;
 
   useEffect(() => {
     // Already processing or done
-    if (store.status !== 'idle' && store.status !== 'error') return;
+    if (status !== 'idle') return;
 
     const code = searchParams.get('code');
     const state = searchParams.get('state');
@@ -27,24 +31,24 @@ export default function OAuthCallbackPage() {
     const errorDesc = searchParams.get('error_description');
 
     if (errorParam) {
-      store.setError(errorDesc || errorParam);
+      setError(errorDesc || errorParam);
       return;
     }
 
     if (!code || !state) {
-      store.setError('Missing authorization code or state');
+      setError('Missing authorization code or state');
       return;
     }
 
     const oauth = loadOAuthState(state);
     if (!oauth) {
-      store.setError('OAuth session not found. Please start over.');
+      setError('OAuth session not found. Please start over.');
       return;
     }
 
     const sessionId = urlSessionId || oauth.sessionId;
     if (!sessionId) {
-      store.setError('No session ID found.');
+      setError('No session ID found.');
       return;
     }
     setResolvedSessionId(sessionId);
@@ -54,7 +58,7 @@ export default function OAuthCallbackPage() {
 
     const processOAuth = async () => {
       try {
-        store.setStatus('connecting');
+        setStatus('connecting');
         const tokenResponse = await exchangeCodeForToken(
           code,
           oauth.tokenEndpoint,
@@ -68,17 +72,21 @@ export default function OAuthCallbackPage() {
           throw new Error('No patient ID in token response');
         }
 
-        store.setStatus('loading');
+        setStatus('loading');
         const ehrData = await fetchPatientData(
           oauth.fhirBaseUrl,
           tokenResponse.access_token,
           patientId,
           (completed, total, current) => {
-            setProgress({ completed, total, current });
+            if (current.includes('attachments')) {
+              setProgress(p => ({ ...p, resources: `${total}/${total}`, attachments: current }));
+            } else if (current !== 'Complete') {
+              setProgress(p => ({ ...p, resources: `${completed}/${total}` }));
+            }
           }
         );
 
-        store.setStatus('encrypting');
+        setStatus('encrypting');
         if (!oauth.publicKeyJwk) {
           throw new Error('No encryption key available');
         }
@@ -93,34 +101,31 @@ export default function OAuthCallbackPage() {
           oauth.publicKeyJwk
         );
 
-        store.setStatus('sending');
+        setStatus('sending');
         await sendEncryptedEhrData(sessionId, encrypted);
 
         addProvider(sessionId, { name: oauth.providerName, connectedAt }, ehrData.fhir);
 
-        store.setStatus('done');
+        setStatus('done');
         setTimeout(() => {
-          store.setStatus('idle');
+          setStatus('idle');
           navigate(`/connect/${sessionId}?provider_added=true`);
         }, 1500);
       } catch (err) {
         console.error('OAuth processing error:', err);
-        store.setError(err instanceof Error ? err.message : 'An error occurred');
+        setError(err instanceof Error ? err.message : 'An error occurred');
       }
     };
 
     processOAuth();
-  }, [urlSessionId, searchParams, navigate, store]);
+  }, [urlSessionId, searchParams, navigate, status, setStatus, setError]);
 
   const getMessage = () => {
     switch (store.status) {
       case 'connecting':
         return 'Completing authorization...';
       case 'loading':
-        if (progress.total > 0) {
-          return `Fetching health records... (${progress.completed}/${progress.total}) ${progress.current}`;
-        }
-        return 'Fetching health records...';
+        return null; // Use custom progress display
       case 'encrypting':
         return 'Encrypting data...';
       case 'sending':
@@ -140,16 +145,25 @@ export default function OAuthCallbackPage() {
     <div className="connect-container">
       <div className="connect-card">
         <h1>🏥 Retrieving Health Records</h1>
-        <StatusMessage
-          status={store.status === 'error' ? 'error' : store.status === 'done' ? 'success' : 'loading'}
-          message={getMessage()}
-        />
-        {store.status === 'loading' && progress.total > 0 && (
-          <div className="progress-bar-container">
-            <div
-              className="progress-bar"
-              style={{ width: `${(progress.completed / progress.total) * 100}%` }}
-            />
+        {getMessage() && (
+          <StatusMessage
+            status={status === 'error' ? 'error' : status === 'done' ? 'success' : 'loading'}
+            message={getMessage()!}
+          />
+        )}
+        {status === 'loading' && (
+          <StatusMessage status="loading" message="Fetching health records..." />
+        )}
+        {status === 'loading' && (
+          <div className="progress-table">
+            <div className="progress-row">
+              <span className="progress-label">Resources:</span>
+              <span className="progress-value">{progress.resources || '...'}</span>
+            </div>
+            <div className="progress-row">
+              <span className="progress-label">Attachments:</span>
+              <span className="progress-value">{progress.attachments || 'waiting'}</span>
+            </div>
           </div>
         )}
         {store.status === 'error' && resolvedSessionId && (
@@ -157,7 +171,7 @@ export default function OAuthCallbackPage() {
             ← Try Again
           </button>
         )}
-        {isLoading && (
+        {(isLoading || status === 'loading') && (
           <p className="security-info">
             🔒 Your data is being encrypted end-to-end. Only your AI agent can decrypt it.
           </p>
