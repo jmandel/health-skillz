@@ -563,11 +563,11 @@ footer a {
 /* Progress Table */
 .progress-table {
   display: grid;
-  grid-template-columns: auto auto;
+  grid-template-columns: auto auto 1fr;
   gap: 8px 16px;
   margin: 16px auto;
   text-align: left;
-  max-width: 250px;
+  max-width: 400px;
 }
 
 .progress-row {
@@ -582,4 +582,13 @@ footer a {
 .progress-value {
   color: #333;
   font-variant-numeric: tabular-nums;
+  min-width: 60px;
+}
+
+.progress-detail {
+  color: #999;
+  font-size: 0.85em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

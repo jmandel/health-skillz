@@ -10,7 +10,7 @@ export interface ProcessedAttachment {
 
 // No artificial limits - fetch all attachments regardless of size
 
-export type AttachmentProgressCallback = (completed: number, total: number) => void;
+export type AttachmentProgressCallback = (completed: number, total: number, detail: string) => void;
 
 /**
  * Extract and process attachments from DocumentReference and DiagnosticReport resources.
@@ -25,7 +25,7 @@ export async function extractAttachments(
   const seen = new Set<string>();
 
   // First pass: count total attachments to process
-  const toProcess: Array<{ node: any; resourceType: string; resourceId: string }> = [];
+  const toProcess: Array<{ node: any; resourceType: string; resourceId: string; contentType: string }> = [];
   for (const resource of resources) {
     const resourceType = resource.resourceType;
     const resourceId = resource.id;
@@ -39,16 +39,21 @@ export async function extractAttachments(
       if (seen.has(key)) continue;
       seen.add(key);
       
-      toProcess.push({ node, resourceType, resourceId });
+      const contentType = node.contentType || 'application/octet-stream';
+      toProcess.push({ node, resourceType, resourceId, contentType });
     }
   }
 
   const total = toProcess.length;
-  onProgress?.(0, total);
+  onProgress?.(0, total, '');
 
   // Second pass: fetch and process
   for (let i = 0; i < toProcess.length; i++) {
-    const { node, resourceType, resourceId } = toProcess[i];
+    const { node, resourceType, resourceId, contentType } = toProcess[i];
+    
+    // Create a friendly label for the content type
+    const typeLabel = getContentTypeLabel(contentType);
+    onProgress?.(i, total, typeLabel);
     
     try {
       const processed = await fetchAndProcessAttachment(
@@ -65,10 +70,28 @@ export async function extractAttachments(
       console.warn(`Failed to process attachment:`, err);
     }
     
-    onProgress?.(i + 1, total);
+    onProgress?.(i + 1, total, typeLabel);
   }
 
   return attachments;
+}
+
+/**
+ * Get a friendly label for a content type.
+ */
+function getContentTypeLabel(contentType: string): string {
+  const type = contentType.toLowerCase();
+  if (type.includes('pdf')) return 'PDF';
+  if (type.includes('html')) return 'HTML';
+  if (type.includes('xml')) return 'XML';
+  if (type.includes('rtf')) return 'RTF';
+  if (type.includes('plain')) return 'Text';
+  if (type.includes('json')) return 'JSON';
+  if (type.includes('image')) return 'Image';
+  if (type.includes('dicom')) return 'DICOM';
+  // Return the subtype (after the /)
+  const parts = contentType.split('/');
+  return parts[1]?.split(';')[0] || contentType;
 }
 
 /**

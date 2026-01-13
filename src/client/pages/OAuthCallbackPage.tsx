@@ -3,7 +3,7 @@ import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useSessionStore } from '../store/session';
 import { loadOAuthState, clearOAuthState, addProviderData } from '../lib/storage';
 import { exchangeCodeForToken } from '../lib/smart/oauth';
-import { fetchPatientData } from '../lib/smart/client';
+import { fetchPatientData, type ProgressInfo } from '../lib/smart/client';
 import { encryptData } from '../lib/crypto';
 import { sendEncryptedEhrData } from '../lib/api';
 import StatusMessage from '../components/StatusMessage';
@@ -14,7 +14,11 @@ export default function OAuthCallbackPage() {
   const navigate = useNavigate();
   const store = useSessionStore();
 
-  const [progress, setProgress] = useState({ resources: '', attachments: '' });
+  const [progress, setProgress] = useState({
+    resources: { completed: 0, total: 0, detail: '' },
+    references: { completed: 0, total: 0, detail: '' },
+    attachments: { completed: 0, total: 0, detail: '' },
+  });
   const [resolvedSessionId, setResolvedSessionId] = useState<string | null>(null);
 
   const status = store.status;
@@ -77,18 +81,15 @@ export default function OAuthCallbackPage() {
           oauth.fhirBaseUrl,
           tokenResponse.access_token,
           patientId,
-          (completed, total, current) => {
-            // current is either a resource type name (during resource fetch),
-            // "X/Y" format (during attachment fetch), or "Complete"
-            if (current === 'Complete') {
-              setProgress(p => ({ ...p, resources: `${total}/${total}`, attachments: 'done' }));
-            } else if (current.includes('/')) {
-              // Attachment progress: "0/50", "1/50", etc.
-              setProgress(p => ({ ...p, resources: `${total}/${total}`, attachments: current }));
-            } else {
-              // Resource fetch progress
-              setProgress(p => ({ ...p, resources: `${completed}/${total}` }));
-            }
+          (info: ProgressInfo) => {
+            setProgress(p => ({
+              ...p,
+              [info.phase]: {
+                completed: info.completed,
+                total: info.total,
+                detail: info.detail,
+              },
+            }));
           }
         );
 
@@ -171,11 +172,30 @@ export default function OAuthCallbackPage() {
           <div className="progress-table">
             <div className="progress-row">
               <span className="progress-label">Resources:</span>
-              <span className="progress-value">{progress.resources || '...'}</span>
+              <span className="progress-value">
+                {progress.resources.total > 0 
+                  ? `${progress.resources.completed}/${progress.resources.total}` 
+                  : '...'}
+              </span>
+              <span className="progress-detail">{progress.resources.detail}</span>
+            </div>
+            <div className="progress-row">
+              <span className="progress-label">References:</span>
+              <span className="progress-value">
+                {progress.references.total > 0 
+                  ? `${progress.references.completed}/${progress.references.total}` 
+                  : 'waiting'}
+              </span>
+              <span className="progress-detail">{progress.references.detail}</span>
             </div>
             <div className="progress-row">
               <span className="progress-label">Attachments:</span>
-              <span className="progress-value">{progress.attachments || 'waiting'}</span>
+              <span className="progress-value">
+                {progress.attachments.total > 0 
+                  ? `${progress.attachments.completed}/${progress.attachments.total}` 
+                  : 'waiting'}
+              </span>
+              <span className="progress-detail">{progress.attachments.detail}</span>
             </div>
           </div>
         )}
