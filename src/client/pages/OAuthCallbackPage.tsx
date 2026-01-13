@@ -1,67 +1,60 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
-import { loadOAuthState, clearOAuthState, loadSession, addProvider } from '../lib/storage';
+import { useSessionStore } from '../store/session';
+import { loadOAuthState, clearOAuthState, addProvider } from '../lib/storage';
 import { exchangeCodeForToken } from '../lib/smart/oauth';
 import { fetchPatientData } from '../lib/smart/client';
 import { encryptData } from '../lib/crypto';
 import { sendEncryptedEhrData } from '../lib/api';
 import StatusMessage from '../components/StatusMessage';
 
-type Phase = 'exchanging' | 'fetching' | 'encrypting' | 'sending' | 'done' | 'error';
-
 export default function OAuthCallbackPage() {
   const { sessionId: urlSessionId } = useParams<{ sessionId: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const store = useSessionStore();
 
-  const [phase, setPhase] = useState<Phase>('exchanging');
-  const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState({ completed: 0, total: 0, current: '' });
   const [resolvedSessionId, setResolvedSessionId] = useState<string | null>(null);
-  const processedRef = useRef(false);
 
   useEffect(() => {
-    if (processedRef.current) return;
-    processedRef.current = true;
+    // Already processing or done
+    if (store.status !== 'idle' && store.status !== 'error') return;
+
     const code = searchParams.get('code');
     const state = searchParams.get('state');
     const errorParam = searchParams.get('error');
     const errorDesc = searchParams.get('error_description');
 
-    // Handle OAuth error
     if (errorParam) {
-      setError(errorDesc || errorParam);
-      setPhase('error');
+      store.setError(errorDesc || errorParam);
       return;
     }
 
     if (!code || !state) {
-      setError('Missing authorization code or state');
-      setPhase('error');
+      store.setError('Missing authorization code or state');
       return;
     }
 
-    // Load OAuth state from localStorage (keyed by state param)
     const oauth = loadOAuthState(state);
     if (!oauth) {
-      setError('OAuth session not found. Please start over.');
-      setPhase('error');
+      store.setError('OAuth session not found. Please start over.');
       return;
     }
 
-    // Get sessionId from URL or from OAuth state
     const sessionId = urlSessionId || oauth.sessionId;
     if (!sessionId) {
-      setError('No session ID found.');
-      setPhase('error');
+      store.setError('No session ID found.');
       return;
     }
     setResolvedSessionId(sessionId);
 
+    // Clear OAuth state immediately to prevent reuse
+    clearOAuthState(state);
+
     const processOAuth = async () => {
       try {
-        // Exchange code for token
-        setPhase('exchanging');
+        store.setStatus('connecting');
         const tokenResponse = await exchangeCodeForToken(
           code,
           oauth.tokenEndpoint,
@@ -75,8 +68,7 @@ export default function OAuthCallbackPage() {
           throw new Error('No patient ID in token response');
         }
 
-        // Fetch FHIR data
-        setPhase('fetching');
+        store.setStatus('loading');
         const ehrData = await fetchPatientData(
           oauth.fhirBaseUrl,
           tokenResponse.access_token,
@@ -86,7 +78,7 @@ export default function OAuthCallbackPage() {
           }
         );
 
-        setPhase('encrypting');
+        store.setStatus('encrypting');
         if (!oauth.publicKeyJwk) {
           throw new Error('No encryption key available');
         }
@@ -101,35 +93,30 @@ export default function OAuthCallbackPage() {
           oauth.publicKeyJwk
         );
 
-        setPhase('sending');
+        store.setStatus('sending');
         await sendEncryptedEhrData(sessionId, encrypted);
 
-        // Track provider locally in browser storage (for UI display)
         addProvider(sessionId, { name: oauth.providerName, connectedAt }, ehrData.fhir);
 
-        // Clear OAuth state from localStorage
-        clearOAuthState(state);
-
-        // Done
-        setPhase('done');
+        store.setStatus('done');
         setTimeout(() => {
+          store.setStatus('idle');
           navigate(`/connect/${sessionId}?provider_added=true`);
         }, 1500);
       } catch (err) {
         console.error('OAuth processing error:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-        setPhase('error');
+        store.setError(err instanceof Error ? err.message : 'An error occurred');
       }
     };
 
     processOAuth();
-  }, [urlSessionId, searchParams, navigate]);
+  }, [urlSessionId, searchParams, navigate, store]);
 
   const getMessage = () => {
-    switch (phase) {
-      case 'exchanging':
+    switch (store.status) {
+      case 'connecting':
         return 'Completing authorization...';
-      case 'fetching':
+      case 'loading':
         if (progress.total > 0) {
           return `Fetching health records... (${progress.completed}/${progress.total}) ${progress.current}`;
         }
@@ -141,21 +128,23 @@ export default function OAuthCallbackPage() {
       case 'done':
         return 'Success! Redirecting...';
       case 'error':
-        return error || 'An error occurred';
+        return store.error || 'An error occurred';
+      default:
+        return 'Processing...';
     }
   };
 
-  const isLoading = phase !== 'error' && phase !== 'done';
+  const isLoading = store.status !== 'error' && store.status !== 'done' && store.status !== 'idle';
 
   return (
     <div className="connect-container">
       <div className="connect-card">
         <h1>🏥 Retrieving Health Records</h1>
         <StatusMessage
-          status={phase === 'error' ? 'error' : phase === 'done' ? 'success' : 'loading'}
+          status={store.status === 'error' ? 'error' : store.status === 'done' ? 'success' : 'loading'}
           message={getMessage()}
         />
-        {phase === 'fetching' && progress.total > 0 && (
+        {store.status === 'loading' && progress.total > 0 && (
           <div className="progress-bar-container">
             <div
               className="progress-bar"
@@ -163,7 +152,7 @@ export default function OAuthCallbackPage() {
             />
           </div>
         )}
-        {phase === 'error' && resolvedSessionId && (
+        {store.status === 'error' && resolvedSessionId && (
           <button className="btn" onClick={() => navigate(`/connect/${resolvedSessionId}`)}>
             ← Try Again
           </button>
