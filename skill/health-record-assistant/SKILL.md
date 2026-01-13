@@ -20,32 +20,25 @@ Fetch and analyze electronic health records from patient portals using SMART on 
 
 ## How to Connect
 
-### Step 1: Create a Session with End-to-End Encryption
+Helper scripts are provided in `scripts/` to simplify the workflow.
 
-Generate an ECDH keypair and create an encrypted session:
+### Step 1: Create a Session
 
-```javascript
-// Generate keypair for E2E encryption
-const keyPair = await crypto.subtle.generateKey(
-  { name: 'ECDH', namedCurve: 'P-256' },
-  true,  // extractable (need to export public key)
-  ['deriveBits', 'deriveKey']
-);
-
-// Export public key to send to server
-const publicKeyJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey);
-
-// Create session with public key
-const response = await fetch('{{BASE_URL}}/api/session', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ publicKey: publicKeyJwk })
-});
-const { sessionId, userUrl, pollUrl } = await response.json();
-
-// Store private key for later decryption
-const privateKey = keyPair.privateKey;
+```bash
+bun scripts/create-session.ts
 ```
+
+Output:
+```json
+{
+  "sessionId": "abc123...",
+  "userUrl": "https://health-skillz.exe.xyz/connect/abc123...",
+  "pollUrl": "https://health-skillz.exe.xyz/api/poll/abc123...",
+  "privateKeyJwk": { "kty": "EC", "crv": "P-256", "d": "...", ... }
+}
+```
+
+**Save the `privateKeyJwk`** - you'll need it to decrypt the data.
 
 ### Step 2: Show the User a Link
 
@@ -61,97 +54,37 @@ Present `userUrl` to the user as a clickable link:
 
 ### Step 3: Poll Until Data is Ready
 
-Use long-polling (server waits up to 30s before returning):
-
-```javascript
-const checkForData = async () => {
-  const result = await fetch(pollUrl + '?timeout=30').then(r => r.json());
-  return result; // { ready: boolean, encryptedProviders?: [...], ... }
-};
-
-// Poll until ready
-let result;
-do {
-  result = await checkForData();
-  if (!result.ready) {
-    // Optionally tell user how many providers connected
-    console.log(`Waiting... ${result.providerCount} provider(s) connected`);
-  }
-} while (!result.ready);
+```bash
+bun scripts/poll-session.ts <sessionId>
 ```
+
+Returns `{ ready: false, status: "pending"|"collecting", providerCount: N }` while waiting,
+or `{ ready: true, encryptedProviders: [...] }` when done.
+
+Run repeatedly until `ready: true`. The server long-polls for 30s before returning.
 
 While polling, you can ask the user what they'd like to know about their records.
 
-### Step 4: Decrypt and Analyze the Data
+### Step 4: Decrypt the Data
 
-Decrypt each provider's data:
+Pipe the poll result into the decrypt script with your saved private key:
 
-```javascript
-async function decryptProviderData(encryptedProvider, privateKey) {
-  // Import the ephemeral public key from the encrypted package
-  const ephemeralPublicKey = await crypto.subtle.importKey(
-    'jwk',
-    encryptedProvider.ephemeralPublicKey,
-    { name: 'ECDH', namedCurve: 'P-256' },
-    false,
-    []
-  );
-  
-  // Derive shared secret bits
-  const sharedSecret = await crypto.subtle.deriveBits(
-    { name: 'ECDH', public: ephemeralPublicKey },
-    privateKey,
-    256
-  );
-  
-  // Import as AES-GCM key
-  const aesKey = await crypto.subtle.importKey(
-    'raw',
-    sharedSecret,
-    { name: 'AES-GCM' },
-    false,
-    ['decrypt']
-  );
-  
-  // Decrypt the data
-  const iv = new Uint8Array(encryptedProvider.iv);
-  const ciphertext = new Uint8Array(encryptedProvider.ciphertext);
-  
-  const decrypted = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv },
-    aesKey,
-    ciphertext
-  );
-  
-  // Parse the decrypted JSON
-  return JSON.parse(new TextDecoder().decode(decrypted));
-}
-
-// Decrypt all providers and merge
-const decryptedProviders = await Promise.all(
-  result.encryptedProviders.map(ep => decryptProviderData(ep, privateKey))
-);
-
-// Merge all providers' data
-const data = {
-  fhir: {},
-  attachments: []
-};
-for (const provider of decryptedProviders) {
-  for (const [resourceType, resources] of Object.entries(provider.fhir || {})) {
-    if (!data.fhir[resourceType]) data.fhir[resourceType] = [];
-    data.fhir[resourceType].push(...resources);
-  }
-  data.attachments.push(...(provider.attachments || []));
-}
+```bash
+bun scripts/poll-session.ts <sessionId> | bun scripts/decrypt-data.ts '<privateKeyJwk>'
 ```
 
-Once decrypted, the `data` object contains:
+Or if you saved the poll result to a file:
+
+```bash
+cat poll-result.json | bun scripts/decrypt-data.ts '<privateKeyJwk>'
+```
+
+The decrypted output contains:
 
 ```typescript
 interface DecryptedData {
+  providers: Array<{ name: string; connectedAt: string }>;
   fhir: {
-    // Each resource type is an array of FHIR resources
     Patient?: Patient[];
     Condition?: Condition[];
     Observation?: Observation[];
@@ -164,17 +97,16 @@ interface DecryptedData {
     DocumentReference?: DocumentReference[];
     CareTeam?: CareTeam[];
     Goal?: Goal[];
-    // ... other FHIR resource types
   };
   attachments: Attachment[];
 }
 
 interface Attachment {
-  resourceType: string;       // e.g., "DocumentReference"
-  resourceId: string;         // FHIR resource ID
-  contentType: string;        // MIME type: "text/html", "text/rtf", "application/pdf"
-  contentPlaintext: string;   // Extracted plain text content
-  contentBase64?: string;     // Original content base64 encoded (for PDFs, etc.)
+  resourceType: string;
+  resourceId: string;
+  contentType: string;
+  contentPlaintext: string;
+  contentBase64?: string;
 }
 ```
 
