@@ -2,7 +2,7 @@ import { useEffect, useCallback } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useSessionStore } from '../store/session';
 import { getSessionInfo, finalizeSession } from '../lib/api';
-import { saveSession, loadSession, getFhirData } from '../lib/storage';
+import { saveSession, loadSession, getFullData } from '../lib/storage';
 import ProviderList from '../components/ProviderList';
 import StatusMessage from '../components/StatusMessage';
 
@@ -88,10 +88,10 @@ export default function ConnectPage() {
   }, [sessionId]);
 
   const handleDownload = useCallback(() => {
-    const fhirData = getFhirData();
-    if (!fhirData) return;
+    const data = getFullData();
+    if (!data) return;
     
-    const blob = new Blob([JSON.stringify(fhirData, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

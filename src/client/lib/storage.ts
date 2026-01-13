@@ -21,6 +21,7 @@ export interface PersistedSession {
   publicKeyJwk: JsonWebKey | null;
   providers: Provider[];
   fhirData?: Record<string, any[]>;
+  attachments?: any[];
 }
 
 // === Session Storage (keyed by sessionId) ===
@@ -51,7 +52,12 @@ export function updateProviders(providers: Provider[]): void {
   }
 }
 
-export function addProvider(sessionId: string, provider: Provider, fhirData?: Record<string, any[]>): void {
+export function addProvider(
+  sessionId: string,
+  provider: Provider,
+  fhirData?: Record<string, any[]>,
+  attachments?: any[]
+): void {
   const session = loadSession();
   if (session && session.sessionId === sessionId) {
     const exists = session.providers.some(p => p.name === provider.name);
@@ -59,20 +65,28 @@ export function addProvider(sessionId: string, provider: Provider, fhirData?: Re
       session.providers.push(provider);
     }
     if (fhirData) {
-      // Merge FHIR data from this provider
       if (!session.fhirData) session.fhirData = {};
       for (const [resourceType, resources] of Object.entries(fhirData)) {
         if (!session.fhirData[resourceType]) session.fhirData[resourceType] = [];
         session.fhirData[resourceType].push(...resources);
       }
     }
+    if (attachments) {
+      if (!session.attachments) session.attachments = [];
+      session.attachments.push(...attachments);
+    }
     saveSession(session);
   }
 }
 
-export function getFhirData(): Record<string, any[]> | null {
+export function getFullData(): { fhir: Record<string, any[]>; attachments: any[]; providers: Provider[] } | null {
   const session = loadSession();
-  return session?.fhirData || null;
+  if (!session) return null;
+  return {
+    fhir: session.fhirData || {},
+    attachments: session.attachments || [],
+    providers: session.providers || [],
+  };
 }
 
 // === OAuth State Storage (keyed by state nonce) ===

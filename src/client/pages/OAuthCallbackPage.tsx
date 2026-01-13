@@ -104,7 +104,7 @@ export default function OAuthCallbackPage() {
         setStatus('sending');
         await sendEncryptedEhrData(sessionId, encrypted);
 
-        addProvider(sessionId, { name: oauth.providerName, connectedAt }, ehrData.fhir);
+        addProvider(sessionId, { name: oauth.providerName, connectedAt }, ehrData.fhir, ehrData.attachments);
 
         setStatus('done');
         setTimeout(() => {
