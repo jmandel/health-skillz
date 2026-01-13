@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
-// Decrypt health record data and save to files
-// Usage: bun decrypt-data.ts <sessionId> <privateKeyJwk> <outputDir>
+// Finalize a health record session: poll until ready, decrypt, save to files
+// Usage: bun finalize-session.ts <sessionId> <privateKeyJwk> <outputDir>
 
 import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
@@ -12,29 +12,55 @@ const privateKeyJwkStr = process.argv[3];
 const outputDir = process.argv[4];
 
 if (!sessionId || !privateKeyJwkStr || !outputDir) {
-  console.error('Usage: bun decrypt-data.ts <sessionId> <privateKeyJwk> <outputDir>');
+  console.error('Usage: bun finalize-session.ts <sessionId> <privateKeyJwk> <outputDir>');
   process.exit(1);
 }
 
 const privateKeyJwk = JSON.parse(privateKeyJwkStr);
 
-// Poll for data
-console.log(`Polling session ${sessionId}...`);
-const pollRes = await fetch(`${BASE_URL}/api/poll/${sessionId}?timeout=5`);
-if (!pollRes.ok) {
-  console.error(`Poll failed: ${pollRes.status}`);
+// Poll until ready
+console.log(JSON.stringify({ status: 'polling', sessionId }));
+
+let attempts = 0;
+const maxAttempts = 60; // 30 mins with 30s polls
+let pollResult: any = null;
+
+while (attempts < maxAttempts) {
+  const pollRes = await fetch(`${BASE_URL}/api/poll/${sessionId}?timeout=30`);
+  
+  if (!pollRes.ok) {
+    console.log(JSON.stringify({ status: 'error', error: `Poll failed: ${pollRes.status}` }));
+    process.exit(1);
+  }
+
+  pollResult = await pollRes.json();
+  
+  if (pollResult.ready) {
+    console.log(JSON.stringify({ 
+      status: 'ready', 
+      providerCount: pollResult.encryptedProviders?.length || 0 
+    }));
+    break;
+  }
+
+  console.log(JSON.stringify({ 
+    status: 'waiting', 
+    sessionStatus: pollResult.status,
+    providerCount: pollResult.providerCount || 0,
+    attempt: attempts + 1
+  }));
+  
+  attempts++;
+}
+
+if (!pollResult?.ready) {
+  console.log(JSON.stringify({ status: 'timeout', message: 'Session not finalized within time limit' }));
   process.exit(1);
 }
 
-const pollResult = await pollRes.json();
-if (!pollResult.ready || !pollResult.encryptedProviders?.length) {
-  console.error('No data ready. Status:', pollResult.status);
-  process.exit(1);
-}
+// Decrypt
+console.log(JSON.stringify({ status: 'decrypting' }));
 
-console.log(`Decrypting ${pollResult.encryptedProviders.length} provider(s)...`);
-
-// Import private key
 const privateKey = await crypto.subtle.importKey(
   'jwk',
   privateKeyJwk,
@@ -89,6 +115,8 @@ function slugify(name: string): string {
 mkdirSync(outputDir, { recursive: true });
 
 // Decrypt and save each provider
+const files: string[] = [];
+
 for (const encrypted of pollResult.encryptedProviders) {
   const provider = await decryptProvider(encrypted);
   const slug = slugify(provider.name);
@@ -96,9 +124,16 @@ for (const encrypted of pollResult.encryptedProviders) {
   const filepath = join(outputDir, filename);
   
   writeFileSync(filepath, JSON.stringify(provider, null, 2));
+  files.push(filepath);
   
   const resourceCount = Object.values(provider.fhir || {}).reduce((sum: number, arr: any) => sum + (arr?.length || 0), 0);
-  console.log(`Wrote ${filepath} (${resourceCount} resources, ${provider.attachments?.length || 0} attachments)`);
+  console.log(JSON.stringify({ 
+    status: 'wrote_file', 
+    file: filepath, 
+    provider: provider.name,
+    resources: resourceCount, 
+    attachments: provider.attachments?.length || 0 
+  }));
 }
 
-console.log('Done.');
+console.log(JSON.stringify({ status: 'done', files }));
