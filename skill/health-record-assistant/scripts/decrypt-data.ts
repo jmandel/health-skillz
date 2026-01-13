@@ -61,34 +61,9 @@ async function decryptProvider(encrypted: any) {
 }
 
 // Decrypt all providers
-const decrypted = await Promise.all(
+const providers = await Promise.all(
   pollResult.encryptedProviders.map(decryptProvider)
 );
 
-// Merge FHIR data from all providers
-const merged: any = {
-  fhir: {},
-  attachments: [],
-  providers: []
-};
-
-for (const provider of decrypted) {
-  // Track provider metadata
-  merged.providers.push({
-    name: provider.providerName,
-    connectedAt: provider.connectedAt
-  });
-
-  // Merge FHIR resources
-  for (const [resourceType, resources] of Object.entries(provider.fhir || {})) {
-    if (!merged.fhir[resourceType]) merged.fhir[resourceType] = [];
-    merged.fhir[resourceType].push(...(resources as any[]));
-  }
-
-  // Merge attachments
-  if (provider.attachments) {
-    merged.attachments.push(...provider.attachments);
-  }
-}
-
-console.log(JSON.stringify(merged, null, 2));
+// Output with providers as separate slices (no merging)
+console.log(JSON.stringify({ providers }, null, 2));

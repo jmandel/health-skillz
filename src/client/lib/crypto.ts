@@ -35,10 +35,11 @@ export async function importPrivateKey(jwk: JsonWebKey): Promise<CryptoKey> {
 }
 
 export interface EncryptionInput {
+  name: string;
+  fhirBaseUrl: string;
+  connectedAt: string;
   fhir: unknown;
   attachments?: unknown;
-  providerName: string;
-  connectedAt: string;
 }
 
 export async function encryptData(

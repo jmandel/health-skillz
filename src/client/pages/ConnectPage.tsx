@@ -2,7 +2,7 @@ import { useEffect, useCallback } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useSessionStore } from '../store/session';
 import { getSessionInfo, finalizeSession } from '../lib/api';
-import { saveSession, loadSession, getFullData } from '../lib/storage';
+import { saveSession, loadSession, getFullData, getProvidersSummary } from '../lib/storage';
 import ProviderList from '../components/ProviderList';
 import StatusMessage from '../components/StatusMessage';
 
@@ -21,8 +21,7 @@ export default function ConnectPage() {
       const saved = loadSession();
       if (saved && saved.sessionId === sessionId && saved.publicKeyJwk) {
         store.setSession(sessionId, saved.publicKeyJwk);
-        // Providers are tracked locally in browser storage (not on server)
-        store.setProviders(saved.providers);
+        store.setProviders(getProvidersSummary());
         
         // Clean up URL if returning from provider
         const providerAdded = searchParams.get('provider_added');

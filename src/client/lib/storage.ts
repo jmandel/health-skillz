@@ -16,12 +16,18 @@ export interface OAuthState {
   providerName: string;
 }
 
+export interface ProviderData {
+  name: string;
+  fhirBaseUrl: string;
+  connectedAt: string;
+  fhir: Record<string, any[]>;
+  attachments: any[];
+}
+
 export interface PersistedSession {
   sessionId: string;
   publicKeyJwk: JsonWebKey | null;
-  providers: Provider[];
-  fhirData?: Record<string, any[]>;
-  attachments?: any[];
+  providers: ProviderData[];
 }
 
 // === Session Storage (keyed by sessionId) ===
@@ -44,49 +50,30 @@ export function clearSession(): void {
   sessionStorage.removeItem(SESSION_KEY);
 }
 
-export function updateProviders(providers: Provider[]): void {
-  const session = loadSession();
-  if (session) {
-    session.providers = providers;
-    saveSession(session);
-  }
-}
-
-export function addProvider(
+export function addProviderData(
   sessionId: string,
-  provider: Provider,
-  fhirData?: Record<string, any[]>,
-  attachments?: any[]
+  providerData: ProviderData
 ): void {
   const session = loadSession();
   if (session && session.sessionId === sessionId) {
-    const exists = session.providers.some(p => p.name === provider.name);
-    if (!exists) {
-      session.providers.push(provider);
-    }
-    if (fhirData) {
-      if (!session.fhirData) session.fhirData = {};
-      for (const [resourceType, resources] of Object.entries(fhirData)) {
-        if (!session.fhirData[resourceType]) session.fhirData[resourceType] = [];
-        session.fhirData[resourceType].push(...resources);
-      }
-    }
-    if (attachments) {
-      if (!session.attachments) session.attachments = [];
-      session.attachments.push(...attachments);
-    }
+    if (!session.providers) session.providers = [];
+    session.providers.push(providerData);
     saveSession(session);
   }
 }
 
-export function getFullData(): { fhir: Record<string, any[]>; attachments: any[]; providers: Provider[] } | null {
+export function getFullData(): { providers: ProviderData[] } | null {
   const session = loadSession();
   if (!session) return null;
   return {
-    fhir: session.fhirData || {},
-    attachments: session.attachments || [],
     providers: session.providers || [],
   };
+}
+
+export function getProvidersSummary(): Array<{ name: string; connectedAt: string }> {
+  const session = loadSession();
+  if (!session) return [];
+  return (session.providers || []).map(p => ({ name: p.name, connectedAt: p.connectedAt }));
 }
 
 // === OAuth State Storage (keyed by state nonce) ===

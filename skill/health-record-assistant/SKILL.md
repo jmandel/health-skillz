@@ -83,7 +83,13 @@ The decrypted output contains:
 
 ```typescript
 interface DecryptedData {
-  providers: Array<{ name: string; connectedAt: string }>;
+  providers: ProviderData[];
+}
+
+interface ProviderData {
+  name: string;
+  fhirBaseUrl: string;
+  connectedAt: string;
   fhir: {
     Patient?: Patient[];
     Condition?: Condition[];
@@ -110,7 +116,7 @@ interface Attachment {
 }
 ```
 
-Note: Each resource type is an array, e.g., `data.fhir.Patient[0]` for the first patient resource.
+Each provider is a separate slice - no merging, preserves data provenance.
 
 ## Working with FHIR Data
 
