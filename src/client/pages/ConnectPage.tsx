@@ -155,6 +155,9 @@ export default function ConnectPage() {
         {!hasProviders ? (
           // Initial state
           <>
+            <div className="warning-box">
+              <strong>⚠️ Demo project:</strong> This is an open-source demo hosted on shared infrastructure with no uptime or security guarantees (thanks <a href="https://exe.dev" target="_blank" rel="noopener">exe.dev</a>!). While data is end-to-end encrypted, no warranties are provided. If connecting real records, understand you're trusting this demo infrastructure. <a href="https://github.com/jmandel/health-skillz" target="_blank" rel="noopener">Source code</a>
+            </div>
             <p>
               Click the button below to securely connect to your healthcare provider's
               patient portal. You can connect multiple providers before sending your data

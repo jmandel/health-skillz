@@ -299,6 +299,22 @@ footer a {
   }
 }
 
+/* Warning box */
+.warning-box {
+  background: #fff8e6;
+  border: 1px solid #f0d68a;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  font-size: 13px;
+  color: #666;
+  line-height: 1.5;
+}
+
+.warning-box a {
+  color: #557;
+}
+
 /* Security info */
 .security-info {
   margin-top: 24px;
