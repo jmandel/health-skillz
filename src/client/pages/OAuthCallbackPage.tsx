@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { loadOAuthState, clearOAuthState, loadSession, addProvider } from '../lib/storage';
 import { exchangeCodeForToken } from '../lib/smart/oauth';
@@ -18,8 +18,11 @@ export default function OAuthCallbackPage() {
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState({ completed: 0, total: 0, current: '' });
   const [resolvedSessionId, setResolvedSessionId] = useState<string | null>(null);
+  const processedRef = useRef(false);
 
   useEffect(() => {
+    if (processedRef.current) return;
+    processedRef.current = true;
     const code = searchParams.get('code');
     const state = searchParams.get('state');
     const errorParam = searchParams.get('error');
