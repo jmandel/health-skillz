@@ -67,35 +67,4 @@ jobs:
           name: health-record-assistant-skill
           path: skill/health-record-assistant.zip
 
-  build-connector:
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install dependencies
-        run: bun install
-
-      - name: Clone health-record-mcp
-        run: git clone --depth 1 https://github.com/jmandel/health-record-mcp.git ../health-record-mcp
-
-      - name: Install health-record-mcp dependencies
-        run: cd ../health-record-mcp && bun install
-
-      - name: Create config
-        run: cp config.json.example config.json
-
-      - name: Build connector
-        run: bun run build:connector
-
-      - name: Verify connector build
-        run: |
-          test -f static/ehr-connect/ehretriever.html
-          test -f static/ehr-connect/dist/ehretriever.bundle.js
-          ls -la static/ehr-connect/
