@@ -193,19 +193,25 @@ async function blobToBase64(blob: Blob): Promise<string> {
  */
 async function extractTextFromBlob(blob: Blob, contentType: string): Promise<string | null> {
   try {
-    if (contentType.startsWith('text/html')) {
-      const html = await blob.text();
-      return htmlToText(html);
+    const text = await blob.text();
+    
+    // Detect actual content type from content (EHRs often mislabel)
+    const isHtml = text.trimStart().startsWith('<') && 
+      (text.includes('<div') || text.includes('<span') || text.includes('<html') || text.includes('<p>'));
+    const isXml = text.trimStart().startsWith('<?xml') || 
+      (text.trimStart().startsWith('<') && text.includes('xmlns'));
+    const isRtf = text.trimStart().startsWith('{\\rtf');
+    
+    if (isHtml || contentType.startsWith('text/html')) {
+      return htmlToText(text);
     }
 
-    if (contentType.includes('xml')) {
-      const xml = await blob.text();
-      return xmlToText(xml);
+    if (isXml || contentType.includes('xml')) {
+      return xmlToText(text);
     }
 
-    if (contentType.startsWith('application/rtf') || contentType.startsWith('text/rtf')) {
-      const rtf = await blob.text();
-      return rtfToText(rtf);
+    if (isRtf || contentType.startsWith('application/rtf') || contentType.startsWith('text/rtf')) {
+      return rtfToText(text);
     }
 
     if (
@@ -213,7 +219,7 @@ async function extractTextFromBlob(blob: Blob, contentType: string): Promise<str
       contentType === 'application/json' ||
       contentType === 'application/fhir+json'
     ) {
-      return await blob.text();
+      return text;
     }
 
     // For PDFs and other binary, return null (base64 is still available)
