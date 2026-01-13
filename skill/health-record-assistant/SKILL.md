@@ -44,6 +44,11 @@ This approach is important because:
 
 Helper scripts are provided in `scripts/` to simplify the workflow.
 
+**Prerequisites:** These scripts require [Bun](https://bun.sh) to be installed:
+```bash
+curl -fsSL https://bun.sh/install | bash
+```
+
 ### Step 1: Create a Session
 
 ```bash
