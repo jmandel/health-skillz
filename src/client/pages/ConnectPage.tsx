@@ -2,7 +2,7 @@ import { useEffect, useCallback } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useSessionStore } from '../store/session';
 import { getSessionInfo, finalizeSession } from '../lib/api';
-import { saveSession, loadSession } from '../lib/storage';
+import { saveSession, loadSession, getFhirData } from '../lib/storage';
 import ProviderList from '../components/ProviderList';
 import StatusMessage from '../components/StatusMessage';
 
@@ -110,6 +110,23 @@ export default function ConnectPage() {
     );
   }
 
+  const handleDownload = useCallback(() => {
+    const fhirData = getFhirData();
+    if (!fhirData) return;
+    
+    const blob = new Blob([JSON.stringify(fhirData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `health-records-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const handleClose = useCallback(() => {
+    window.close();
+  }, []);
+
   // Done state
   if (store.status === 'done') {
     return (
@@ -118,8 +135,19 @@ export default function ConnectPage() {
           <h1>🏥 Connect Your Health Records</h1>
           <StatusMessage
             status="success"
-            message="Success! Your health records have been sent. You can close this window and return to your AI agent."
+            message="Success! Your health records have been sent to your AI agent."
           />
+          <div className="button-group" style={{ marginTop: '24px' }}>
+            <button className="btn btn-secondary" onClick={handleDownload}>
+              📥 Download My Records (JSON)
+            </button>
+            <button className="btn" onClick={handleClose}>
+              Close Window
+            </button>
+          </div>
+          <p className="security-info" style={{ marginTop: '16px' }}>
+            💡 The download contains your raw FHIR health data for your own records.
+          </p>
         </div>
       </div>
     );

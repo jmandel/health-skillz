@@ -20,6 +20,7 @@ export interface PersistedSession {
   sessionId: string;
   publicKeyJwk: JsonWebKey | null;
   providers: Provider[];
+  fhirData?: Record<string, any[]>;
 }
 
 // === Session Storage (keyed by sessionId) ===
@@ -50,16 +51,28 @@ export function updateProviders(providers: Provider[]): void {
   }
 }
 
-export function addProvider(sessionId: string, provider: Provider): void {
+export function addProvider(sessionId: string, provider: Provider, fhirData?: Record<string, any[]>): void {
   const session = loadSession();
   if (session && session.sessionId === sessionId) {
-    // Add provider if not already in list
     const exists = session.providers.some(p => p.name === provider.name);
     if (!exists) {
       session.providers.push(provider);
-      saveSession(session);
     }
+    if (fhirData) {
+      // Merge FHIR data from this provider
+      if (!session.fhirData) session.fhirData = {};
+      for (const [resourceType, resources] of Object.entries(fhirData)) {
+        if (!session.fhirData[resourceType]) session.fhirData[resourceType] = [];
+        session.fhirData[resourceType].push(...resources);
+      }
+    }
+    saveSession(session);
   }
+}
+
+export function getFhirData(): Record<string, any[]> | null {
+  const session = loadSession();
+  return session?.fhirData || null;
 }
 
 // === OAuth State Storage (keyed by state nonce) ===

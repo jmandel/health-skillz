@@ -101,7 +101,7 @@ export default function OAuthCallbackPage() {
         await sendEncryptedEhrData(sessionId, encrypted);
 
         // Track provider locally in browser storage (for UI display)
-        addProvider(sessionId, { name: oauth.providerName, connectedAt });
+        addProvider(sessionId, { name: oauth.providerName, connectedAt }, ehrData.fhir);
 
         // Clear OAuth state from localStorage
         clearOAuthState(state);
