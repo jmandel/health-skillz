@@ -1,22 +1,40 @@
 #!/usr/bin/env bun
-// Decrypt health record data from encrypted providers
-// Usage: echo '<poll-result-json>' | bun decrypt-data.ts '<privateKeyJwk>'
+// Decrypt health record data and save to files
+// Usage: bun decrypt-data.ts <sessionId> <privateKeyJwk> <outputDir>
 
-const privateKeyJwkStr = process.argv[2];
-if (!privateKeyJwkStr) {
-  console.error(JSON.stringify({ error: 'Usage: echo <poll-json> | decrypt-data.ts <privateKeyJwk>' }));
+import { mkdirSync, writeFileSync } from 'fs';
+import { join } from 'path';
+
+const BASE_URL = '{{BASE_URL}}';
+
+const sessionId = process.argv[2];
+const privateKeyJwkStr = process.argv[3];
+const outputDir = process.argv[4];
+
+if (!sessionId || !privateKeyJwkStr || !outputDir) {
+  console.error('Usage: bun decrypt-data.ts <sessionId> <privateKeyJwk> <outputDir>');
   process.exit(1);
 }
 
 const privateKeyJwk = JSON.parse(privateKeyJwkStr);
-const input = await Bun.stdin.text();
-const pollResult = JSON.parse(input);
 
-if (!pollResult.encryptedProviders?.length) {
-  console.error(JSON.stringify({ error: 'No encrypted data in input' }));
+// Poll for data
+console.log(`Polling session ${sessionId}...`);
+const pollRes = await fetch(`${BASE_URL}/api/poll/${sessionId}?timeout=5`);
+if (!pollRes.ok) {
+  console.error(`Poll failed: ${pollRes.status}`);
   process.exit(1);
 }
 
+const pollResult = await pollRes.json();
+if (!pollResult.ready || !pollResult.encryptedProviders?.length) {
+  console.error('No data ready. Status:', pollResult.status);
+  process.exit(1);
+}
+
+console.log(`Decrypting ${pollResult.encryptedProviders.length} provider(s)...`);
+
+// Import private key
 const privateKey = await crypto.subtle.importKey(
   'jwk',
   privateKeyJwk,
@@ -60,10 +78,27 @@ async function decryptProvider(encrypted: any) {
   return JSON.parse(new TextDecoder().decode(decrypted));
 }
 
-// Decrypt all providers
-const providers = await Promise.all(
-  pollResult.encryptedProviders.map(decryptProvider)
-);
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
 
-// Output with providers as separate slices (no merging)
-console.log(JSON.stringify({ providers }, null, 2));
+// Create output directory
+mkdirSync(outputDir, { recursive: true });
+
+// Decrypt and save each provider
+for (const encrypted of pollResult.encryptedProviders) {
+  const provider = await decryptProvider(encrypted);
+  const slug = slugify(provider.name);
+  const filename = `${slug}.json`;
+  const filepath = join(outputDir, filename);
+  
+  writeFileSync(filepath, JSON.stringify(provider, null, 2));
+  
+  const resourceCount = Object.values(provider.fhir || {}).reduce((sum: number, arr: any) => sum + (arr?.length || 0), 0);
+  console.log(`Wrote ${filepath} (${resourceCount} resources, ${provider.attachments?.length || 0} attachments)`);
+}
+
+console.log('Done.');

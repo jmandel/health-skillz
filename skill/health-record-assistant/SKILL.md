@@ -94,25 +94,23 @@ While polling, you can ask the user what they'd like to know about their records
 
 ### Step 4: Decrypt the Data
 
-Pipe the poll result into the decrypt script with your saved private key:
+Decrypt and save to files:
 
 ```bash
-bun scripts/poll-session.ts <sessionId> | bun scripts/decrypt-data.ts '<privateKeyJwk>'
+bun scripts/decrypt-data.ts <sessionId> '<privateKeyJwk>' ./health-data
 ```
 
-Or if you saved the poll result to a file:
+This polls the session, decrypts each provider's data, and writes one JSON file per provider:
 
-```bash
-cat poll-result.json | bun scripts/decrypt-data.ts '<privateKeyJwk>'
+```
+health-data/
+  unitypoint-health.json
+  mayo-clinic.json
 ```
 
-The decrypted output contains:
+Each file contains a single provider's data:
 
 ```typescript
-interface DecryptedData {
-  providers: ProviderData[];
-}
-
 interface ProviderData {
   name: string;
   fhirBaseUrl: string;
