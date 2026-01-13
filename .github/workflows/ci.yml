@@ -54,8 +54,8 @@ jobs:
           SESSION_ID=$(echo $RESPONSE | jq -r '.sessionId')
           test -n "$SESSION_ID" && test "$SESSION_ID" != "null"
           
-          # Test polling (should return not ready)
-          POLL=$(curl -sf http://localhost:8000/api/poll/$SESSION_ID)
+          # Test polling (should return not ready, use short timeout)
+          POLL=$(curl -sf "http://localhost:8000/api/poll/$SESSION_ID?timeout=1")
           echo "Poll response: $POLL"
           echo $POLL | jq -e '.ready == false'
           
