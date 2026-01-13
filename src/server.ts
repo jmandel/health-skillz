@@ -64,7 +64,7 @@ async function buildSkillZip(): Promise<Response> {
   const tempDir = `/tmp/skill-build-${Date.now()}`;
 
   try {
-    await $`mkdir -p ${tempDir}/health-record-assistant/references`;
+    await $`mkdir -p ${tempDir}/health-record-assistant/references ${tempDir}/health-record-assistant/scripts`;
 
     let skillMd = readFileSync(join(skillDir, "SKILL.md"), "utf-8");
     skillMd = skillMd.replaceAll("{{BASE_URL}}", baseURL);
@@ -76,6 +76,15 @@ async function buildSkillZip(): Promise<Response> {
         let content = readFileSync(join(refsDir, file), "utf-8");
         content = content.replaceAll("{{BASE_URL}}", baseURL);
         await Bun.write(`${tempDir}/health-record-assistant/references/${file}`, content);
+      }
+    }
+
+    const scriptsDir = join(skillDir, "scripts");
+    if (existsSync(scriptsDir)) {
+      for (const file of readdirSync(scriptsDir)) {
+        let content = readFileSync(join(scriptsDir, file), "utf-8");
+        content = content.replaceAll("{{BASE_URL}}", baseURL);
+        await Bun.write(`${tempDir}/health-record-assistant/scripts/${file}`, content);
       }
     }
 

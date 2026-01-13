@@ -106,7 +106,7 @@ export async function fetchPatientData(
     base,
     accessToken,
     (completed, total) => {
-      onProgress?.(completedQueries, totalQueries, `Attachments (${completed}/${total})`);
+      onProgress?.(completedQueries, totalQueries, `${completed}/${total} attachments`);
     }
   );
 
