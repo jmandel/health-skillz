@@ -148,8 +148,35 @@ for (const provider of decryptedProviders) {
 
 Once decrypted, the `data` object contains:
 
-- **`data.fhir`** - Object with FHIR resources organized by type (e.g., `data.fhir.Patient`, `data.fhir.Observation`)
-- **`data.attachments`** - Array of extracted text from clinical documents (PDFs, notes)
+```typescript
+interface DecryptedData {
+  fhir: {
+    // Each resource type is an array of FHIR resources
+    Patient?: Patient[];
+    Condition?: Condition[];
+    Observation?: Observation[];
+    MedicationRequest?: MedicationRequest[];
+    Procedure?: Procedure[];
+    Immunization?: Immunization[];
+    AllergyIntolerance?: AllergyIntolerance[];
+    Encounter?: Encounter[];
+    DiagnosticReport?: DiagnosticReport[];
+    DocumentReference?: DocumentReference[];
+    CareTeam?: CareTeam[];
+    Goal?: Goal[];
+    // ... other FHIR resource types
+  };
+  attachments: Attachment[];
+}
+
+interface Attachment {
+  resourceType: string;       // e.g., "DocumentReference"
+  resourceId: string;         // FHIR resource ID
+  contentType: string;        // MIME type: "text/html", "text/rtf", "application/pdf"
+  contentPlaintext: string;   // Extracted plain text content
+  contentBase64?: string;     // Original content base64 encoded (for PDFs, etc.)
+}
+```
 
 Note: Each resource type is an array, e.g., `data.fhir.Patient[0]` for the first patient resource.
 
