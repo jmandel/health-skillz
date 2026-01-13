@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // Poll a session until data is ready or timeout
 
-const BASE_URL = process.env.HEALTH_SKILLZ_URL || 'https://health-skillz.exe.xyz';
+const BASE_URL = process.env.HEALTH_SKILLZ_URL || 'https://health-skillz.exe.xyz:8000';
 
 const sessionId = process.argv[2];
 const timeout = process.argv[3] || '30';

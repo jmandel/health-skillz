@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // Create a new health record session with E2E encryption keypair
 
-const BASE_URL = process.env.HEALTH_SKILLZ_URL || 'https://health-skillz.exe.xyz';
+const BASE_URL = process.env.HEALTH_SKILLZ_URL || 'https://health-skillz.exe.xyz:8000';
 
 const keyPair = await crypto.subtle.generateKey(
   { name: 'ECDH', namedCurve: 'P-256' },

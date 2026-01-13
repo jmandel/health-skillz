@@ -32,7 +32,7 @@ export default function HomePage() {
             </div>
             <div className="feature">
               <h4>📝 Open Source</h4>
-              <p>Fully open source. Inspect, host yourself, or contribute.</p>
+              <p>Fully open source. <a href="https://github.com/jmandel/health-skillz">View on GitHub</a></p>
             </div>
           </div>
         </div>
