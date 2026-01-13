@@ -156,7 +156,7 @@ export default function ConnectPage() {
           // Initial state
           <>
             <div className="warning-box">
-              <strong>⚠️ Demo project:</strong> This is an open-source demo hosted on shared infrastructure with no uptime or security guarantees (thanks <a href="https://exe.dev" target="_blank" rel="noopener">exe.dev</a>!). While data is end-to-end encrypted, no warranties are provided. If connecting real records, understand you're trusting this demo infrastructure. <a href="https://github.com/jmandel/health-skillz" target="_blank" rel="noopener">Source code</a>
+              <strong>⚠️ Demo project:</strong> This is an open-source demo hosted on shared infrastructure with no uptime or security guarantees. While data is end-to-end encrypted, no warranties are provided. If connecting real records, understand you're trusting this demo infrastructure. <a href="https://github.com/jmandel/health-skillz" target="_blank" rel="noopener">Source code</a>
             </div>
             <p>
               Click the button below to securely connect to your healthcare provider's
@@ -228,6 +228,7 @@ export default function ConnectPage() {
             browser before transmission. Only your AI agent can decrypt it.
           </p>
         </div>
+        <p className="hosting-thanks">Hosted on <a href="https://exe.dev" target="_blank" rel="noopener">exe.dev</a></p>
       </div>
     </div>
   );

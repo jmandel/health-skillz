@@ -322,6 +322,17 @@ footer a {
   color: #888;
 }
 
+.hosting-thanks {
+  margin-top: 16px;
+  font-size: 12px;
+  color: #aaa;
+  text-align: center;
+}
+
+.hosting-thanks a {
+  color: #999;
+}
+
 /* Provider Select Page */
 .provider-select-container {
   min-height: 100vh;
