@@ -21,21 +21,8 @@ export default function ConnectPage() {
       const saved = loadSession();
       if (saved && saved.sessionId === sessionId && saved.publicKeyJwk) {
         store.setSession(sessionId, saved.publicKeyJwk);
-        
-        // Always fetch latest provider list from server
-        try {
-          const info = await getSessionInfo(sessionId);
-          store.setProviders(info.providers);
-          // Update local storage with latest
-          saveSession({
-            sessionId,
-            publicKeyJwk: saved.publicKeyJwk,
-            providers: info.providers,
-          });
-        } catch {
-          // Fall back to local storage
-          store.setProviders(saved.providers);
-        }
+        // Providers are tracked locally in browser storage (not on server)
+        store.setProviders(saved.providers);
         
         // Clean up URL if returning from provider
         const providerAdded = searchParams.get('provider_added');
@@ -53,13 +40,14 @@ export default function ConnectPage() {
         
         // Store server's public key (AI agent's key for E2E encryption)
         store.setSession(sessionId, info.publicKey);
-        store.setProviders(info.providers);
+        // Initialize empty providers list (tracked locally, not on server)
+        store.setProviders([]);
         
-        // Save to sessionStorage for ehretriever's encryption code to read
+        // Save to sessionStorage
         saveSession({
           sessionId,
           publicKeyJwk: info.publicKey,
-          providers: info.providers,
+          providers: [],
         });
         
         store.setStatus('idle');

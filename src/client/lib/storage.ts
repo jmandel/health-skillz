@@ -50,6 +50,18 @@ export function updateProviders(providers: Provider[]): void {
   }
 }
 
+export function addProvider(sessionId: string, provider: Provider): void {
+  const session = loadSession();
+  if (session && session.sessionId === sessionId) {
+    // Add provider if not already in list
+    const exists = session.providers.some(p => p.name === provider.name);
+    if (!exists) {
+      session.providers.push(provider);
+      saveSession(session);
+    }
+  }
+}
+
 // === OAuth State Storage (keyed by state nonce) ===
 
 export function saveOAuthState(stateNonce: string, oauth: OAuthState): void {

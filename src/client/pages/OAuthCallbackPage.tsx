@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
-import { loadOAuthState, clearOAuthState, saveSession, loadSession } from '../lib/storage';
+import { loadOAuthState, clearOAuthState, loadSession, addProvider } from '../lib/storage';
 import { exchangeCodeForToken } from '../lib/smart/oauth';
 import { fetchPatientData } from '../lib/smart/client';
 import { encryptData } from '../lib/crypto';
@@ -82,17 +82,28 @@ export default function OAuthCallbackPage() {
           }
         );
 
-        // Encrypt data
+        // Encrypt data with metadata inside encrypted payload
         setPhase('encrypting');
         if (!oauth.publicKeyJwk) {
           throw new Error('No encryption key available');
         }
-        const encrypted = await encryptData(ehrData, oauth.publicKeyJwk);
-        encrypted.providerName = oauth.providerName;
+        const connectedAt = new Date().toISOString();
+        const encrypted = await encryptData(
+          {
+            fhir: ehrData.fhir,
+            attachments: ehrData.attachments,
+            providerName: oauth.providerName,
+            connectedAt,
+          },
+          oauth.publicKeyJwk
+        );
 
-        // Send to server
+        // Send to server (server only sees encrypted blob, no metadata)
         setPhase('sending');
         await sendEncryptedEhrData(sessionId, encrypted);
+
+        // Track provider locally in browser storage (for UI display)
+        addProvider(sessionId, { name: oauth.providerName, connectedAt });
 
         // Clear OAuth state from localStorage
         clearOAuthState(state);

@@ -6,7 +6,7 @@ export interface EncryptedPayload {
   ephemeralPublicKey: JsonWebKey;
   iv: number[];
   ciphertext: number[];
-  providerName: string;
+  // providerName is now inside the encrypted data, not plaintext metadata
 }
 
 export async function generateKeyPair(): Promise<CryptoKeyPair> {
@@ -35,8 +35,15 @@ export async function importPrivateKey(jwk: JsonWebKey): Promise<CryptoKey> {
   );
 }
 
+export interface EncryptionInput {
+  fhir: unknown;
+  attachments?: unknown;
+  providerName: string;
+  connectedAt: string;
+}
+
 export async function encryptData(
-  data: unknown,
+  data: EncryptionInput,
   publicKeyJwk: JsonWebKey
 ): Promise<EncryptedPayload> {
   // Import recipient's public key
@@ -73,7 +80,8 @@ export async function encryptData(
   // Generate random IV
   const iv = crypto.getRandomValues(new Uint8Array(12));
 
-  // Encrypt the data
+  // Encrypt the full payload including metadata (providerName, connectedAt)
+  // This ensures server never sees any PHI or identifying info
   const encoder = new TextEncoder();
   const dataBytes = encoder.encode(JSON.stringify(data));
   const ciphertext = await crypto.subtle.encrypt(
@@ -82,16 +90,10 @@ export async function encryptData(
     dataBytes
   );
 
-  // Extract provider name from FHIR data if available
-  const fhirData = data as { fhir?: { Patient?: Array<{ managingOrganization?: { display?: string } }> } };
-  const providerName =
-    fhirData?.fhir?.Patient?.[0]?.managingOrganization?.display || 'Unknown Provider';
-
   return {
     encrypted: true,
     ephemeralPublicKey: ephemeralPublicKeyJwk,
     iv: Array.from(iv),
     ciphertext: Array.from(new Uint8Array(ciphertext)),
-    providerName,
   };
 }

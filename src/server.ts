@@ -204,7 +204,7 @@ const server = Bun.serve({
         ready: false,
         status: row.status,
         providerCount: encryptedData.length,
-        providers: encryptedData.map((p: any) => ({ name: p.providerName, connectedAt: p.connectedAt })),
+        // No provider metadata stored server-side - browser tracks this in sessionStorage
       }, { headers: corsHeaders });
     }
 
@@ -221,12 +221,11 @@ const server = Bun.serve({
         if (row.status === "finalized") return Response.json({ success: false, error: "session_finalized" }, { status: 400, headers: corsHeaders });
 
         const existing = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
+        // Store only encrypted data - no metadata we can read
         existing.push({
           ephemeralPublicKey: data.ephemeralPublicKey,
           iv: data.iv,
           ciphertext: data.ciphertext,
-          providerName: data.providerName || 'Unknown Provider',
-          connectedAt: new Date().toISOString()
         });
 
         db.run("UPDATE sessions SET encrypted_data = ?, status = 'collecting' WHERE id = ?",
@@ -270,7 +269,7 @@ const server = Bun.serve({
         publicKey: row.public_key ? JSON.parse(row.public_key) : null,
         status: row.status,
         providerCount: encryptedData.length,
-        providers: encryptedData.map((p: any) => ({ name: p.providerName, connectedAt: p.connectedAt })),
+        // No provider metadata stored server-side - browser tracks this in sessionStorage
         vendors: getVendors(),
       }, { headers: corsHeaders });
     }

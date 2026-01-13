@@ -7,7 +7,7 @@ export interface SessionInfo {
   publicKey: JsonWebKey;
   status: string;
   providerCount: number;
-  providers: Provider[];
+  // providers list now comes from browser sessionStorage, not server
   vendors?: Record<string, VendorConfig>;
 }
 
@@ -21,7 +21,7 @@ export interface EncryptedPayload {
   ephemeralPublicKey: JsonWebKey;
   iv: number[];
   ciphertext: number[];
-  providerName: string;
+  // providerName is inside encrypted data, not in plaintext
 }
 
 const BASE_URL = '';  // Same-origin API
