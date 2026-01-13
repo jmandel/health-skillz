@@ -1,6 +1,7 @@
 node_modules/
 data/
-brands/raw/
+brands/
+static/brands/
 static/ehr-connect/
 skill/*.zip
 *.db
