@@ -47,11 +47,12 @@ jobs:
           # Test health endpoint
           curl -f http://localhost:8000/health
           
-          # Test session creation
-          RESPONSE=$(curl -sf -X POST http://localhost:8000/api/session)
+          # Test session creation (requires ECDH public key for E2E encryption)
+          TEST_PUBLIC_KEY='{"kty":"EC","crv":"P-256","x":"test","y":"test"}'
+          RESPONSE=$(curl -sf -X POST http://localhost:8000/api/session -H 'Content-Type: application/json' -d "{\"publicKey\":$TEST_PUBLIC_KEY}")
           echo "Session response: $RESPONSE"
           SESSION_ID=$(echo $RESPONSE | jq -r '.sessionId')
-          test -n "$SESSION_ID"
+          test -n "$SESSION_ID" && test "$SESSION_ID" != "null"
           
           # Test polling (should return not ready)
           POLL=$(curl -sf http://localhost:8000/api/poll/$SESSION_ID)
