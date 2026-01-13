@@ -107,16 +107,17 @@ const corsHeaders = {
 function getVendors() {
   const vendors: Record<string, any> = {};
   for (const brand of config.brands || []) {
-    const vendorName = brand.tags?.[0] || brand.name;
-    if (!vendors[vendorName]) {
-      vendors[vendorName] = {
-        clientId: brand.clientId,
-        scopes: brand.scopes || 'patient/*.rs',
-        brandFile: brand.file?.replace('./brands/', '/static/brands/') || `/static/brands/${brand.name}.json`,
-        tags: brand.tags || [],
-        redirectUrl: brand.redirectURL || `${baseURL}/connect/callback`,
-      };
-    }
+    // Use brand name as vendor key to keep sandbox/prod separate
+    const vendorName = brand.name;
+    const brandFile = brand.file?.replace('./brands/', '/static/brands/') || `/static/brands/${brand.name}.json`;
+    
+    vendors[vendorName] = {
+      clientId: brand.clientId,
+      scopes: brand.scopes || 'patient/*.rs',
+      brandFiles: [brandFile],
+      tags: brand.tags || [],
+      redirectUrl: brand.redirectURL || `${baseURL}/connect/callback`,
+    };
   }
   return vendors;
 }
@@ -293,15 +294,48 @@ const server = Bun.serve({
       return new Response("ok");
     }
 
-    // Static files
+    // Static files with cache headers and gzip compression
     if (path.startsWith("/static/")) {
       const filePath = "." + path;
-      if (existsSync(filePath)) return new Response(Bun.file(filePath));
+      if (existsSync(filePath)) {
+        const file = Bun.file(filePath);
+        const acceptEncoding = req.headers.get("Accept-Encoding") || "";
+        
+        // Compress JSON files if client supports gzip
+        if (acceptEncoding.includes("gzip") && filePath.endsWith(".json")) {
+          const content = await file.arrayBuffer();
+          const compressed = Bun.gzipSync(new Uint8Array(content));
+          return new Response(compressed, {
+            headers: {
+              "Cache-Control": "public, max-age=86400",
+              "Content-Encoding": "gzip",
+              "Content-Type": "application/json",
+            },
+          });
+        }
+        
+        return new Response(file, {
+          headers: {
+            "Cache-Control": "public, max-age=86400",
+          },
+        });
+      }
     }
 
     // OAuth callback redirect (for registered redirect URLs without session ID)
-    if (path === "/connect/callback") {
+    if (path === "/connect/callback" || path === "/ehr-connect/callback") {
       const params = url.search;
+      // Try to extract sessionId from state parameter (format: sessionId.nonce)
+      const stateParam = url.searchParams.get('state') || '';
+      const dotIndex = stateParam.indexOf('.');
+      const sessionIdFromState = dotIndex > 0 ? stateParam.substring(0, dotIndex) : null;
+      
+      if (sessionIdFromState) {
+        // Redirect to :8000 to preserve sessionStorage (same origin as where OAuth started)
+        return Response.redirect(`${baseURL}:${port}/connect/${sessionIdFromState}/callback${params}`, 302);
+      }
+      
+      // Fallback: try sessionStorage (same-origin only)
       return new Response(`<!DOCTYPE html>
 <html><head><title>Redirecting...</title></head>
 <body><script>
@@ -311,7 +345,7 @@ if (s) {
     const { sessionId } = JSON.parse(s);
     if (sessionId) window.location.replace('/connect/' + sessionId + '/callback${params}');
   } catch(e) { document.body.textContent = 'Error: ' + e.message; }
-} else { document.body.textContent = 'No session found'; }
+} else { document.body.textContent = 'No session found. State: ${stateParam}'; }
 </script></body></html>`, { headers: { "Content-Type": "text/html" } });
     }
 

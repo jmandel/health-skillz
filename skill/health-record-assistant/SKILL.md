@@ -29,7 +29,7 @@ Generate an ECDH keypair and create an encrypted session:
 const keyPair = await crypto.subtle.generateKey(
   { name: 'ECDH', namedCurve: 'P-256' },
   true,  // extractable (need to export public key)
-  ['deriveKey']
+  ['deriveBits', 'deriveKey']
 );
 
 // Export public key to send to server
@@ -97,11 +97,18 @@ async function decryptProviderData(encryptedProvider, privateKey) {
     []
   );
   
-  // Derive the shared secret
-  const sharedKey = await crypto.subtle.deriveKey(
+  // Derive shared secret bits
+  const sharedSecret = await crypto.subtle.deriveBits(
     { name: 'ECDH', public: ephemeralPublicKey },
     privateKey,
-    { name: 'AES-GCM', length: 256 },
+    256
+  );
+  
+  // Import as AES-GCM key
+  const aesKey = await crypto.subtle.importKey(
+    'raw',
+    sharedSecret,
+    { name: 'AES-GCM' },
     false,
     ['decrypt']
   );
@@ -112,13 +119,12 @@ async function decryptProviderData(encryptedProvider, privateKey) {
   
   const decrypted = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv },
-    sharedKey,
+    aesKey,
     ciphertext
   );
   
   // Parse the decrypted JSON
-  const decoder = new TextDecoder();
-  return JSON.parse(decoder.decode(decrypted));
+  return JSON.parse(new TextDecoder().decode(decrypted));
 }
 
 // Decrypt all providers and merge
@@ -142,8 +148,10 @@ for (const provider of decryptedProviders) {
 
 Once decrypted, the `data` object contains:
 
-- **`data.fhir`** - FHIR resources organized by type
-- **`data.attachments`** - Extracted text from clinical documents (PDFs, notes)
+- **`data.fhir`** - Object with FHIR resources organized by type (e.g., `data.fhir.Patient`, `data.fhir.Observation`)
+- **`data.attachments`** - Array of extracted text from clinical documents (PDFs, notes)
+
+Note: Each resource type is an array, e.g., `data.fhir.Patient[0]` for the first patient resource.
 
 ## Working with FHIR Data
 

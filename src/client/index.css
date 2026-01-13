@@ -513,3 +513,10 @@ footer a {
   border-radius: 4px;
   transition: width 0.3s ease;
 }
+
+/* Load More Button */
+.load-more-btn {
+  display: block;
+  margin: 24px auto 0;
+  padding: 12px 32px;
+}

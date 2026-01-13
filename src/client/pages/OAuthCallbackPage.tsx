@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
-import { loadSession, clearOAuthState } from '../lib/storage';
+import { loadOAuthState, clearOAuthState, saveSession, loadSession } from '../lib/storage';
 import { exchangeCodeForToken } from '../lib/smart/oauth';
 import { fetchPatientData } from '../lib/smart/client';
 import { encryptData } from '../lib/crypto';
@@ -39,17 +39,17 @@ export default function OAuthCallbackPage() {
       return;
     }
 
-    // Load OAuth state from session storage
-    const session = loadSession();
-    if (!session?.oauth) {
+    // Load OAuth state from localStorage (keyed by state param)
+    const oauth = loadOAuthState(state);
+    if (!oauth) {
       setError('OAuth session not found. Please start over.');
       setPhase('error');
       return;
     }
 
-    // Validate state
-    if (session.oauth.state !== state) {
-      setError('Invalid state parameter. Possible CSRF attack.');
+    // Verify sessionId matches
+    if (oauth.sessionId !== sessionId) {
+      setError('Session ID mismatch.');
       setPhase('error');
       return;
     }
@@ -60,10 +60,10 @@ export default function OAuthCallbackPage() {
         setPhase('exchanging');
         const tokenResponse = await exchangeCodeForToken(
           code,
-          session.oauth!.tokenEndpoint,
-          session.oauth!.clientId,
-          session.oauth!.redirectUri,
-          session.oauth!.codeVerifier
+          oauth.tokenEndpoint,
+          oauth.clientId,
+          oauth.redirectUri,
+          oauth.codeVerifier
         );
 
         const patientId = tokenResponse.patient;
@@ -74,7 +74,7 @@ export default function OAuthCallbackPage() {
         // Fetch FHIR data
         setPhase('fetching');
         const ehrData = await fetchPatientData(
-          session.oauth!.fhirBaseUrl,
+          oauth.fhirBaseUrl,
           tokenResponse.access_token,
           patientId,
           (completed, total, current) => {
@@ -84,18 +84,18 @@ export default function OAuthCallbackPage() {
 
         // Encrypt data
         setPhase('encrypting');
-        if (!session.publicKeyJwk) {
+        if (!oauth.publicKeyJwk) {
           throw new Error('No encryption key available');
         }
-        const encrypted = await encryptData(ehrData, session.publicKeyJwk);
-        encrypted.providerName = session.oauth!.providerName;
+        const encrypted = await encryptData(ehrData, oauth.publicKeyJwk);
+        encrypted.providerName = oauth.providerName;
 
         // Send to server
         setPhase('sending');
         await sendEncryptedEhrData(sessionId, encrypted);
 
-        // Clear OAuth state
-        clearOAuthState();
+        // Clear OAuth state from localStorage
+        clearOAuthState(state);
 
         // Done
         setPhase('done');

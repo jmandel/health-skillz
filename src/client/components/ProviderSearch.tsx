@@ -6,7 +6,7 @@ interface Props {
   placeholder?: string;
 }
 
-const DEBOUNCE_MS = 300;
+const DEBOUNCE_MS = 400;
 
 export default function ProviderSearch({ onSearch, disabled, placeholder }: Props) {
   const [value, setValue] = useState('');

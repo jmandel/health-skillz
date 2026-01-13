@@ -2,10 +2,12 @@
 
 import type { Provider } from './api';
 
-const STORAGE_KEY = 'health_skillz_session';
+const SESSION_KEY = 'health_skillz_session';
+const OAUTH_KEY_PREFIX = 'health_skillz_oauth_';
 
 export interface OAuthState {
-  state: string;
+  sessionId: string;
+  publicKeyJwk: JsonWebKey | null;
   codeVerifier: string;
   tokenEndpoint: string;
   fhirBaseUrl: string;
@@ -18,15 +20,16 @@ export interface PersistedSession {
   sessionId: string;
   publicKeyJwk: JsonWebKey | null;
   providers: Provider[];
-  oauth?: OAuthState;
 }
 
+// === Session Storage (keyed by sessionId) ===
+
 export function saveSession(session: PersistedSession): void {
-  sessionStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
 }
 
 export function loadSession(): PersistedSession | null {
-  const raw = sessionStorage.getItem(STORAGE_KEY);
+  const raw = sessionStorage.getItem(SESSION_KEY);
   if (!raw) return null;
   try {
     return JSON.parse(raw);
@@ -36,7 +39,7 @@ export function loadSession(): PersistedSession | null {
 }
 
 export function clearSession(): void {
-  sessionStorage.removeItem(STORAGE_KEY);
+  sessionStorage.removeItem(SESSION_KEY);
 }
 
 export function updateProviders(providers: Provider[]): void {
@@ -47,16 +50,23 @@ export function updateProviders(providers: Provider[]): void {
   }
 }
 
-// Save OAuth state before redirect
-export function saveOAuthState(session: PersistedSession): void {
-  saveSession(session);
+// === OAuth State Storage (keyed by state nonce) ===
+
+export function saveOAuthState(stateNonce: string, oauth: OAuthState): void {
+  // Use localStorage so it survives cross-origin redirects
+  localStorage.setItem(OAUTH_KEY_PREFIX + stateNonce, JSON.stringify(oauth));
 }
 
-// Clear OAuth state after successful exchange
-export function clearOAuthState(): void {
-  const session = loadSession();
-  if (session) {
-    delete session.oauth;
-    saveSession(session);
+export function loadOAuthState(stateNonce: string): OAuthState | null {
+  const raw = localStorage.getItem(OAUTH_KEY_PREFIX + stateNonce);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
   }
+}
+
+export function clearOAuthState(stateNonce: string): void {
+  localStorage.removeItem(OAUTH_KEY_PREFIX + stateNonce);
 }

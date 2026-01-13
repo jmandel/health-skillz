@@ -29,7 +29,7 @@ export interface VendorConfig {
   clientId: string;
   scopes: string;
   redirectUrl?: string;
-  brandFile: string;
+  brandFiles: string[];
   tags: string[];
 }
 

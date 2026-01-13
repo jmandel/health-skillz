@@ -9,7 +9,7 @@ import ProviderSearch from '../components/ProviderSearch';
 import ProviderCard from '../components/ProviderCard';
 import StatusMessage from '../components/StatusMessage';
 
-const MAX_DISPLAY_ITEMS = 100;
+const PAGE_SIZE = 100;
 
 export default function ProviderSelectPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -18,12 +18,19 @@ export default function ProviderSelectPage() {
   // Loading state
   const [loadProgress, setLoadProgress] = useState<LoadProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
+  
+  // Pagination
+  const [page, setPage] = useState(1);
 
   // Data
   const [allItems, setAllItems] = useState<BrandItem[]>([]);
   const [vendors, setVendors] = useState<Record<string, VendorConfig>>({});
-  const [filteredItems, setFilteredItems] = useState<BrandItem[]>([]);
+  const [searchResults, setSearchResults] = useState<BrandItem[]>([]);
   const [query, setQuery] = useState('');
+  
+  // Paginated view
+  const totalPages = Math.ceil(searchResults.length / PAGE_SIZE);
+  const displayedItems = searchResults.slice(0, page * PAGE_SIZE);
 
   // Modal state
   const [selectedItem, setSelectedItem] = useState<BrandItem | null>(null);
@@ -46,15 +53,18 @@ export default function ProviderSelectPage() {
         // Load brand files from all configured vendors
         const allBrandItems: BrandItem[] = [];
         for (const [vendorName, config] of Object.entries(info.vendors)) {
-          try {
-            const items = await loadBrandFile(config.brandFile, setLoadProgress);
-            // Tag items with vendor info
-            for (const item of items) {
-              (item as any)._vendor = vendorName;
+          // Load all brand files for this vendor
+          for (const brandFile of config.brandFiles) {
+            try {
+              const items = await loadBrandFile(brandFile, setLoadProgress);
+              // Tag items with vendor info
+              for (const item of items) {
+                (item as any)._vendor = vendorName;
+              }
+              allBrandItems.push(...items);
+            } catch (err) {
+              console.warn(`Failed to load brand file ${brandFile} for ${vendorName}:`, err);
             }
-            allBrandItems.push(...items);
-          } catch (err) {
-            console.warn(`Failed to load brand file for ${vendorName}:`, err);
           }
         }
 
@@ -64,7 +74,7 @@ export default function ProviderSelectPage() {
         }
 
         setAllItems(allBrandItems);
-        setFilteredItems(allBrandItems.slice(0, MAX_DISPLAY_ITEMS));
+        setSearchResults(allBrandItems);
         setLoadProgress({ phase: 'ready', bytesLoaded: 0 });
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to initialize');
@@ -78,14 +88,15 @@ export default function ProviderSelectPage() {
   const handleSearch = useCallback(
     (q: string) => {
       setQuery(q);
+      setPage(1); // Reset to first page on new search
       if (!q.trim()) {
-        setFilteredItems(allItems.slice(0, MAX_DISPLAY_ITEMS));
+        setSearchResults(allItems);
         return;
       }
 
       const matches = searchBrands(allItems, q);
-      const collapsed = collapseBrands(allItems, matches);
-      setFilteredItems(collapsed.slice(0, MAX_DISPLAY_ITEMS));
+      const collapsed = collapseBrands(allItems, matches, q);
+      setSearchResults(collapsed);
     },
     [allItems]
   );
@@ -122,30 +133,27 @@ export default function ProviderSelectPage() {
       // Use configured redirect URI (must match what's registered with EHR)
       const redirectUri = vendorConfig.redirectUrl || `${window.location.origin}/connect/${sessionId}/callback`;
 
-      // Build authorization URL
+      // Build authorization URL (sessionId encoded in state for cross-origin recovery)
       const { authUrl, state, tokenEndpoint } = await buildAuthorizationUrl({
         fhirBaseUrl: endpoint.url,
         clientId: vendorConfig.clientId,
         scopes: vendorConfig.scopes,
         redirectUri,
         pkce,
+        sessionId,
       });
 
-      // Save state for callback
+      // Save OAuth state keyed by state nonce (survives cross-origin redirect)
       const session = loadSession();
-      saveOAuthState({
+      saveOAuthState(state, {
         sessionId,
         publicKeyJwk: session?.publicKeyJwk || null,
-        providers: session?.providers || [],
-        oauth: {
-          state,
-          codeVerifier: pkce.codeVerifier,
-          tokenEndpoint,
-          fhirBaseUrl: endpoint.url,
-          clientId: vendorConfig.clientId,
-          redirectUri,
-          providerName: selectedItem.displayName,
-        },
+        codeVerifier: pkce.codeVerifier,
+        tokenEndpoint,
+        fhirBaseUrl: endpoint.url,
+        clientId: vendorConfig.clientId,
+        redirectUri,
+        providerName: selectedItem.displayName,
       });
 
       // Redirect to authorization server
@@ -161,11 +169,7 @@ export default function ProviderSelectPage() {
     if (!loadProgress) return 'Initializing...';
     if (loadProgress.phase === 'fetching') {
       const mb = (loadProgress.bytesLoaded / 1024 / 1024).toFixed(1);
-      if (loadProgress.totalBytes) {
-        const total = (loadProgress.totalBytes / 1024 / 1024).toFixed(1);
-        const pct = Math.round((loadProgress.bytesLoaded / loadProgress.totalBytes) * 100);
-        return `Loading providers... ${mb}/${total} MB (${pct}%)`;
-      }
+      // Don't show percentage - content-length is compressed size but we read decompressed
       return `Loading providers... ${mb} MB`;
     }
     if (loadProgress.phase === 'parsing') {
@@ -220,20 +224,28 @@ export default function ProviderSelectPage() {
       <ProviderSearch onSearch={handleSearch} placeholder="Search by name, city, or state..." />
 
       <div className="provider-results">
-        {filteredItems.length === 0 ? (
+        {displayedItems.length === 0 ? (
           <p className="no-results">No providers found matching "{query}"</p>
         ) : (
           <>
             <p className="results-count">
               {query
-                ? `Showing ${filteredItems.length} result${filteredItems.length !== 1 ? 's' : ''}`
-                : `Showing ${filteredItems.length} of ${allItems.length.toLocaleString()} providers`}
+                ? `Showing ${displayedItems.length} of ${searchResults.length} result${searchResults.length !== 1 ? 's' : ''}`
+                : `Showing ${displayedItems.length} of ${allItems.length.toLocaleString()} providers`}
             </p>
             <div className="provider-grid">
-              {filteredItems.map((item) => (
+              {displayedItems.map((item) => (
                 <ProviderCard key={item.id} item={item} onClick={handleSelectProvider} />
               ))}
             </div>
+            {displayedItems.length < searchResults.length && (
+              <button
+                className="btn load-more-btn"
+                onClick={() => setPage(p => p + 1)}
+              >
+                Load More ({searchResults.length - displayedItems.length} remaining)
+              </button>
+            )}
           </>
         )}
       </div>
@@ -254,8 +266,10 @@ export default function ProviderSelectPage() {
             <div className="modal-buttons">
               <button
                 className="btn btn-secondary"
-                onClick={() => setSelectedItem(null)}
-                disabled={connecting}
+                onClick={() => {
+                  setSelectedItem(null);
+                  setConnecting(false);
+                }}
               >
                 Cancel
               </button>

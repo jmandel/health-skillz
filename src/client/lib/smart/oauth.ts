@@ -17,6 +17,7 @@ export interface BuildAuthUrlParams {
   scopes: string;
   redirectUri: string;
   pkce: PKCE;
+  sessionId?: string; // Include in state for cross-origin redirect recovery
 }
 
 export interface BuildAuthUrlResult {
@@ -55,11 +56,29 @@ export async function generatePKCE(): Promise<PKCE> {
 
 /**
  * Generate a random state parameter.
+ * Optionally prefix with sessionId for recovery after cross-origin redirects.
  */
-export function generateState(): string {
+export function generateState(sessionId?: string): string {
   const array = new Uint8Array(16);
   crypto.getRandomValues(array);
-  return base64UrlEncode(array);
+  const random = base64UrlEncode(array);
+  // Encode sessionId in state so we can recover it after redirect
+  // Format: sessionId.randomState
+  return sessionId ? `${sessionId}.${random}` : random;
+}
+
+/**
+ * Parse session ID from state parameter.
+ */
+export function parseSessionFromState(state: string): { sessionId: string | null; nonce: string } {
+  const dotIndex = state.indexOf('.');
+  if (dotIndex > 0) {
+    return {
+      sessionId: state.substring(0, dotIndex),
+      nonce: state.substring(dotIndex + 1),
+    };
+  }
+  return { sessionId: null, nonce: state };
 }
 
 /**
@@ -122,13 +141,13 @@ export async function fetchSMARTConfiguration(
 export async function buildAuthorizationUrl(
   params: BuildAuthUrlParams
 ): Promise<BuildAuthUrlResult> {
-  const { fhirBaseUrl, clientId, scopes, redirectUri, pkce } = params;
+  const { fhirBaseUrl, clientId, scopes, redirectUri, pkce, sessionId } = params;
 
   // Fetch SMART configuration
   const config = await fetchSMARTConfiguration(fhirBaseUrl);
 
-  // Generate state
-  const state = generateState();
+  // Generate state (includes sessionId for cross-origin redirect recovery)
+  const state = generateState(sessionId);
 
   // Build authorization URL
   const authUrl = new URL(config.authorization_endpoint);
