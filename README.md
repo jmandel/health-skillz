@@ -2,14 +2,50 @@
 
 A Claude Skill for analyzing personal health records via SMART on FHIR.
 
-## What is this?
+## Try It Now
 
-Health Record Assistant is a Claude Skill that enables Claude to securely fetch and analyze your electronic health records directly from your healthcare provider's patient portal (like Epic MyChart).
+A live instance is running at **[health-skillz.joshuamandel.com](https://health-skillz.joshuamandel.com)**. To use it:
 
-## Quick Start
+1. **Download the skill:** [health-record-assistant.zip](https://health-skillz.joshuamandel.com/skill.zip)
+2. **Install in Claude:** Settings → Skills → Upload the zip file
+3. **Ask Claude:** "Can you look at my health records?"
+
+Claude will create a secure session and give you a link to connect your patient portal. Currently supports **Epic** health systems (most major US hospitals).
+
+**For testing**, use Epic's sandbox:
+- Username: `fhircamila`
+- Password: `epicepic1`
+
+## What It Does
+
+- **Full data sync**: Pulls all your FHIR resources—labs, meds, conditions, procedures, immunizations, encounters
+- **Clinical notes**: Extracts full text from visit notes, discharge summaries, and other documents
+- **End-to-end encrypted**: Data is encrypted in your browser before transmission; only Claude can decrypt it
+- **Download your data**: Get a complete JSON export of your records
+
+## How It Works
+
+```
+1. You: "Can you look at my health records?"
+
+2. Claude: Creates encrypted session, shows you a link
+
+3. You: Click link → sign into patient portal → authorize → click "Done"
+
+4. Claude: Decrypts data, explores it, answers your questions
+```
+
+Claude analyzes your data iteratively—reading notes, querying structured data, applying clinical reasoning—rather than running blind analysis in a sandbox.
+
+---
+
+## For Developers
+
+Want to deploy your own instance? Read on.
+
+### Quick Start
 
 ```bash
-# Clone
 git clone https://github.com/jmandel/health-skillz
 cd health-skillz
 
@@ -19,14 +55,14 @@ cp config.json.example config.json
 
 # Install & Setup
 bun install
-bun run setup  # Downloads brands, packages skill
+bun run setup  # Downloads Epic endpoint directory
 
 # Run
 bun run dev    # Development with hot reload
 bun run start  # Production
 ```
 
-## Configuration
+### Configuration
 
 Edit `config.json`:
 
@@ -40,36 +76,38 @@ Edit `config.json`:
     {
       "name": "epic-sandbox",
       "file": "./brands/epic-sandbox.json",
-      "tags": ["epic", "sandbox"],
-      "clientId": "YOUR_CLIENT_ID",
-      "scopes": "patient/*.rs",
-      "redirectURL": "https://your-domain.com/connect/callback"
+      "clientId": "YOUR_SANDBOX_CLIENT_ID",
+      "scopes": "patient/*.rs"
+    },
+    {
+      "name": "epic-prod",
+      "file": "./brands/epic-prod.json",
+      "clientId": "YOUR_PROD_CLIENT_ID",
+      "scopes": "patient/*.rs"
     }
   ]
 }
 ```
 
-## Registering a SMART on FHIR App
+### Registering a SMART on FHIR App
 
-To use with real EHRs, register your app:
+To use with real EHRs, register your app with each vendor:
 
 1. **Epic**: https://fhir.epic.com/Developer/Apps
 2. Set redirect URI to: `https://your-domain.com/connect/callback`
 3. Request scopes: `patient/*.rs`
 4. Add the client ID to your config.json
 
-## Project Structure
+Epic sandbox apps are approved instantly. Production apps require a brief review.
+
+### Project Structure
 
 ```
 health-skillz/
 ├── src/
 │   ├── server.ts         # Bun server with API routes
-│   ├── index.html        # HTML entry (auto-bundled by Bun)
 │   └── client/           # React frontend
-│       ├── main.tsx
-│       ├── App.tsx
-│       ├── pages/        # Route components
-│       ├── components/   # UI components
+│       ├── pages/        # Route components  
 │       ├── lib/          # SMART OAuth, FHIR client, crypto
 │       └── store/        # Zustand state
 ├── scripts/
@@ -77,45 +115,29 @@ health-skillz/
 │   └── package-skill.ts      # Package Claude skill
 ├── skill/
 │   └── health-record-assistant/
-│       ├── SKILL.md          # Claude skill definition
-│       └── references/
-├── brands/                   # Processed endpoint data
-├── static/brands/            # Brand files served to frontend
+│       ├── SKILL.md          # Claude skill instructions
+│       ├── scripts/          # create-session.ts, finalize-session.ts
+│       └── references/       # FHIR-GUIDE.md
 └── config.json
 ```
 
-## API Endpoints
+### API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/session` | POST | Create new session (requires publicKey) |
+| `/api/session` | POST | Create session (requires ECDH publicKey) |
 | `/api/session/{id}` | GET | Get session info + vendor config |
-| `/api/poll/{id}` | GET | Long-poll for health data |
-| `/api/receive-ehr` | POST | Receive encrypted EHR data |
+| `/api/poll/{id}` | GET | Long-poll for encrypted health data |
+| `/api/receive-ehr` | POST | Receive encrypted EHR data from browser |
 | `/api/finalize/{id}` | POST | Mark session complete |
-| `/connect/{id}` | GET | User connection page |
-| `/connect/{id}/select` | GET | Provider search page |
-| `/connect/{id}/callback` | GET | OAuth callback |
-| `/skill.zip` | GET | Download Claude skill |
+| `/skill.zip` | GET | Download packaged Claude skill |
 
-## How It Works
+### Architecture
 
-1. Claude creates a session via POST `/api/session` with ECDH public key
-2. User clicks the returned `userUrl` → React app loads
-3. User searches for their healthcare provider
-4. User authenticates via SMART on FHIR OAuth
-5. React app fetches FHIR data directly from EHR
-6. Data is encrypted client-side with session public key
-7. Encrypted data POSTed to `/api/receive-ehr`
-8. Claude polls `/api/poll/{id}` until data ready
-9. Claude decrypts and analyzes the FHIR data
-
-## Architecture
-
-- **Bun fullstack**: Server imports HTML, Bun auto-bundles React/CSS
-- **E2E encryption**: Data encrypted in browser, server never sees plaintext
-- **SMART on FHIR**: OAuth + FHIR fetching happens client-side
-- **No external dependencies**: Native EHR retrieval, no health-record-mcp
+- **Bun fullstack**: Server + React bundled together
+- **E2E encryption**: ECDH key exchange, AES-256-GCM; server never sees plaintext
+- **SMART on FHIR**: OAuth + FHIR fetching happens entirely client-side
+- **No intermediaries**: Direct connection from browser to EHR FHIR server
 
 ## License
 
