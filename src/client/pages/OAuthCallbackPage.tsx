@@ -82,7 +82,6 @@ export default function OAuthCallbackPage() {
           }
         );
 
-        // Encrypt data with metadata inside encrypted payload
         setPhase('encrypting');
         if (!oauth.publicKeyJwk) {
           throw new Error('No encryption key available');
@@ -98,7 +97,6 @@ export default function OAuthCallbackPage() {
           oauth.publicKeyJwk
         );
 
-        // Send to server (server only sees encrypted blob, no metadata)
         setPhase('sending');
         await sendEncryptedEhrData(sessionId, encrypted);
 

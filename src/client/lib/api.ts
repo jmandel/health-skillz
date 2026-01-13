@@ -21,7 +21,6 @@ export interface EncryptedPayload {
   ephemeralPublicKey: JsonWebKey;
   iv: number[];
   ciphertext: number[];
-  // providerName is inside encrypted data, not in plaintext
 }
 
 const BASE_URL = '';  // Same-origin API

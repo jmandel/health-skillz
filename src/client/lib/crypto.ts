@@ -6,7 +6,6 @@ export interface EncryptedPayload {
   ephemeralPublicKey: JsonWebKey;
   iv: number[];
   ciphertext: number[];
-  // providerName is now inside the encrypted data, not plaintext metadata
 }
 
 export async function generateKeyPair(): Promise<CryptoKeyPair> {
