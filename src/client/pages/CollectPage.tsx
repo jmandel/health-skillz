@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useState } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { getFullData, getProvidersSummary, saveSession, loadSession, clearAllData } from '../lib/storage';
 import { getSkillTemplate, type SkillTemplate } from '../lib/api';
 import ProviderList from '../components/ProviderList';
@@ -14,6 +14,7 @@ function generateLocalId(): string {
 
 export default function CollectPage() {
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const [providers, setProviders] = useState<Array<{ name: string; connectedAt: string }>>([]);
   const [status, setStatus] = useState<'idle' | 'loading' | 'building' | 'error'>('idle');
@@ -30,7 +31,9 @@ export default function CollectPage() {
     if (saved && saved.sessionId?.startsWith('local_')) {
       // Restore existing local session
       setLocalId(saved.sessionId);
-      setProviders(getProvidersSummary());
+      // Always re-read providers (they may have been updated)
+      const summaries = getProvidersSummary();
+      setProviders(summaries);
       
       // Clean up URL if returning from provider
       if (providerAdded === 'true') {
@@ -40,13 +43,14 @@ export default function CollectPage() {
       // Create new local session
       const newId = generateLocalId();
       setLocalId(newId);
+      setProviders([]);
       saveSession({
         sessionId: newId,
         publicKeyJwk: null, // No encryption for local collection
         providerSummaries: [],
       });
     }
-  }, [searchParams]);
+  }, [location.key]);  // Re-run on every navigation to this page
 
   const startConnect = useCallback(() => {
     if (!localId) return;
