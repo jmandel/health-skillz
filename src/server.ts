@@ -144,10 +144,11 @@ const server = Bun.serve({
     "/connect/:sessionId": homepage,
     "/connect/:sessionId/select": homepage,
     "/connect/:sessionId/callback": homepage,
+    // OAuth callback - single URL, page detects local vs agent session
+    "/connect/callback": homepage,
     // Self-service collection flow
     "/collect": homepage,
     "/collect/select": homepage,
-    "/collect/callback": homepage,
   },
 
   async fetch(req) {
@@ -353,38 +354,9 @@ const server = Bun.serve({
       }
     }
 
-    // OAuth callback redirect (for registered redirect URLs without session ID)
-    if (path === "/connect/callback" || path === "/ehr-connect/callback") {
-      const params = url.search;
-      // Try to extract sessionId from state parameter (format: sessionId.nonce)
-      const stateParam = url.searchParams.get('state') || '';
-      const dotIndex = stateParam.indexOf('.');
-      const sessionIdFromState = dotIndex > 0 ? stateParam.substring(0, dotIndex) : null;
-      
-      if (sessionIdFromState) {
-        // Check if this is a local collection session (starts with 'local_')
-        const isLocal = sessionIdFromState.startsWith('local_');
-        const callbackPath = isLocal ? '/collect/callback' : `/connect/${sessionIdFromState}/callback`;
-        // Redirect back - use baseURL as-is (it's the canonical URL)
-        return Response.redirect(`${baseURL}${callbackPath}${params}`, 302);
-      }
-      
-      // Fallback: try sessionStorage (same-origin only)
-      return new Response(`<!DOCTYPE html>
-<html><head><title>Redirecting...</title></head>
-<body><script>
-const s = sessionStorage.getItem('health_skillz_session');
-if (s) {
-  try {
-    const { sessionId } = JSON.parse(s);
-    if (sessionId) {
-      const isLocal = sessionId.startsWith('local_');
-      const path = isLocal ? '/collect/callback' : '/connect/' + sessionId + '/callback';
-      window.location.replace(path + '${params}');
-    }
-  } catch(e) { document.body.textContent = 'Error: ' + e.message; }
-} else { document.body.textContent = 'No session found. State: ${stateParam}'; }
-</script></body></html>`, { headers: { "Content-Type": "text/html" } });
+    // Legacy callback URL redirect (if any old links use /ehr-connect/callback)
+    if (path === "/ehr-connect/callback") {
+      return Response.redirect(`${baseURL}/connect/callback${url.search}`, 302);
     }
 
     return new Response("Not found", { status: 404 });

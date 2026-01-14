@@ -5,7 +5,6 @@ import ProviderSelectPage from './pages/ProviderSelectPage';
 import OAuthCallbackPage from './pages/OAuthCallbackPage';
 import CollectPage from './pages/CollectPage';
 import CollectProviderSelectPage from './pages/CollectProviderSelectPage';
-import CollectCallbackPage from './pages/CollectCallbackPage';
 import './index.css';
 
 export default function App() {
@@ -18,12 +17,13 @@ export default function App() {
         <Route path="/connect/:sessionId" element={<ConnectPage />} />
         <Route path="/connect/:sessionId/select" element={<ProviderSelectPage />} />
         <Route path="/connect/:sessionId/callback" element={<OAuthCallbackPage />} />
+        
+        {/* OAuth callback - single URL for both flows, page detects which */}
         <Route path="/connect/callback" element={<OAuthCallbackPage />} />
         
         {/* Self-service collection flow (local only) */}
         <Route path="/collect" element={<CollectPage />} />
         <Route path="/collect/select" element={<CollectProviderSelectPage />} />
-        <Route path="/collect/callback" element={<CollectCallbackPage />} />
       </Routes>
     </BrowserRouter>
   );

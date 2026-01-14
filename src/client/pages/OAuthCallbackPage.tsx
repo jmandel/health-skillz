@@ -61,6 +61,9 @@ export default function OAuthCallbackPage() {
     clearOAuthState(state);
 
     const processOAuth = async () => {
+      // Detect if this is a local collection (no server session, no encryption)
+      const isLocalCollection = sessionId.startsWith('local_');
+      
       try {
         setStatus('connecting');
         const tokenResponse = await exchangeCodeForToken(
@@ -93,38 +96,59 @@ export default function OAuthCallbackPage() {
           }
         );
 
-        setStatus('encrypting');
-        if (!oauth.publicKeyJwk) {
-          throw new Error('No encryption key available');
-        }
         const connectedAt = new Date().toISOString();
-        const encrypted = await encryptData(
-          {
+        
+        if (isLocalCollection) {
+          // Local collection: just save to IndexedDB, no encryption or server
+          setStatus('saving' as any);
+          await addProviderData(sessionId, {
             name: oauth.providerName,
             fhirBaseUrl: oauth.fhirBaseUrl,
             connectedAt,
             fhir: ehrData.fhir,
             attachments: ehrData.attachments,
-          },
-          oauth.publicKeyJwk
-        );
+          });
 
-        setStatus('sending');
-        await sendEncryptedEhrData(sessionId, encrypted);
+          setStatus('done');
+          setTimeout(() => {
+            setStatus('idle');
+            navigate(`/collect?provider_added=true`);
+          }, 1500);
+        } else {
+          // Agent session: encrypt and send to server
+          setStatus('encrypting');
+          if (!oauth.publicKeyJwk) {
+            throw new Error('No encryption key available');
+          }
+          const encrypted = await encryptData(
+            {
+              name: oauth.providerName,
+              fhirBaseUrl: oauth.fhirBaseUrl,
+              connectedAt,
+              fhir: ehrData.fhir,
+              attachments: ehrData.attachments,
+            },
+            oauth.publicKeyJwk
+          );
 
-        await addProviderData(sessionId, {
-          name: oauth.providerName,
-          fhirBaseUrl: oauth.fhirBaseUrl,
-          connectedAt,
-          fhir: ehrData.fhir,
-          attachments: ehrData.attachments,
-        });
+          setStatus('sending');
+          await sendEncryptedEhrData(sessionId, encrypted);
 
-        setStatus('done');
-        setTimeout(() => {
-          setStatus('idle');
-          navigate(`/connect/${sessionId}?provider_added=true`);
-        }, 1500);
+          // Also save locally for download feature
+          await addProviderData(sessionId, {
+            name: oauth.providerName,
+            fhirBaseUrl: oauth.fhirBaseUrl,
+            connectedAt,
+            fhir: ehrData.fhir,
+            attachments: ehrData.attachments,
+          });
+
+          setStatus('done');
+          setTimeout(() => {
+            setStatus('idle');
+            navigate(`/connect/${sessionId}?provider_added=true`);
+          }, 1500);
+        }
       } catch (err) {
         console.error('OAuth processing error:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
@@ -133,6 +157,8 @@ export default function OAuthCallbackPage() {
 
     processOAuth();
   }, [urlSessionId, searchParams, navigate, status, setStatus, setError]);
+
+  const isLocalCollection = resolvedSessionId?.startsWith('local_');
 
   const getMessage = () => {
     switch (store.status) {
@@ -144,6 +170,8 @@ export default function OAuthCallbackPage() {
         return 'Encrypting data...';
       case 'sending':
         return 'Sending encrypted data...';
+      case 'saving':
+        return 'Saving data...';
       case 'done':
         return 'Success! Redirecting...';
       case 'error':
@@ -200,13 +228,16 @@ export default function OAuthCallbackPage() {
           </div>
         )}
         {store.status === 'error' && resolvedSessionId && (
-          <button className="btn" onClick={() => navigate(`/connect/${resolvedSessionId}`)}>
+          <button className="btn" onClick={() => navigate(isLocalCollection ? '/collect' : `/connect/${resolvedSessionId}`)}>
             ← Try Again
           </button>
         )}
         {(isLoading || status === 'loading') && (
           <p className="security-info">
-            🔒 Your data is being encrypted end-to-end. Only your AI agent can decrypt it.
+            {isLocalCollection 
+              ? '🔒 Your data stays in your browser. Nothing is sent to any server.'
+              : '🔒 Your data is being encrypted end-to-end. Only your AI agent can decrypt it.'
+            }
           </p>
         )}
       </div>
