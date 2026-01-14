@@ -170,12 +170,14 @@ export async function fetchPatientData(
         ? await fetchSingleResource(url, accessToken)
         : await fetchWithPagination(url, accessToken, (pageNum, totalPages) => {
             // Update progress with page info when fetching multiple pages
+            // Show subProgress if we're past page 1 OR if we know there are multiple pages
+            const showSubProgress = pageNum > 1 || (totalPages && totalPages > 1);
             onProgress?.({
               phase: 'resources',
               completed: completedQueries,
               total: totalQueries,
               detail: label,
-              subProgress: totalPages && totalPages > 1 ? { current: pageNum, total: totalPages } : undefined
+              subProgress: showSubProgress ? { current: pageNum, total: totalPages || pageNum } : undefined
             });
           });
 

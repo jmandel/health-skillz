@@ -209,11 +209,16 @@ export default function OAuthCallbackPage() {
               <span className="progress-detail">
                 {progress.resources.subProgress ? (
                   <span className="detail-with-bar">
-                    <span 
-                      className="detail-bar" 
-                      style={{ width: `${(progress.resources.subProgress.current / progress.resources.subProgress.total) * 100}%` }}
-                    />
-                    <span className="detail-text">{progress.resources.detail} {progress.resources.subProgress.current}/{progress.resources.subProgress.total}</span>
+                    {progress.resources.subProgress.total > progress.resources.subProgress.current && (
+                      <span 
+                        className="detail-bar" 
+                        style={{ width: `${(progress.resources.subProgress.current / progress.resources.subProgress.total) * 100}%` }}
+                      />
+                    )}
+                    <span className="detail-text">
+                      {progress.resources.detail} p{progress.resources.subProgress.current}
+                      {progress.resources.subProgress.total > progress.resources.subProgress.current && `/${progress.resources.subProgress.total}`}
+                    </span>
                   </span>
                 ) : progress.resources.detail}
               </span>
