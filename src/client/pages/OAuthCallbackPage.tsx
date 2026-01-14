@@ -15,9 +15,9 @@ export default function OAuthCallbackPage() {
   const store = useSessionStore();
 
   const [progress, setProgress] = useState({
-    resources: { completed: 0, total: 0, detail: '' },
-    references: { completed: 0, total: 0, detail: '' },
-    attachments: { completed: 0, total: 0, detail: '' },
+    resources: { completed: 0, total: 0, detail: '', subProgress: null as { current: number; total: number } | null },
+    references: { completed: 0, total: 0, detail: '', subProgress: null as { current: number; total: number } | null },
+    attachments: { completed: 0, total: 0, detail: '', subProgress: null as { current: number; total: number } | null },
   });
   const [resolvedSessionId, setResolvedSessionId] = useState<string | null>(null);
 
@@ -91,6 +91,7 @@ export default function OAuthCallbackPage() {
                 completed: info.completed,
                 total: info.total,
                 detail: info.detail,
+                subProgress: info.subProgress || null,
               },
             }));
           }
@@ -205,7 +206,17 @@ export default function OAuthCallbackPage() {
                   ? `${progress.resources.completed}/${progress.resources.total}` 
                   : '...'}
               </span>
-              <span className="progress-detail">{progress.resources.detail}</span>
+              <span className="progress-detail">
+                {progress.resources.subProgress ? (
+                  <span className="detail-with-bar">
+                    <span 
+                      className="detail-bar" 
+                      style={{ width: `${(progress.resources.subProgress.current / progress.resources.subProgress.total) * 100}%` }}
+                    />
+                    <span className="detail-text">{progress.resources.detail} {progress.resources.subProgress.current}/{progress.resources.subProgress.total}</span>
+                  </span>
+                ) : progress.resources.detail}
+              </span>
             </div>
             <div className="progress-row">
               <span className="progress-label">References:</span>

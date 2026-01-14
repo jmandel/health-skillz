@@ -598,3 +598,24 @@ footer a {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.detail-with-bar {
+  position: relative;
+  display: inline-block;
+  min-width: 150px;
+}
+
+.detail-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(102, 126, 234, 0.15);
+  border-radius: 3px;
+  transition: width 0.2s ease;
+}
+
+.detail-text {
+  position: relative;
+  z-index: 1;
+}

@@ -9,6 +9,7 @@ export interface ProgressInfo {
   completed: number;
   total: number;
   detail: string;
+  subProgress?: { current: number; total: number };
 }
 
 export type ProgressCallback = (progress: ProgressInfo) => void;
@@ -167,16 +168,15 @@ export async function fetchPatientData(
 
       const resources = query.patientInPath 
         ? await fetchSingleResource(url, accessToken)
-        : await fetchWithPagination(url, accessToken, (pageNum, count) => {
+        : await fetchWithPagination(url, accessToken, (pageNum, totalPages) => {
             // Update progress with page info when fetching multiple pages
-            if (pageNum > 1) {
-              onProgress?.({
-                phase: 'resources',
-                completed: completedQueries,
-                total: totalQueries,
-                detail: `${label} p${pageNum}`
-              });
-            }
+            onProgress?.({
+              phase: 'resources',
+              completed: completedQueries,
+              total: totalQueries,
+              detail: label,
+              subProgress: totalPages && totalPages > 1 ? { current: pageNum, total: totalPages } : undefined
+            });
           });
 
       if (!result.fhir[resourceType]) {
@@ -402,7 +402,7 @@ async function fetchSingleResource(
 async function fetchWithPagination(
   initialUrl: string,
   accessToken: string,
-  onPage?: (pageNum: number, resourceCount: number) => void
+  onPage?: (pageNum: number, totalPages: number | null) => void
 ): Promise<any[]> {
   const resources: any[] = [];
   let url: string | null = initialUrl;
@@ -432,10 +432,15 @@ async function fetchWithPagination(
     
     const entryCount = bundle.entry?.length || 0;
     const nextLink = bundle.link?.find((l) => l.relation === 'next')?.url || null;
-    console.log(`[FHIR] Page ${pageCount}: ${entryCount} entries, total in bundle: ${bundle.total}, hasNext: ${!!nextLink}`);
+    
+    // Estimate total pages from bundle.total (if available) and page size
+    const pageSize = entryCount || 100;
+    const estimatedTotalPages = bundle.total ? Math.ceil(bundle.total / pageSize) : null;
+    
+    console.log(`[FHIR] Page ${pageCount}/${estimatedTotalPages || '?'}: ${entryCount} entries, total: ${bundle.total}`);
     
     // Report page progress
-    onPage?.(pageCount, resources.length + entryCount);
+    onPage?.(pageCount, estimatedTotalPages);
 
     // Extract resources from bundle entries
     if (bundle.entry) {
