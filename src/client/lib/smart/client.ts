@@ -140,11 +140,16 @@ export async function fetchPatientData(
     await semaphore.acquire();
     try {
       const resourceType = query.resourceType;
+      const category = query.params.category 
+        ? String(query.params.category).split('|').pop() 
+        : null;
+      const label = category ? `${resourceType}:${category}` : resourceType;
+      
       onProgress?.({
         phase: 'resources',
         completed: completedQueries,
         total: totalQueries,
-        detail: resourceType
+        detail: label
       });
 
       let url: string;
@@ -169,7 +174,7 @@ export async function fetchPatientData(
                 phase: 'resources',
                 completed: completedQueries,
                 total: totalQueries,
-                detail: `${resourceType} p${pageNum}`
+                detail: `${label} p${pageNum}`
               });
             }
           });
