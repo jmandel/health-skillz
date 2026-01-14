@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useSessionStore } from '../store/session';
-import { loadOAuthState, clearOAuthState, addProviderData } from '../lib/storage';
+import { loadOAuthState, clearOAuthState } from '../lib/storage';
 import { exchangeCodeForToken } from '../lib/smart/oauth';
 import { fetchPatientData, type ProgressInfo } from '../lib/smart/client';
 import { encryptData } from '../lib/crypto';
@@ -101,7 +101,7 @@ export default function OAuthCallbackPage() {
         if (isLocalCollection) {
           // Local collection: just save to IndexedDB, no encryption or server
           setStatus('saving' as any);
-          await addProviderData(sessionId, {
+          await store.addProviderData(sessionId, {
             name: oauth.providerName,
             fhirBaseUrl: oauth.fhirBaseUrl,
             connectedAt,
@@ -112,7 +112,7 @@ export default function OAuthCallbackPage() {
           setStatus('done');
           setTimeout(() => {
             setStatus('idle');
-            navigate(`/collect?provider_added=true`);
+            navigate('/collect');
           }, 1500);
         } else {
           // Agent session: encrypt and send to server
@@ -135,7 +135,7 @@ export default function OAuthCallbackPage() {
           await sendEncryptedEhrData(sessionId, encrypted);
 
           // Also save locally for download feature
-          await addProviderData(sessionId, {
+          await store.addProviderData(sessionId, {
             name: oauth.providerName,
             fhirBaseUrl: oauth.fhirBaseUrl,
             connectedAt,
