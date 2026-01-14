@@ -19,14 +19,16 @@ export default function CollectPage() {
     clearAndReset,
     setStatus,
     setError,
+    clearError,
   } = useSessionStore();
 
-  // Initialize store from storage on mount
+  // Initialize store from storage on mount and clear any stale errors
   useEffect(() => {
+    clearError();
     if (!initialized) {
       init();
     }
-  }, [initialized, init]);
+  }, [initialized, init, clearError]);
 
   // Create local session if none exists
   useEffect(() => {

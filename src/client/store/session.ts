@@ -42,6 +42,7 @@ interface SessionActions {
   // Status management
   setStatus: (status: Status) => void;
   setError: (error: string) => void;
+  clearError: () => void;
   
   // Clear everything and start fresh
   clearAndReset: () => Promise<void>;
@@ -131,6 +132,8 @@ export const useSessionStore = create<SessionState & SessionActions>((set, get) 
   setStatus: (status) => set({ status, error: status === 'error' ? get().error : null }),
 
   setError: (error) => set({ error, status: 'error' }),
+
+  clearError: () => set({ error: null, status: 'idle' }),
 
   clearAndReset: async () => {
     await clearAllData();
