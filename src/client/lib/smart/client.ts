@@ -169,7 +169,7 @@ export async function fetchPatientData(
                 phase: 'resources',
                 completed: completedQueries,
                 total: totalQueries,
-                detail: `p${pageNum}`
+                detail: `${resourceType} p${pageNum}`
               });
             }
           });
