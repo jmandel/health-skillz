@@ -166,7 +166,17 @@ export async function fetchPatientData(
 
       const resources = query.patientInPath 
         ? await fetchSingleResource(url, accessToken)
-        : await fetchWithPagination(url, accessToken);
+        : await fetchWithPagination(url, accessToken, (pageNum, count) => {
+            // Update progress with page info when fetching multiple pages
+            if (pageNum > 1) {
+              onProgress?.({
+                phase: 'resources',
+                completed: completedQueries,
+                total: totalQueries,
+                detail: `${resourceType}${categoryLabel} (page ${pageNum}, ${count} items)`
+              });
+            }
+          });
 
       if (!result.fhir[resourceType]) {
         result.fhir[resourceType] = [];
@@ -390,7 +400,8 @@ async function fetchSingleResource(
  */
 async function fetchWithPagination(
   initialUrl: string,
-  accessToken: string
+  accessToken: string,
+  onPage?: (pageNum: number, resourceCount: number) => void
 ): Promise<any[]> {
   const resources: any[] = [];
   let url: string | null = initialUrl;
@@ -421,6 +432,9 @@ async function fetchWithPagination(
     const entryCount = bundle.entry?.length || 0;
     const nextLink = bundle.link?.find((l) => l.relation === 'next')?.url || null;
     console.log(`[FHIR] Page ${pageCount}: ${entryCount} entries, total in bundle: ${bundle.total}, hasNext: ${!!nextLink}`);
+    
+    // Report page progress
+    onPage?.(pageCount, resources.length + entryCount);
 
     // Extract resources from bundle entries
     if (bundle.entry) {

@@ -365,8 +365,8 @@ const server = Bun.serve({
         // Check if this is a local collection session (starts with 'local_')
         const isLocal = sessionIdFromState.startsWith('local_');
         const callbackPath = isLocal ? '/collect/callback' : `/connect/${sessionIdFromState}/callback`;
-        // Redirect to :8000 to preserve sessionStorage (same origin as where OAuth started)
-        return Response.redirect(`${baseURL}:${port}${callbackPath}${params}`, 302);
+        // Redirect back - use baseURL as-is (it's the canonical URL)
+        return Response.redirect(`${baseURL}${callbackPath}${params}`, 302);
       }
       
       // Fallback: try sessionStorage (same-origin only)
