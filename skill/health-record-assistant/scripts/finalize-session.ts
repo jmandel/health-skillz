@@ -116,10 +116,17 @@ mkdirSync(outputDir, { recursive: true });
 
 // Decrypt and save each provider
 const files: string[] = [];
+const usedNames = new Map<string, number>();
 
 for (const encrypted of pollResult.encryptedProviders) {
   const provider = await decryptProvider(encrypted);
-  const slug = slugify(provider.name);
+  const baseSlug = slugify(provider.name);
+  
+  // Handle duplicate names
+  const count = usedNames.get(baseSlug) || 0;
+  usedNames.set(baseSlug, count + 1);
+  const slug = count === 0 ? baseSlug : `${baseSlug}-${count + 1}`;
+  
   const filename = `${slug}.json`;
   const filepath = join(outputDir, filename);
   

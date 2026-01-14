@@ -96,13 +96,20 @@ export default function CollectPage() {
         refsFolder.file(filename, content);
       }
 
-      // Add data files
+      // Add data files with unique names
       const dataFolder = skillFolder.folder('data')!;
+      const usedNames = new Map<string, number>();
       for (const provider of data.providers) {
-        const slug = provider.name
+        const baseSlug = provider.name
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, '-')
           .replace(/^-|-$/g, '');
+        
+        // Handle duplicate names
+        const count = usedNames.get(baseSlug) || 0;
+        usedNames.set(baseSlug, count + 1);
+        const slug = count === 0 ? baseSlug : `${baseSlug}-${count + 1}`;
+        
         dataFolder.file(`${slug}.json`, JSON.stringify(provider, null, 2));
       }
 
