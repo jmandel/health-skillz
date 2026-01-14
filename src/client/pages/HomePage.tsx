@@ -38,9 +38,11 @@ export default function HomePage() {
         </div>
 
         <div className="card">
-          <h2>Install the Skill</h2>
-          <p>Download and install the skill:</p>
-          <div style={{ margin: '24px 0' }}>
+          <h2>Get Started</h2>
+          
+          <h3>Option 1: Use with AI Agent</h3>
+          <p>Download and install the skill, then ask your AI to analyze your records:</p>
+          <div style={{ margin: '16px 0' }}>
             <a href="/skill.zip" className="btn">
               📥 Download Skill (.zip)
             </a>
@@ -48,8 +50,24 @@ export default function HomePage() {
               📄 View SKILL.md
             </a>
           </div>
-          <p>
+          <p style={{ fontSize: '14px', color: '#666' }}>
             <strong>To install:</strong> Settings → Capabilities → Skills → Upload .zip
+          </p>
+          
+          <hr style={{ margin: '24px 0', border: 'none', borderTop: '1px solid #e0e0e0' }} />
+          
+          <h3>Option 2: Collect Records First</h3>
+          <p>
+            Prefer to review your data first? Collect your records locally, then download
+            them as a self-contained AI skill package.
+          </p>
+          <div style={{ margin: '16px 0' }}>
+            <a href="/collect" className="btn btn-success">
+              📦 Collect My Records
+            </a>
+          </div>
+          <p style={{ fontSize: '14px', color: '#666' }}>
+            Your data stays in your browser. Download as JSON or as an AI-ready skill package.
           </p>
         </div>
 

@@ -5,6 +5,9 @@ import { join } from "path";
 // Import HTML for Bun's fullstack server - serves the React SPA
 import homepage from "./index.html";
 
+// Import skill builder
+import { buildAgentSkill, buildLocalSkill } from "../skill/build-skill";
+
 // Load config
 const configPath = process.env.CONFIG_PATH || "./config.json";
 const config = JSON.parse(readFileSync(configPath, "utf-8"));
@@ -53,12 +56,10 @@ function generateSessionId(): string {
   return Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
 }
 
-// Build skill zip
+// Build skill zip (agent version with scripts)
 async function buildSkillZip(): Promise<Response> {
-  const skillDir = "./skill/health-record-assistant";
-  if (!existsSync(skillDir)) {
-    return new Response("Skill not found", { status: 404 });
-  }
+  const scriptsDir = "./skill/health-record-assistant/scripts";
+  const refsDir = "./skill/health-record-assistant/references";
 
   const { $ } = await import("bun");
   const tempDir = `/tmp/skill-build-${Date.now()}`;
@@ -66,11 +67,11 @@ async function buildSkillZip(): Promise<Response> {
   try {
     await $`mkdir -p ${tempDir}/health-record-assistant/references ${tempDir}/health-record-assistant/scripts`;
 
-    let skillMd = readFileSync(join(skillDir, "SKILL.md"), "utf-8");
-    skillMd = skillMd.replaceAll("{{BASE_URL}}", baseURL);
+    // Build SKILL.md from partials
+    const skillMd = buildAgentSkill(baseURL);
     await Bun.write(`${tempDir}/health-record-assistant/SKILL.md`, skillMd);
 
-    const refsDir = join(skillDir, "references");
+    // Copy references
     if (existsSync(refsDir)) {
       for (const file of readdirSync(refsDir)) {
         let content = readFileSync(join(refsDir, file), "utf-8");
@@ -79,7 +80,7 @@ async function buildSkillZip(): Promise<Response> {
       }
     }
 
-    const scriptsDir = join(skillDir, "scripts");
+    // Copy scripts (agent-only)
     if (existsSync(scriptsDir)) {
       for (const file of readdirSync(scriptsDir)) {
         let content = readFileSync(join(scriptsDir, file), "utf-8");
@@ -139,9 +140,14 @@ const server = Bun.serve({
   routes: {
     // SPA routes - all handled by React Router
     "/": homepage,
+    // Agent-initiated flow
     "/connect/:sessionId": homepage,
     "/connect/:sessionId/select": homepage,
     "/connect/:sessionId/callback": homepage,
+    // Self-service collection flow
+    "/collect": homepage,
+    "/collect/select": homepage,
+    "/collect/callback": homepage,
   },
 
   async fetch(req) {
@@ -280,16 +286,36 @@ const server = Bun.serve({
       }, { headers: corsHeaders });
     }
 
-    // Skill markdown
+    // API: Get vendor configs (for local collection without a session)
+    if (path === "/api/vendors" && req.method === "GET") {
+      return Response.json(getVendors(), { headers: corsHeaders });
+    }
+
+    // Skill markdown (agent version)
     if (path === "/health-record-assistant.md") {
-      const mdPath = "./skill/health-record-assistant/SKILL.md";
-      if (!existsSync(mdPath)) return new Response("Not found", { status: 404 });
-      let content = readFileSync(mdPath, "utf-8");
-      content = content.replaceAll("{{BASE_URL}}", baseURL);
+      const content = buildAgentSkill(baseURL);
       return new Response(content, { headers: { "Content-Type": "text/markdown" } });
     }
 
-    // Skill zip
+    // Local skill template (for browser-side zip creation)
+    if (path === "/api/skill-template") {
+      const skillMd = buildLocalSkill();
+      const refsDir = "./skill/health-record-assistant/references";
+      const references: Record<string, string> = {};
+      
+      if (existsSync(refsDir)) {
+        for (const file of readdirSync(refsDir)) {
+          references[file] = readFileSync(join(refsDir, file), "utf-8");
+        }
+      }
+      
+      return Response.json({
+        skillMd,
+        references,
+      }, { headers: corsHeaders });
+    }
+
+    // Skill zip (agent version)
     if (path === "/skill.zip") {
       return await buildSkillZip();
     }

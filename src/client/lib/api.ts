@@ -80,3 +80,28 @@ export async function finalizeSession(
   }
   return res.json();
 }
+
+// Skill template for local skill building
+export interface SkillTemplate {
+  skillMd: string;
+  references: Record<string, string>;
+}
+
+export async function getSkillTemplate(): Promise<SkillTemplate> {
+  const res = await fetch(`${BASE_URL}/api/skill-template`);
+  if (!res.ok) {
+    throw new Error('Failed to fetch skill template');
+  }
+  return res.json();
+}
+
+// Get vendor configs without a session (for local collection)
+export async function getVendorConfigs(): Promise<Record<string, VendorConfig>> {
+  // Use a dummy session request to get vendor configs
+  // The server returns vendors in the session info, but we don't need a real session
+  const res = await fetch(`${BASE_URL}/api/vendors`);
+  if (!res.ok) {
+    throw new Error('Failed to fetch vendor configs');
+  }
+  return res.json();
+}
