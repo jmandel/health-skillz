@@ -140,15 +140,11 @@ export async function fetchPatientData(
     await semaphore.acquire();
     try {
       const resourceType = query.resourceType;
-      const categoryLabel = query.params.category 
-        ? ` (${String(query.params.category).split('|').pop()})` 
-        : '';
-      
       onProgress?.({
         phase: 'resources',
         completed: completedQueries,
         total: totalQueries,
-        detail: `${resourceType}${categoryLabel}`
+        detail: resourceType
       });
 
       let url: string;
@@ -173,7 +169,7 @@ export async function fetchPatientData(
                 phase: 'resources',
                 completed: completedQueries,
                 total: totalQueries,
-                detail: `${resourceType}${categoryLabel} (page ${pageNum}, ${count} items)`
+                detail: `p${pageNum}`
               });
             }
           });
