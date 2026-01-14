@@ -1,6 +1,6 @@
 import { useEffect, useCallback, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { getFullData, getProvidersSummary, saveSession, loadSession } from '../lib/storage';
+import { getFullData, getProvidersSummary, saveSession, loadSession, clearAllData } from '../lib/storage';
 import { getSkillTemplate, type SkillTemplate } from '../lib/api';
 import ProviderList from '../components/ProviderList';
 import StatusMessage from '../components/StatusMessage';
@@ -130,6 +130,18 @@ export default function CollectPage() {
     }
   }, []);
 
+  const handleStartOver = useCallback(async () => {
+    await clearAllData();
+    const newId = generateLocalId();
+    setLocalId(newId);
+    setProviders([]);
+    saveSession({
+      sessionId: newId,
+      publicKeyJwk: null,
+      providerSummaries: [],
+    });
+  }, []);
+
   const hasProviders = providers.length > 0;
   const isWorking = status === 'loading' || status === 'building';
 
@@ -190,6 +202,14 @@ export default function CollectPage() {
                 🤖 Download AI Skill
               </button>
             </div>
+            <button
+              className="btn btn-link"
+              onClick={handleStartOver}
+              disabled={isWorking}
+              style={{ marginTop: '16px', color: '#666' }}
+            >
+              🗑️ Clear & Start Over
+            </button>
           </>
         )}
 

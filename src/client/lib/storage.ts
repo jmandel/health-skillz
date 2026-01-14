@@ -105,6 +105,32 @@ export function clearSession(): void {
   sessionStorage.removeItem(SESSION_KEY);
 }
 
+export async function clearAllData(): Promise<void> {
+  // Clear sessionStorage
+  sessionStorage.removeItem(SESSION_KEY);
+  
+  // Clear all OAuth states
+  const keysToRemove: string[] = [];
+  for (let i = 0; i < sessionStorage.length; i++) {
+    const key = sessionStorage.key(i);
+    if (key?.startsWith(OAUTH_KEY_PREFIX)) {
+      keysToRemove.push(key);
+    }
+  }
+  keysToRemove.forEach(k => sessionStorage.removeItem(k));
+  
+  // Clear IndexedDB
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    const store = tx.objectStore(IDB_STORE);
+    const request = store.clear();
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve();
+    tx.oncomplete = () => db.close();
+  });
+}
+
 // === Provider Data (large data in IndexedDB) ===
 
 export async function addProviderData(
