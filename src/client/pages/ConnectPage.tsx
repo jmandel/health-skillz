@@ -1,90 +1,80 @@
 import { useEffect, useCallback } from 'react';
-import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useSessionStore } from '../store/session';
 import { getSessionInfo, finalizeSession } from '../lib/api';
-import { saveSession, loadSession, getFullData, getProvidersSummary } from '../lib/storage';
+import { getFullData } from '../lib/storage';
 import ProviderList from '../components/ProviderList';
 import StatusMessage from '../components/StatusMessage';
 
 export default function ConnectPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
-  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const store = useSessionStore();
+  const {
+    sessionId: storeSessionId,
+    publicKeyJwk,
+    providers,
+    status,
+    error,
+    initialized,
+    init,
+    setSession,
+    setStatus,
+    setError,
+    clearError,
+  } = useSessionStore();
 
-  // Initialize session - restore from storage or fetch from server
+  // Initialize store and load session
   useEffect(() => {
     if (!sessionId) return;
-
-    const init = async () => {
-      // Check if we have saved state (returning from OAuth)
-      const saved = loadSession();
-      if (saved && saved.sessionId === sessionId && saved.publicKeyJwk) {
-        store.setSession(sessionId, saved.publicKeyJwk);
-        store.setProviders(getProvidersSummary());
-        
-        // Clean up URL if returning from provider
-        const providerAdded = searchParams.get('provider_added');
-        if (providerAdded === 'true') {
-          window.history.replaceState({}, '', `/connect/${sessionId}`);
-        }
-        store.setStatus('idle');
-        return;
-      }
-
-      // Fresh session - fetch public key from server
-      store.setStatus('loading');
+    
+    clearError();
+    
+    // If store already has this session, we're good
+    if (initialized && storeSessionId === sessionId) {
+      return;
+    }
+    
+    // Try to init from storage first
+    if (!initialized) {
+      init();
+      return;
+    }
+    
+    // If store has different session or no session, fetch from server
+    const loadFromServer = async () => {
+      setStatus('loading');
       try {
         const info = await getSessionInfo(sessionId);
-        
-        // Store server's public key (AI agent's key for E2E encryption)
-        store.setSession(sessionId, info.publicKey);
-        // Initialize empty providers list (tracked locally, not on server)
-        store.setProviders([]);
-        
-        // Save to sessionStorage (metadata only, large data goes to IndexedDB)
-        saveSession({
-          sessionId,
-          publicKeyJwk: info.publicKey,
-          providerSummaries: [],
-        });
-        
-        store.setStatus('idle');
+        setSession(sessionId, info.publicKey);
+        setStatus('idle');
       } catch (err) {
-        store.setError(err instanceof Error ? err.message : 'Failed to load session');
+        setError(err instanceof Error ? err.message : 'Failed to load session');
       }
     };
-
-    init();
-  }, [sessionId, searchParams]);
+    
+    if (storeSessionId !== sessionId) {
+      loadFromServer();
+    }
+  }, [sessionId, initialized, storeSessionId, init, setSession, setStatus, setError, clearError]);
 
   const startConnect = useCallback(() => {
-    if (!sessionId || !store.publicKeyJwk) return;
-    
-    // Save state before redirect (metadata only)
-    saveSession({
-      sessionId,
-      publicKeyJwk: store.publicKeyJwk,
-      providerSummaries: store.providers.map(p => ({ name: p.name, connectedAt: p.connectedAt })),
-    });
-    
-    // Navigate to provider selection page
+    if (!sessionId || !publicKeyJwk) return;
     navigate(`/connect/${sessionId}/select`);
-  }, [sessionId, store.publicKeyJwk, store.providers, navigate]);
+  }, [sessionId, publicKeyJwk, navigate]);
 
   const handleFinalize = useCallback(async () => {
     if (!sessionId) return;
 
-    store.setStatus('sending');
+    setStatus('sending');
     try {
       const result = await finalizeSession(sessionId);
       if (result.success) {
-        store.setStatus('done');
+        setStatus('done');
       }
     } catch (err) {
-      store.setError(err instanceof Error ? err.message : 'Failed to finalize');
+      setError(err instanceof Error ? err.message : 'Failed to finalize');
     }
-  }, [sessionId]);
+  }, [sessionId, setStatus, setError]);
 
   const handleDownload = useCallback(async () => {
     const data = await getFullData();
@@ -99,12 +89,8 @@ export default function ConnectPage() {
     URL.revokeObjectURL(url);
   }, []);
 
-  const handleClose = useCallback(() => {
-    window.close();
-  }, []);
-
   // Loading state
-  if (store.status === 'loading' && !store.sessionId) {
+  if (status === 'loading' || !initialized) {
     return (
       <div className="connect-container">
         <div className="connect-card">
@@ -115,19 +101,19 @@ export default function ConnectPage() {
   }
 
   // Error state (session not found)
-  if (store.status === 'error' && !store.sessionId) {
+  if (status === 'error' && !storeSessionId) {
     return (
       <div className="connect-container">
         <div className="connect-card">
           <h1>🏥 Connect Your Health Records</h1>
-          <StatusMessage status="error" message={store.error || 'Session not found'} />
+          <StatusMessage status="error" message={error || 'Session not found'} />
         </div>
       </div>
     );
   }
 
   // Done state
-  if (store.status === 'done') {
+  if (status === 'done') {
     return (
       <div className="connect-container">
         <div className="connect-card">
@@ -144,8 +130,8 @@ export default function ConnectPage() {
     );
   }
 
-  const hasProviders = store.providers.length > 0;
-  const isWorking = ['loading', 'connecting', 'encrypting', 'sending'].includes(store.status);
+  const hasProviders = providers.length > 0;
+  const isWorking = ['loading', 'connecting', 'encrypting', 'sending'].includes(status);
 
   return (
     <div className="connect-container">
@@ -153,7 +139,6 @@ export default function ConnectPage() {
         <h1>🏥 Connect Your Health Records</h1>
 
         {!hasProviders ? (
-          // Initial state
           <>
             <div className="warning-box">
               <strong>⚠️ Demo project:</strong> This is an open-source demo hosted on shared infrastructure with no uptime or security guarantees. While data is end-to-end encrypted, no warranties are provided. If connecting real records, understand you're trusting this demo infrastructure. <a href="https://github.com/jmandel/health-skillz" target="_blank" rel="noopener">Source code</a>
@@ -163,32 +148,19 @@ export default function ConnectPage() {
               patient portal. You can connect multiple providers before sending your data
               to your AI agent.
             </p>
-            <button
-              className="btn"
-              onClick={startConnect}
-              disabled={isWorking}
-            >
+            <button className="btn" onClick={startConnect} disabled={isWorking}>
               Connect to a Health Provider
             </button>
           </>
         ) : (
-          // Connected providers state
           <>
             <p>Connected providers:</p>
-            <ProviderList providers={store.providers} />
+            <ProviderList providers={providers} />
             <div className="button-group">
-              <button
-                className="btn btn-secondary"
-                onClick={startConnect}
-                disabled={isWorking}
-              >
+              <button className="btn btn-secondary" onClick={startConnect} disabled={isWorking}>
                 ➕ Add Another Provider
               </button>
-              <button
-                className="btn btn-success"
-                onClick={handleFinalize}
-                disabled={isWorking}
-              >
+              <button className="btn btn-success" onClick={handleFinalize} disabled={isWorking}>
                 ✅ Done - Send to AI
               </button>
             </div>
@@ -207,19 +179,16 @@ export default function ConnectPage() {
           <StatusMessage
             status="loading"
             message={
-              store.status === 'loading'
-                ? 'Processing...'
-                : store.status === 'encrypting'
-                ? 'Encrypting data...'
-                : store.status === 'sending'
-                ? 'Sending encrypted data...'
-                : 'Connecting...'
+              status === 'loading' ? 'Processing...' :
+              status === 'encrypting' ? 'Encrypting data...' :
+              status === 'sending' ? 'Sending encrypted data...' :
+              'Connecting...'
             }
           />
         )}
 
-        {store.status === 'error' && store.error && (
-          <StatusMessage status="error" message={store.error} />
+        {status === 'error' && error && (
+          <StatusMessage status="error" message={error} />
         )}
 
         <div className="security-info">
