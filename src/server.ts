@@ -362,8 +362,11 @@ const server = Bun.serve({
       const sessionIdFromState = dotIndex > 0 ? stateParam.substring(0, dotIndex) : null;
       
       if (sessionIdFromState) {
+        // Check if this is a local collection session (starts with 'local_')
+        const isLocal = sessionIdFromState.startsWith('local_');
+        const callbackPath = isLocal ? '/collect/callback' : `/connect/${sessionIdFromState}/callback`;
         // Redirect to :8000 to preserve sessionStorage (same origin as where OAuth started)
-        return Response.redirect(`${baseURL}:${port}/connect/${sessionIdFromState}/callback${params}`, 302);
+        return Response.redirect(`${baseURL}:${port}${callbackPath}${params}`, 302);
       }
       
       // Fallback: try sessionStorage (same-origin only)
@@ -374,7 +377,11 @@ const s = sessionStorage.getItem('health_skillz_session');
 if (s) {
   try {
     const { sessionId } = JSON.parse(s);
-    if (sessionId) window.location.replace('/connect/' + sessionId + '/callback${params}');
+    if (sessionId) {
+      const isLocal = sessionId.startsWith('local_');
+      const path = isLocal ? '/collect/callback' : '/connect/' + sessionId + '/callback';
+      window.location.replace(path + '${params}');
+    }
   } catch(e) { document.body.textContent = 'Error: ' + e.message; }
 } else { document.body.textContent = 'No session found. State: ${stateParam}'; }
 </script></body></html>`, { headers: { "Content-Type": "text/html" } });
