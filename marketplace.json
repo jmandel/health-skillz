@@ -1,0 +1,27 @@
+{
+  "name": "health-skillz",
+  "title": "Health Record Assistant",
+  "description": "Analyze personal health records via SMART on FHIR. Connect to Epic and other patient portals to let Claude explore your labs, medications, conditions, clinical notes, and more.",
+  "version": "1.0.0",
+  "repository": "https://github.com/jmandel/health-skillz",
+  "author": "Joshua Mandel",
+  "license": "MIT",
+  "categories": ["healthcare", "fhir", "health-records"],
+  "keywords": [
+    "health",
+    "medical",
+    "fhir",
+    "epic",
+    "ehr",
+    "patient-portal",
+    "smart-on-fhir",
+    "health-records"
+  ],
+  "features": [
+    "Full FHIR data sync (labs, meds, conditions, procedures, immunizations)",
+    "Clinical notes extraction from visit notes and discharge summaries",
+    "Multi-provider support for comprehensive health analysis",
+    "End-to-end encryption - only Claude can decrypt your data",
+    "Download complete JSON export of your records"
+  ]
+}
