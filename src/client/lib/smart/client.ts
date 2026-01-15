@@ -436,10 +436,19 @@ async function fetchWithPagination(
     const nextLink = bundle.link?.find((l) => l.relation === 'next')?.url || null;
     
     // Estimate total pages from bundle.total (if available) and page size
+    // Note: Some servers (Epic) incorrectly set total to current page count, so
+    // if there's a next link but total suggests only 1 page, ignore total
     const pageSize = entryCount || 100;
-    const estimatedTotalPages = bundle.total ? Math.ceil(bundle.total / pageSize) : null;
+    let estimatedTotalPages: number | null = null;
+    if (bundle.total) {
+      const calculated = Math.ceil(bundle.total / pageSize);
+      // Only trust total if it's consistent with having a next link
+      if (!nextLink || calculated > pageCount) {
+        estimatedTotalPages = calculated;
+      }
+    }
     
-    console.log(`[FHIR] Page ${pageCount}/${estimatedTotalPages || '?'}: ${entryCount} entries, total: ${bundle.total}`);
+    console.log(`[FHIR] Page ${pageCount}/${estimatedTotalPages || '?'}: ${entryCount} entries, total: ${bundle.total}, hasNext: ${!!nextLink}`);
     
     // Report page progress
     onPage?.(pageCount, estimatedTotalPages);
