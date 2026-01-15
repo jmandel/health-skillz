@@ -1,0 +1,13 @@
+{
+  "name": "health-skillz",
+  "version": "1.0.0",
+  "description": "Claude Skill for analyzing personal health records via SMART on FHIR",
+  "repository": "https://github.com/jmandel/health-skillz",
+  "skills": [
+    {
+      "name": "health-record-assistant",
+      "path": "skill/health-record-assistant",
+      "description": "Analyze personal health records from Epic and other SMART on FHIR patient portals"
+    }
+  ]
+}
