@@ -217,7 +217,9 @@ export default function OAuthCallbackPage() {
                     )}
                     <span className="detail-text">
                       {progress.resources.detail} p{progress.resources.subProgress.current}
-                      {progress.resources.subProgress.total > progress.resources.subProgress.current && `/${progress.resources.subProgress.total}`}
+                      /{progress.resources.subProgress.total > progress.resources.subProgress.current 
+                        ? progress.resources.subProgress.total 
+                        : '??'}
                     </span>
                   </span>
                 ) : progress.resources.detail}
