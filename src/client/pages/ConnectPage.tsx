@@ -179,7 +179,6 @@ export default function ConnectPage() {
           <StatusMessage
             status="loading"
             message={
-              status === 'loading' ? 'Processing...' :
               status === 'encrypting' ? 'Encrypting data...' :
               status === 'sending' ? 'Sending encrypted data...' :
               'Connecting...'
