@@ -5,12 +5,12 @@
 After downloading and decrypting the data, **don't dump a generic dashboard**. Instead:
 
 1. **Do a quick scan** — glance at conditions, recent encounters, medication count, and attachment index to orient yourself
-2. **Open with a brief clinical sentence** that shows you understand the patient's situation (e.g., "You have records from UnityPoint Health spanning 2019–2026, covering primary care, a concussion history with occupational therapy, and recent lab work.")
+2. **Open with a brief clinical sentence** that shows you understand the patient's situation (e.g., "You have records from two providers spanning about 5 years, mostly primary care visits with some specialist referrals and recent lab work.")
 3. **Offer a few specific directions** as numbered choices based on what you see in the data — let the user steer:
 
 > Based on your records, here are some things I can help with:
 > 1. Review your recent lab results and trends
-> 2. Summarize your concussion/post-concussion history
+> 2. Summarize a specific condition or health topic from your records
 > 3. Check your medications and allergies
 > 4. Look through your clinical notes for a specific topic
 >
