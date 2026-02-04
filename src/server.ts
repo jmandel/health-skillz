@@ -28,7 +28,8 @@ db.run(`
     providers TEXT DEFAULT '[]',
     status TEXT DEFAULT 'pending',
     public_key TEXT,
-    encrypted_data TEXT
+    encrypted_data TEXT,
+    finalize_token TEXT
   )
 `);
 
@@ -37,6 +38,7 @@ const migrations = [
   "ALTER TABLE sessions ADD COLUMN providers TEXT DEFAULT '[]'",
   "ALTER TABLE sessions ADD COLUMN public_key TEXT",
   "ALTER TABLE sessions ADD COLUMN encrypted_data TEXT",
+  "ALTER TABLE sessions ADD COLUMN finalize_token TEXT",
 ];
 for (const sql of migrations) {
   try { db.run(sql); } catch (e) { /* Column already exists */ }
@@ -223,17 +225,25 @@ const server = Bun.serve({
       }, { headers: corsHeaders });
     }
 
-    // API: Receive encrypted EHR data
+    // API: Receive encrypted EHR data (also sets finalizeToken on first call)
     if (path === "/api/receive-ehr" && req.method === "POST") {
       try {
         const data = await req.json() as any;
         if (!data.sessionId || !data.encrypted || !data.ephemeralPublicKey || !data.iv || !data.ciphertext) {
           return Response.json({ success: false, error: "missing_fields" }, { status: 400, headers: corsHeaders });
         }
+        if (!data.finalizeToken || typeof data.finalizeToken !== "string" || data.finalizeToken.length < 16) {
+          return Response.json({ success: false, error: "missing_finalize_token" }, { status: 400, headers: corsHeaders });
+        }
 
-        const row = db.query("SELECT encrypted_data, status FROM sessions WHERE id = ?").get(data.sessionId) as any;
+        const row = db.query("SELECT encrypted_data, status, finalize_token FROM sessions WHERE id = ?").get(data.sessionId) as any;
         if (!row) return Response.json({ success: false, error: "session_not_found" }, { status: 404, headers: corsHeaders });
         if (row.status === "finalized") return Response.json({ success: false, error: "session_finalized" }, { status: 400, headers: corsHeaders });
+
+        // Verify or set the finalize token
+        if (row.finalize_token && row.finalize_token !== data.finalizeToken) {
+          return Response.json({ success: false, error: "token_mismatch" }, { status: 403, headers: corsHeaders });
+        }
 
         const existing = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
         existing.push({
@@ -242,8 +252,8 @@ const server = Bun.serve({
           ciphertext: data.ciphertext,
         });
 
-        db.run("UPDATE sessions SET encrypted_data = ?, status = 'collecting' WHERE id = ?",
-          [JSON.stringify(existing), data.sessionId]);
+        db.run("UPDATE sessions SET encrypted_data = ?, status = 'collecting', finalize_token = ? WHERE id = ?",
+          [JSON.stringify(existing), data.finalizeToken, data.sessionId]);
         console.log(`Received EHR data for ${data.sessionId} (${existing.length} providers)`);
 
         return Response.json({
@@ -256,11 +266,20 @@ const server = Bun.serve({
       }
     }
 
-    // API: Finalize session
+    // API: Finalize session (requires finalize token that only the browser knows)
     if (path.startsWith("/api/finalize/") && req.method === "POST") {
       const sessionId = path.replace("/api/finalize/", "");
-      const row = db.query("SELECT status, encrypted_data FROM sessions WHERE id = ?").get(sessionId) as any;
+      let body: any = {};
+      try { body = await req.json(); } catch (e) {}
+
+      const row = db.query("SELECT status, encrypted_data, finalize_token FROM sessions WHERE id = ?").get(sessionId) as any;
       if (!row) return new Response("Session not found", { status: 404, headers: corsHeaders });
+      if (!row.finalize_token) {
+        return Response.json({ error: "not_claimed", error_description: "Session must be claimed by a browser first" }, { status: 400, headers: corsHeaders });
+      }
+      if (body.finalizeToken !== row.finalize_token) {
+        return Response.json({ error: "invalid_token", error_description: "Valid finalizeToken required" }, { status: 403, headers: corsHeaders });
+      }
       if (row.status === "finalized") return Response.json({ success: true, alreadyFinalized: true }, { headers: corsHeaders });
 
       const encryptedData = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
@@ -283,7 +302,6 @@ const server = Bun.serve({
         publicKey: row.public_key ? JSON.parse(row.public_key) : null,
         status: row.status,
         providerCount: encryptedData.length,
-        vendors: getVendors(),
       }, { headers: corsHeaders });
     }
 

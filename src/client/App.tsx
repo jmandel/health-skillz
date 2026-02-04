@@ -24,6 +24,7 @@ export default function App() {
         {/* Self-service collection flow (local only) */}
         <Route path="/collect" element={<CollectPage />} />
         <Route path="/collect/select" element={<CollectProviderSelectPage />} />
+        <Route path="/collect/callback" element={<OAuthCallbackPage />} />
       </Routes>
     </BrowserRouter>
   );

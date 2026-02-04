@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useSessionStore } from '../store/session';
-import { loadOAuthState, clearOAuthState } from '../lib/storage';
+import { loadOAuthState, clearOAuthState, loadSession } from '../lib/storage';
 import { exchangeCodeForToken } from '../lib/smart/oauth';
 import { fetchPatientData, type ProgressInfo } from '../lib/smart/client';
 import { encryptData } from '../lib/crypto';
@@ -132,8 +132,17 @@ export default function OAuthCallbackPage() {
             oauth.publicKeyJwk
           );
 
+          // Persist finalize token before sending
+          // Read from localStorage directly since store may not be initialized after OAuth redirect
+          const savedSession = loadSession();
+          let token = savedSession?.finalizeToken ?? null;
+          if (!token) {
+            token = crypto.randomUUID();
+          }
+          store.setSession(sessionId, oauth.publicKeyJwk, token);
+
           setStatus('sending');
-          await sendEncryptedEhrData(sessionId, encrypted);
+          await sendEncryptedEhrData(sessionId, encrypted, token);
 
           // Also save locally for download feature
           await store.addProviderData(sessionId, {

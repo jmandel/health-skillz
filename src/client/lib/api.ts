@@ -7,8 +7,6 @@ export interface SessionInfo {
   publicKey: JsonWebKey;
   status: string;
   providerCount: number;
-  // providers list now comes from browser sessionStorage, not server
-  vendors?: Record<string, VendorConfig>;
 }
 
 export interface Provider {
@@ -51,7 +49,8 @@ export async function sendEncryptedData(
 
 export async function sendEncryptedEhrData(
   sessionId: string,
-  payload: EncryptedPayload
+  payload: EncryptedPayload,
+  finalizeToken: string
 ): Promise<{ success: boolean; providerCount: number; redirectTo: string }> {
   const res = await fetch(`${BASE_URL}/api/receive-ehr`, {
     method: 'POST',
@@ -59,6 +58,7 @@ export async function sendEncryptedEhrData(
     body: JSON.stringify({
       ...payload,
       sessionId,
+      finalizeToken,
     }),
   });
   if (!res.ok) {
@@ -69,10 +69,13 @@ export async function sendEncryptedEhrData(
 }
 
 export async function finalizeSession(
-  sessionId: string
+  sessionId: string,
+  finalizeToken?: string
 ): Promise<{ success: boolean; providerCount: number }> {
   const res = await fetch(`${BASE_URL}/api/finalize/${sessionId}`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ finalizeToken }),
   });
   if (!res.ok) {
     const text = await res.text();

@@ -1,8 +1,8 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useSessionStore } from '../store/session';
 import { getSessionInfo, finalizeSession } from '../lib/api';
-import { getFullData } from '../lib/storage';
+import { getFullData, clearAllData } from '../lib/storage';
 import ProviderList from '../components/ProviderList';
 import StatusMessage from '../components/StatusMessage';
 
@@ -12,6 +12,7 @@ export default function ConnectPage() {
   const {
     sessionId: storeSessionId,
     publicKeyJwk,
+    finalizeToken,
     providers,
     status,
     error,
@@ -23,38 +24,39 @@ export default function ConnectPage() {
     clearError,
   } = useSessionStore();
 
+  const [dataCleared, setDataCleared] = useState(false);
+
   // Initialize store and load session
   useEffect(() => {
     if (!sessionId) return;
     
     clearError();
     
-    // If store already has this session, we're good
-    if (initialized && storeSessionId === sessionId) {
-      return;
-    }
-    
     // Try to init from storage first
     if (!initialized) {
       init();
       return;
     }
-    
-    // If store has different session or no session, fetch from server
-    const loadFromServer = async () => {
-      setStatus('loading');
+
+    // Check server-side status (handles finalized sessions, new tabs, etc.)
+    const syncWithServer = async () => {
       try {
         const info = await getSessionInfo(sessionId);
-        setSession(sessionId, info.publicKey);
-        setStatus('idle');
+        if (storeSessionId !== sessionId) {
+          setStatus('loading');
+          setSession(sessionId, info.publicKey);
+        }
+        if (info.status === 'finalized') {
+          setStatus('done');
+        } else if (storeSessionId !== sessionId) {
+          setStatus('idle');
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load session');
       }
     };
-    
-    if (storeSessionId !== sessionId) {
-      loadFromServer();
-    }
+
+    syncWithServer();
   }, [sessionId, initialized, storeSessionId, init, setSession, setStatus, setError, clearError]);
 
   const startConnect = useCallback(() => {
@@ -67,14 +69,14 @@ export default function ConnectPage() {
 
     setStatus('sending');
     try {
-      const result = await finalizeSession(sessionId);
+      const result = await finalizeSession(sessionId, finalizeToken ?? undefined);
       if (result.success) {
         setStatus('done');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to finalize');
     }
-  }, [sessionId, setStatus, setError]);
+  }, [sessionId, finalizeToken, setStatus, setError]);
 
   const handleDownload = useCallback(async () => {
     const data = await getFullData();
@@ -120,11 +122,37 @@ export default function ConnectPage() {
           <h1>🏥 Connect Your Health Records</h1>
           <StatusMessage
             status="success"
-            message="Success! Your health records have been sent to your AI agent."
+            message="Your health records have been sent to your AI agent."
           />
           <p style={{ marginTop: '24px', color: '#666' }}>
             You can close this window and return to your AI.
           </p>
+          {!dataCleared ? (
+            <>
+              <button
+                className="btn btn-link"
+                onClick={handleDownload}
+                style={{ marginTop: '8px' }}
+              >
+                📥 Download My Records (JSON)
+              </button>
+              <button
+                className="btn btn-link"
+                onClick={async () => {
+                  await clearAllData();
+                  init();
+                  setDataCleared(true);
+                }}
+                style={{ marginTop: '4px', color: '#999' }}
+              >
+                Clear data from my browser
+              </button>
+            </>
+          ) : (
+            <p style={{ color: '#666', fontSize: '14px', marginTop: '8px' }}>
+              All health data has been cleared from your browser.
+            </p>
+          )}
         </div>
       </div>
     );
@@ -172,6 +200,24 @@ export default function ConnectPage() {
             >
               📥 Download My Records (JSON)
             </button>
+            {!dataCleared ? (
+              <button
+                className="btn btn-link"
+                onClick={async () => {
+                  await clearAllData();
+                  init(); // re-read (now empty) storage into the store
+                  setDataCleared(true);
+                }}
+                disabled={isWorking}
+                style={{ marginTop: '4px', color: '#999' }}
+              >
+                Clear data from my browser
+              </button>
+            ) : (
+              <p style={{ color: '#666', fontSize: '14px', marginTop: '8px' }}>
+                All health data has been cleared from your browser.
+              </p>
+            )}
           </>
         )}
 

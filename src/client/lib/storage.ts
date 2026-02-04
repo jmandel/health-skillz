@@ -31,6 +31,8 @@ export interface PersistedSession {
   sessionId: string;
   publicKeyJwk: JsonWebKey | null;
   providerSummaries: Array<{ name: string; connectedAt: string }>;
+  finalized?: boolean;
+  finalizeToken?: string;
 }
 
 // === IndexedDB helpers ===
@@ -85,14 +87,14 @@ async function idbDelete(key: string): Promise<void> {
   });
 }
 
-// === Session Storage (small metadata only) ===
+// === Session Metadata (localStorage — persists across tabs) ===
 
 export function saveSession(session: PersistedSession): void {
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
 }
 
 export function loadSession(): PersistedSession | null {
-  const raw = sessionStorage.getItem(SESSION_KEY);
+  const raw = localStorage.getItem(SESSION_KEY);
   if (!raw) return null;
   try {
     return JSON.parse(raw);
@@ -102,14 +104,14 @@ export function loadSession(): PersistedSession | null {
 }
 
 export function clearSession(): void {
-  sessionStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(SESSION_KEY);
 }
 
 export async function clearAllData(): Promise<void> {
-  // Clear sessionStorage
-  sessionStorage.removeItem(SESSION_KEY);
-  
-  // Clear all OAuth states
+  // Clear session metadata from localStorage
+  localStorage.removeItem(SESSION_KEY);
+
+  // Clear all OAuth states from sessionStorage
   const keysToRemove: string[] = [];
   for (let i = 0; i < sessionStorage.length; i++) {
     const key = sessionStorage.key(i);
@@ -129,6 +131,27 @@ export async function clearAllData(): Promise<void> {
     request.onsuccess = () => resolve();
     tx.oncomplete = () => db.close();
   });
+}
+
+export async function clearHealthData(): Promise<void> {
+  // Clear only health data from IndexedDB, keep session metadata in localStorage
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    const store = tx.objectStore(IDB_STORE);
+    const request = store.clear();
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve();
+    tx.oncomplete = () => db.close();
+  });
+}
+
+export function markSessionFinalized(): void {
+  const session = loadSession();
+  if (session) {
+    session.finalized = true;
+    saveSession(session);
+  }
 }
 
 // === Provider Data (large data in IndexedDB) ===

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { loadBrandFile, searchBrands, collapseBrands } from '../lib/brands/loader';
 import type { BrandItem, LoadProgress, VendorConfig } from '../lib/brands/types';
 import { loadSession, saveOAuthState } from '../lib/storage';
-import { getSessionInfo } from '../lib/api';
+import { getVendorConfigs } from '../lib/api';
 import { buildAuthorizationUrl, generatePKCE } from '../lib/smart/oauth';
 import ProviderSearch from '../components/ProviderSearch';
 import ProviderCard from '../components/ProviderCard';
@@ -42,17 +42,17 @@ export default function ProviderSelectPage() {
 
     const init = async () => {
       try {
-        // Get session info including vendor configs
-        const info = await getSessionInfo(sessionId);
-        if (!info.vendors || Object.keys(info.vendors).length === 0) {
+        // Get vendor configs (separate from session info)
+        const vendorConfigs = await getVendorConfigs();
+        if (!vendorConfigs || Object.keys(vendorConfigs).length === 0) {
           setError('No healthcare providers configured');
           return;
         }
-        setVendors(info.vendors);
+        setVendors(vendorConfigs);
 
         // Load brand files from all configured vendors
         const allBrandItems: BrandItem[] = [];
-        for (const [vendorName, config] of Object.entries(info.vendors)) {
+        for (const [vendorName, config] of Object.entries(vendorConfigs)) {
           // Load all brand files for this vendor
           for (const brandFile of config.brandFiles) {
             try {

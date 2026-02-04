@@ -1,12 +1,13 @@
 import { create } from 'zustand';
 import type { Provider } from '../lib/api';
-import { 
-  saveSession, 
-  loadSession, 
-  getProvidersSummary, 
+import {
+  saveSession,
+  loadSession,
+  getProvidersSummary,
   addProviderData as addProviderToStorage,
   clearAllData,
-  type ProviderData 
+  markSessionFinalized,
+  type ProviderData
 } from '../lib/storage';
 
 export type Status = 'idle' | 'loading' | 'connecting' | 'encrypting' | 'sending' | 'saving' | 'done' | 'error';
@@ -14,7 +15,9 @@ export type Status = 'idle' | 'loading' | 'connecting' | 'encrypting' | 'sending
 interface SessionState {
   sessionId: string | null;
   publicKeyJwk: JsonWebKey | null;
+  finalizeToken: string | null;
   providers: Provider[];
+  finalized: boolean;
   status: Status;
   error: string | null;
   initialized: boolean;
@@ -25,7 +28,7 @@ interface SessionActions {
   init: () => void;
   
   // Set session (for agent flow)
-  setSession: (id: string, publicKey: JsonWebKey | null) => void;
+  setSession: (id: string, publicKey: JsonWebKey | null, finalizeToken?: string) => void;
   
   // Create new local session
   createLocalSession: () => void;
@@ -44,6 +47,9 @@ interface SessionActions {
   setError: (error: string) => void;
   clearError: () => void;
   
+  // Mark session as finalized (persists to storage)
+  markFinalized: () => void;
+
   // Clear everything and start fresh
   clearAndReset: () => Promise<void>;
 }
@@ -57,7 +63,9 @@ function generateLocalId(): string {
 const initialState: SessionState = {
   sessionId: null,
   publicKeyJwk: null,
+  finalizeToken: null,
   providers: [],
+  finalized: false,
   status: 'idle',
   error: null,
   initialized: false,
@@ -72,7 +80,9 @@ export const useSessionStore = create<SessionState & SessionActions>((set, get) 
       set({
         sessionId: saved.sessionId,
         publicKeyJwk: saved.publicKeyJwk,
+        finalizeToken: saved.finalizeToken || null,
         providers: saved.providerSummaries?.map(p => ({ name: p.name, connectedAt: p.connectedAt })) || [],
+        finalized: saved.finalized || false,
         initialized: true,
       });
     } else {
@@ -80,20 +90,43 @@ export const useSessionStore = create<SessionState & SessionActions>((set, get) 
     }
   },
 
-  setSession: (id, publicKey) => {
-    saveSession({
-      sessionId: id,
-      publicKeyJwk: publicKey,
-      providerSummaries: [],
-    });
-    set({
-      sessionId: id,
-      publicKeyJwk: publicKey,
-      providers: [],
-      status: 'idle',
-      error: null,
-      initialized: true,
-    });
+  setSession: (id, publicKey, finalizeToken) => {
+    // Check if we already have this session in storage (e.g., from another tab)
+    const existing = loadSession();
+    if (existing && existing.sessionId === id) {
+      // Reuse existing session data — don't overwrite providers
+      set({
+        sessionId: id,
+        publicKeyJwk: publicKey ?? existing.publicKeyJwk,
+        finalizeToken: finalizeToken ?? existing.finalizeToken ?? null,
+        providers: existing.providerSummaries?.map(p => ({ name: p.name, connectedAt: p.connectedAt })) || [],
+        finalized: existing.finalized || false,
+        status: 'idle',
+        error: null,
+        initialized: true,
+      });
+      // Persist finalizeToken if it was newly provided
+      if (finalizeToken && !existing.finalizeToken) {
+        saveSession({ ...existing, finalizeToken });
+      }
+    } else {
+      saveSession({
+        sessionId: id,
+        publicKeyJwk: publicKey,
+        providerSummaries: [],
+        finalizeToken,
+      });
+      set({
+        sessionId: id,
+        publicKeyJwk: publicKey,
+        finalizeToken: finalizeToken ?? null,
+        providers: [],
+        finalized: false,
+        status: 'idle',
+        error: null,
+        initialized: true,
+      });
+    }
   },
 
   createLocalSession: () => {
@@ -134,6 +167,11 @@ export const useSessionStore = create<SessionState & SessionActions>((set, get) 
   setError: (error) => set({ error, status: 'error' }),
 
   clearError: () => set({ error: null, status: 'idle' }),
+
+  markFinalized: () => {
+    markSessionFinalized();
+    set({ finalized: true });
+  },
 
   clearAndReset: async () => {
     await clearAllData();
