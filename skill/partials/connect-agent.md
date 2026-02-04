@@ -27,15 +27,11 @@ Output:
 
 ### Step 2: Show the User a Link
 
-Present `userUrl` to the user as a clickable link:
+Present `userUrl` to the user. Keep the message simple - the link destination explains encryption and next steps:
 
-> **To access your health records, please click this link:**
->
 > [Connect Your Health Records]({userUrl})
 >
-> You'll sign into your patient portal (like Epic MyChart), and your records will be securely transferred for analysis.
-> 
-> 🔒 Your data is end-to-end encrypted - only this conversation can decrypt it.
+> Click to sign in to your patient portal and share your records.
 
 ### Step 3: Finalize and Decrypt
 
