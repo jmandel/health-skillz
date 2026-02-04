@@ -44,15 +44,15 @@ This approach is important because:
 
 Helper scripts are provided in `scripts/` to simplify the workflow.
 
-**Prerequisites:** These scripts require [Node.js 18+](https://nodejs.org) (or [Bun](https://bun.sh)):
+**Prerequisites:** These scripts require [Bun](https://bun.sh) to be installed:
 ```bash
-node --version  # must be v18 or later
+curl -fsSL https://bun.sh/install | bash
 ```
 
 ### Step 1: Create a Session
 
 ```bash
-node scripts/create-session.mjs
+bun scripts/create-session.ts
 ```
 
 Output:
@@ -84,7 +84,7 @@ Present `userUrl` to the user as a clickable link:
 Once the user has connected their provider(s) and clicked "Done - Send to AI":
 
 ```bash
-node scripts/finalize-session.mjs <sessionId> '<privateKeyJwk>' ./health-data
+bun scripts/finalize-session.ts <sessionId> '<privateKeyJwk>' ./health-data
 ```
 
 This script:
