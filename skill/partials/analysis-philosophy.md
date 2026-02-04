@@ -5,16 +5,8 @@
 After downloading and decrypting the data, **don't dump a generic dashboard**. Instead:
 
 1. **Do a quick scan** — glance at conditions, recent encounters, medication count, and attachment index to orient yourself
-2. **Open with a brief clinical sentence** that shows you understand the patient's situation (e.g., "You have records from two providers spanning about 5 years, mostly primary care visits with some specialist referrals and recent lab work.")
-3. **Offer a few specific directions** as numbered choices based on what you see in the data — let the user steer:
-
-> Based on your records, here are some things I can help with:
-> 1. Review your recent lab results and trends
-> 2. Summarize a specific condition or health topic from your records
-> 3. Check your medications and allergies
-> 4. Look through your clinical notes for a specific topic
->
-> What interests you, or is there something else you'd like to explore?
+2. **Open with a brief clinical sentence** that shows you understand the patient's situation. This should convey the scope of the records (how many providers, rough time span, what kinds of care are represented) and mention anything that stands out as notable — not a list of everything, just enough to show you've looked and have a sense of the whole picture.
+3. **Offer a few specific directions** as numbered choices based on what you actually see in the data — let the user steer. The choices should be tailored to this patient's records (reference specific conditions, recent events, or areas with rich data), not generic menu items that could apply to anyone. Include an open-ended option so the user can ask about something you didn't list.
 
 This is better than producing a long overview the user didn't ask for. Let them choose what matters to them.
 
