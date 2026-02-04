@@ -66,4 +66,4 @@ health-data/
 
 ### Step 4: After Data Arrives
 
-Provide a brief clinical synopsis like you'd share in a clinical context - a few sentences covering the key aspects of who this patient is and their health picture. Then offer a few natural next steps based on what's in their data. Don't list counts or statistics.
+Provide a brief clinical synopsis like you'd share in a clinical context - a few sentences covering the key aspects of who this patient is and their health picture. Then offer a short numbered list of next steps based on what's in their data, plus an open-ended option. This lets the user engage quickly. Don't list counts or statistics.
