@@ -66,4 +66,4 @@ health-data/
 
 ### Step 4: After Data Arrives
 
-Give a brief, natural confirmation that you have their records. Don't list counts, statistics, or offer menus of analyses. Just let them know you're ready and wait for their question.
+Provide a brief clinical synopsis like you'd share in a clinical context - a few sentences covering the key aspects of who this patient is and their health picture. Don't list counts, statistics, or offer menus of analyses.
