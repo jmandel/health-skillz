@@ -63,3 +63,7 @@ health-data/
   unitypoint-health.json
   mayo-clinic.json
 ```
+
+### Step 4: After Data Arrives
+
+Give a brief, natural confirmation that you have their records. Don't list counts, statistics, or offer menus of analyses. Just let them know you're ready and wait for their question.
