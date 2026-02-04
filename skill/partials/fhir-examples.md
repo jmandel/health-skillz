@@ -3,16 +3,31 @@
 ### Available Resource Types
 
 ```javascript
+// Always present
 data.fhir.Patient           // Demographics (name, DOB, contact)
 data.fhir.Condition         // Diagnoses and health problems
+data.fhir.Observation       // Labs, vitals (often the largest array)
 data.fhir.MedicationRequest // Prescribed medications
-data.fhir.Observation       // Lab results, vital signs
+data.fhir.Encounter         // Healthcare visits
+data.fhir.DocumentReference // Clinical documents (links to attachments via resource ID)
+data.fhir.DiagnosticReport  // Lab panels, imaging reports
+
+// Common
 data.fhir.Procedure         // Surgeries and procedures
 data.fhir.Immunization      // Vaccination records
 data.fhir.AllergyIntolerance// Allergies and reactions
-data.fhir.Encounter         // Healthcare visits
-data.fhir.DocumentReference // Clinical documents
-data.fhir.DiagnosticReport  // Lab panels, imaging reports
+data.fhir.CareTeam          // Care team members
+data.fhir.CarePlan          // Care plans
+data.fhir.Goal              // Patient goals
+data.fhir.Coverage          // Insurance info
+
+// Referenced (fetched automatically when referenced by primary resources)
+data.fhir.Practitioner      // Providers
+data.fhir.Organization      // Healthcare organizations
+data.fhir.Location          // Facility locations
+data.fhir.Medication        // Medication details
+
+// Check Object.keys(data.fhir) — additional types may be present
 ```
 
 ### Example: Get Lab Results by LOINC Code
@@ -67,42 +82,134 @@ const conditions = data.fhir.Condition
 
 ### Understanding Attachments
 
-The `attachments` array contains clinical documents extracted from `DocumentReference` and `DiagnosticReport` resources. Each attachment has:
+The `attachments` array contains clinical documents extracted from `DocumentReference` resources. Each attachment has `contentPlaintext` (extracted text) and `contentBase64` (raw encoded content).
 
-- **`contentPlaintext`**: Extracted readable text (for HTML, RTF, XML, plain text formats)
-- **`contentBase64`**: Raw file content, base64 encoded (always present)
-- **`contentType`**: MIME type like `text/html`, `text/rtf`, `application/xml`
+**Critical: attachments can easily overwhelm your context window.** A typical patient has 50-200 attachments totaling 300K+ characters. Loading them all at once will consume most of your context. Always use the index-first approach below.
 
-Common patterns from Epic:
-- Most DocumentReferences have 2 attachments: one `text/html` and one `text/rtf` (same content, different formats)
-- RTF files contain Epic-specific markup that gets stripped during plaintext extraction
-- All attachments are fetched (no artificial limits)
+#### Attachment content types and quality
 
-For analysis, use `contentPlaintext` - it's clean and searchable. The `contentBase64` is available if you need the original format.
+Epic typically produces multiple formats per document:
+- **`text/html`** — Best quality plaintext. Clean, well-structured. Always prefer this.
+- **`text/rtf`** — Same content as HTML but plaintext extraction is worse (formatting artifacts like `SEGOE UI;`, control characters). **Skip RTF when HTML exists for the same `resourceId`.**
+- **`application/xml`** — CDA encounter summaries. Large and noisy (tags stripped but words run together). These often duplicate data already in structured `Observation`/`Condition` resources.
 
-### Example: Search Clinical Notes
+#### Deduplication
 
-The `attachments` array contains extracted text from clinical documents:
+Most DocumentReferences produce 2 attachments (HTML + RTF pair) sharing the same `resourceId`. Always deduplicate by `resourceId`, preferring `text/html`:
+
+```javascript
+// Deduplicate: keep only the best attachment per resourceId
+function deduplicateAttachments(attachments) {
+  const byResourceId = new Map();
+  for (const att of attachments) {
+    const existing = byResourceId.get(att.resourceId);
+    if (!existing || contentTypePriority(att.contentType) > contentTypePriority(existing.contentType)) {
+      byResourceId.set(att.resourceId, att);
+    }
+  }
+  return [...byResourceId.values()];
+}
+
+function contentTypePriority(ct) {
+  if (ct === 'text/html') return 3;
+  if (ct === 'application/xml') return 2;
+  if (ct === 'text/rtf') return 1;
+  return 0;
+}
+```
+
+### Working with Attachments: Index-First Approach
+
+**Step 1: Build an index (always do this first)**
+
+```javascript
+// Build a compact index of all unique attachments
+const uniqueAtts = deduplicateAttachments(data.attachments || []);
+const index = uniqueAtts.map(att => {
+  // Find the parent DocumentReference for metadata
+  const docRef = data.fhir.DocumentReference?.find(d => d.id === att.resourceId);
+  return {
+    resourceId: att.resourceId,
+    contentType: att.contentType,
+    chars: att.contentPlaintext?.length || 0,
+    date: docRef?.date || docRef?.context?.period?.start,
+    type: docRef?.type?.coding?.[0]?.display || 'Unknown',
+    category: docRef?.category?.[0]?.coding?.[0]?.display,
+    preview: (att.contentPlaintext || '').substring(0, 100).replace(/\s+/g, ' ')
+  };
+});
+
+// Sort by date descending, print summary
+index.sort((a, b) => new Date(b.date) - new Date(a.date));
+console.log(`${index.length} unique documents, ${index.reduce((s, a) => s + a.chars, 0)} total chars`);
+index.forEach(a => console.log(`  ${a.date?.substring(0,10)} | ${a.type} | ${a.chars} chars | ${a.preview.substring(0,60)}...`));
+```
+
+This index is ~1K tokens — trivial. Use it to decide what to read.
+
+**Step 2: Search across attachments without loading full text**
 
 ```javascript
 function searchNotes(searchTerm) {
-  return data.attachments?.filter(att =>
-    att.contentPlaintext?.toLowerCase().includes(searchTerm.toLowerCase())
+  const uniqueAtts = deduplicateAttachments(data.attachments || []);
+  const term = searchTerm.toLowerCase();
+  return uniqueAtts.filter(att =>
+    att.contentPlaintext?.toLowerCase().includes(term)
   ).map(att => {
     const text = att.contentPlaintext || '';
-    const idx = text.toLowerCase().indexOf(searchTerm.toLowerCase());
-    const start = Math.max(0, idx - 150);
-    const end = Math.min(text.length, idx + searchTerm.length + 150);
+    const idx = text.toLowerCase().indexOf(term);
+    const start = Math.max(0, idx - 200);
+    const end = Math.min(text.length, idx + searchTerm.length + 200);
+    const docRef = data.fhir.DocumentReference?.find(d => d.id === att.resourceId);
     return {
-      context: text.substring(start, end),
-      docType: att.resourceType
+      resourceId: att.resourceId,
+      date: docRef?.date,
+      type: docRef?.type?.coding?.[0]?.display,
+      chars: text.length,
+      context: text.substring(start, end)
     };
   });
 }
-
-// Example: Find mentions of diabetes
-const diabetesNotes = searchNotes('diabetes');
 ```
+
+This returns ~400-char context windows per match — enough to evaluate relevance without loading full documents.
+
+**Step 3: Read specific documents in full (selectively)**
+
+```javascript
+// Only after identifying which documents matter from search/index
+function readFullNote(resourceId) {
+  // Find best-quality attachment for this resource
+  const candidates = (data.attachments || []).filter(a => a.resourceId === resourceId);
+  candidates.sort((a, b) => contentTypePriority(b.contentType) - contentTypePriority(a.contentType));
+  return candidates[0]?.contentPlaintext || null;
+}
+```
+
+#### Data scale awareness
+
+Patient records vary enormously in size — from a single encounter with a few resources to decades of history with hundreds of encounters and thousands of observations. Always check the scale before choosing a strategy:
+
+```javascript
+// Quick size check — run this first
+const resourceCounts = Object.entries(data.fhir).map(([type, arr]) => [type, arr?.length || 0]).filter(([,n]) => n > 0);
+const uniqueAtts = deduplicateAttachments(data.attachments || []);
+const totalAttChars = uniqueAtts.reduce((s, a) => s + (a.contentPlaintext?.length || 0), 0);
+console.log('Resources:', Object.fromEntries(resourceCounts));
+console.log(`Attachments: ${uniqueAtts.length} unique, ${totalAttChars} total chars`);
+```
+
+- **Small records** (< 50K chars of attachments): You can likely read all notes in a single pass
+- **Medium records** (50K-200K chars): Use the index-first approach; read selectively
+- **Large records** (200K+ chars): Always search first, read only specific documents relevant to the question
+
+#### When to use structured data vs. attachments
+
+- **Lab values, vitals** → Use `Observation` resources (structured, searchable by LOINC code)
+- **Diagnoses** → Use `Condition` resources
+- **Medications** → Use `MedicationRequest` resources
+- **Clinical narratives, assessments, plans** → Search attachments (this is the unique content not in structured data)
+- **Encounter summaries (XML/CDA)** → Usually duplicates structured data; only read if you need the narrative framing
 
 ### Example: Check for Care Gaps
 
