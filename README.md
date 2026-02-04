@@ -56,16 +56,21 @@ cp config.json.example config.json
 
 # Install & Setup
 bun install
-bun run setup  # Downloads Epic endpoint directory
+bun run setup          # Downloads Epic endpoint directory + builds skill zip
+mkdir -p static data
+ln -sf "$(pwd)/brands" static/brands
 
 # Run
-bun run dev    # Development with hot reload
-bun run start  # Production
+bun run dev            # Development with hot reload
+bun run start          # Production
+
+# Override port/base URL with environment variables:
+# PORT=3005 BASE_URL=http://localhost:3005 bun run dev
 ```
 
 ### Configuration
 
-Edit `config.json`:
+Edit `config.json` (production) or create `config.local.json` (local dev):
 
 ```json
 {
@@ -78,17 +83,26 @@ Edit `config.json`:
       "name": "epic-sandbox",
       "file": "./brands/epic-sandbox.json",
       "clientId": "YOUR_SANDBOX_CLIENT_ID",
-      "scopes": "patient/*.rs"
+      "scopes": "patient/*.rs",
+      "redirectURL": "https://your-domain.com/ehr-connect/callback"
     },
     {
       "name": "epic-prod",
       "file": "./brands/epic-prod.json",
       "clientId": "YOUR_PROD_CLIENT_ID",
-      "scopes": "patient/*.rs"
+      "scopes": "patient/*.rs",
+      "redirectURL": "https://your-domain.com/ehr-connect/callback"
     }
   ]
 }
 ```
+
+**Key fields:**
+- `server.port` — HTTP port (also overridable via `PORT` env var)
+- `server.baseURL` — Public URL (also overridable via `BASE_URL` env var)
+- `brands[].redirectURL` — OAuth callback URL registered with the EHR vendor. Defaults to `${baseURL}/connect/callback` if omitted. Must exactly match what's registered in your SMART on FHIR app.
+
+To use a local config: `CONFIG_PATH=./config.local.json bun run dev`
 
 ### Registering a SMART on FHIR App
 
@@ -120,7 +134,7 @@ health-skillz/
 ├── skill/
 │   └── health-record-assistant/
 │       ├── SKILL.md            # Claude skill instructions
-│       ├── scripts/            # create-session.ts, finalize-session.ts
+│       ├── scripts/            # create-session.mjs, finalize-session.mjs
 │       └── references/         # FHIR-GUIDE.md
 ├── static/brands/          # Epic endpoint directory JSON
 └── config.json             # Server + SMART client configuration

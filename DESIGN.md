@@ -330,8 +330,8 @@ interface Attachment {
 health-record-assistant/
 ├── SKILL.md              # Main instructions + API docs + JS examples
 ├── scripts/
-│   ├── create-session.ts    # Create session with ECDH keypair
-│   └── finalize-session.ts  # Poll, decrypt, save to files
+│   ├── create-session.mjs    # Create session with ECDH keypair
+│   └── finalize-session.mjs  # Poll, decrypt, save to files
 └── references/
     └── FHIR-GUIDE.md     # LOINC codes, resource schemas
 ```
@@ -576,8 +576,8 @@ health-skillz/
 │   └── health-record-assistant/
 │       ├── SKILL.md                   # Skill instructions for Claude
 │       ├── scripts/
-│       │   ├── create-session.ts      # Create session with ECDH keypair
-│       │   └── finalize-session.ts    # Poll, decrypt, save to files
+│       │   ├── create-session.mjs      # Create session with ECDH keypair
+│       │   └── finalize-session.mjs    # Poll, decrypt, save to files
 │       └── references/
 │           └── FHIR-GUIDE.md          # LOINC codes, resource schemas
 ├── static/

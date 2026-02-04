@@ -17,7 +17,7 @@ if (process.env.BASE_URL) {
 }
 
 const baseURL = config.server.baseURL.replace(/\/$/, "");
-const port = config.server.port || 8000;
+const port = Number(process.env.PORT) || config.server.port || 8000;
 
 // Initialize SQLite database
 const db = new Database("./data/health-skillz.db", { create: true });

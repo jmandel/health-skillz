@@ -1,16 +1,18 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 // Create a new health record session with E2E encryption keypair
 
-const BASE_URL = process.env.BASE_URL || 'https://health-skillz.joshuamandel.com';
+import { webcrypto } from 'node:crypto';
 
-const keyPair = await crypto.subtle.generateKey(
+const BASE_URL = process.env.BASE_URL || '{{BASE_URL}}';
+
+const keyPair = await webcrypto.subtle.generateKey(
   { name: 'ECDH', namedCurve: 'P-256' },
   true,
   ['deriveBits', 'deriveKey']
 );
 
-const publicKeyJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey);
-const privateKeyJwk = await crypto.subtle.exportKey('jwk', keyPair.privateKey);
+const publicKeyJwk = await webcrypto.subtle.exportKey('jwk', keyPair.publicKey);
+const privateKeyJwk = await webcrypto.subtle.exportKey('jwk', keyPair.privateKey);
 
 const res = await fetch(`${BASE_URL}/api/session`, {
   method: 'POST',
