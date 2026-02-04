@@ -6,6 +6,17 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { webcrypto } from 'node:crypto';
 
+// Proxy-aware fetch: Node's built-in fetch ignores https_proxy env var (Bun doesn't need this)
+let _fetch = globalThis.fetch;
+const proxyUrl = process.env.https_proxy || process.env.HTTPS_PROXY || process.env.http_proxy || process.env.HTTP_PROXY;
+if (proxyUrl) {
+  try {
+    const { ProxyAgent, fetch: undiciFetch } = await import('undici');
+    const dispatcher = new ProxyAgent(proxyUrl);
+    _fetch = (url, opts) => undiciFetch(url, { ...opts, dispatcher });
+  } catch {}
+}
+
 const BASE_URL = '{{BASE_URL}}';
 
 const sessionId = process.argv[2];
@@ -27,7 +38,7 @@ const maxAttempts = 60; // 30 mins with 30s polls
 let pollResult = null;
 
 while (attempts < maxAttempts) {
-  const pollRes = await fetch(`${BASE_URL}/api/poll/${sessionId}?timeout=30`);
+  const pollRes = await _fetch(`${BASE_URL}/api/poll/${sessionId}?timeout=30`);
 
   if (!pollRes.ok) {
     console.log(JSON.stringify({ status: 'error', error: `Poll failed: ${pollRes.status}` }));
