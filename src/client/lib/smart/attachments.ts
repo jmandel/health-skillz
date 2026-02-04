@@ -8,9 +8,40 @@ export interface ProcessedAttachment {
   contentBase64: string | null;
 }
 
-// No artificial limits - fetch all attachments regardless of size
+const MAX_CONCURRENT_ATTACHMENTS = 5;
 
 export type AttachmentProgressCallback = (completed: number, total: number, detail: string) => void;
+
+/**
+ * Simple semaphore for concurrency control.
+ */
+class Semaphore {
+  private permits: number;
+  private waiting: Array<() => void> = [];
+
+  constructor(permits: number) {
+    this.permits = permits;
+  }
+
+  async acquire(): Promise<void> {
+    if (this.permits > 0) {
+      this.permits--;
+      return;
+    }
+    return new Promise((resolve) => {
+      this.waiting.push(resolve);
+    });
+  }
+
+  release(): void {
+    const next = this.waiting.shift();
+    if (next) {
+      next();
+    } else {
+      this.permits++;
+    }
+  }
+}
 
 /**
  * Extract and process attachments from DocumentReference and DiagnosticReport resources.
@@ -47,13 +78,13 @@ export async function extractAttachments(
   const total = toProcess.length;
   onProgress?.(0, total, '');
 
-  // Second pass: fetch and process
-  for (let i = 0; i < toProcess.length; i++) {
-    const { node, resourceType, resourceId, contentType } = toProcess[i];
-    
-    // Create a friendly label for the content type
+  // Second pass: fetch and process in parallel with semaphore
+  const semaphore = new Semaphore(MAX_CONCURRENT_ATTACHMENTS);
+  let completed = 0;
+
+  const promises = toProcess.map(async ({ node, resourceType, resourceId, contentType }) => {
+    await semaphore.acquire();
     const typeLabel = getContentTypeLabel(contentType);
-    onProgress?.(i, total, typeLabel);
     
     try {
       const processed = await fetchAndProcessAttachment(
@@ -68,10 +99,14 @@ export async function extractAttachments(
       }
     } catch (err) {
       console.warn(`Failed to process attachment:`, err);
+    } finally {
+      completed++;
+      onProgress?.(completed, total, typeLabel);
+      semaphore.release();
     }
-    
-    onProgress?.(i + 1, total, typeLabel);
-  }
+  });
+
+  await Promise.all(promises);
 
   return attachments;
 }
