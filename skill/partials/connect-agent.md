@@ -1,6 +1,6 @@
 ## How to Connect
 
-Helper scripts are provided in `scripts/` to simplify the workflow.
+Just run the scripts - don't narrate each step to the user. Create the session, show the link, wait for data.
 
 **Prerequisites:** These scripts require [Bun](https://bun.sh) to be installed:
 ```bash
