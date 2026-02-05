@@ -44,12 +44,17 @@ for (const sql of migrations) {
   try { db.run(sql); } catch (e) { /* Column already exists */ }
 }
 
-// Cleanup expired sessions
+// Cleanup expired sessions (every 5 min)
 const timeoutMs = (config.session?.timeoutMinutes || 60) * 60 * 1000;
 setInterval(() => {
   const cutoff = Math.floor((Date.now() - timeoutMs) / 1000);
   db.run("DELETE FROM sessions WHERE created_at < ?", [cutoff]);
 }, 5 * 60 * 1000);
+
+// Vacuum hourly to reclaim space
+setInterval(() => {
+  db.run("VACUUM");
+}, 60 * 60 * 1000);
 
 // Generate session ID
 function generateSessionId(): string {
