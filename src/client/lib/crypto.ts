@@ -4,8 +4,16 @@
 export interface EncryptedPayload {
   encrypted: true;
   ephemeralPublicKey: JsonWebKey;
-  iv: number[];
-  ciphertext: number[];
+  iv: string;  // base64
+  ciphertext: string;  // base64
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
 }
 
 export async function generateKeyPair(): Promise<CryptoKeyPair> {
@@ -93,7 +101,7 @@ export async function encryptData(
   return {
     encrypted: true,
     ephemeralPublicKey: ephemeralPublicKeyJwk,
-    iv: Array.from(iv),
-    ciphertext: Array.from(new Uint8Array(ciphertext)),
+    iv: toBase64(iv),
+    ciphertext: toBase64(new Uint8Array(ciphertext)),
   };
 }

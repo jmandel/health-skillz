@@ -92,8 +92,9 @@ async function decryptProvider(encrypted: any) {
     ['decrypt']
   );
 
-  const iv = new Uint8Array(encrypted.iv);
-  const ciphertext = new Uint8Array(encrypted.ciphertext);
+  // Decode base64
+  const iv = Uint8Array.from(atob(encrypted.iv), c => c.charCodeAt(0));
+  const ciphertext = Uint8Array.from(atob(encrypted.ciphertext), c => c.charCodeAt(0));
 
   const decrypted = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv },
