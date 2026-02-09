@@ -17,8 +17,8 @@ export interface Provider {
 export interface EncryptedPayload {
   encrypted: true;
   ephemeralPublicKey: JsonWebKey;
-  iv: string;  // base64
-  ciphertext: string;  // base64
+  iv: number[];
+  ciphertext: number[];
 }
 
 const BASE_URL = '';  // Same-origin API
