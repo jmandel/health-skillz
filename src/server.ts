@@ -250,11 +250,19 @@ const server = Bun.serve({
           return Response.json({ success: false, error: "token_mismatch" }, { status: 403, headers: corsHeaders });
         }
 
+        // Convert base64 to number arrays if needed (browser sends base64 for smaller payload)
+        const iv = typeof data.iv === 'string' 
+          ? Array.from(Uint8Array.from(atob(data.iv), c => c.charCodeAt(0)))
+          : data.iv;
+        const ciphertext = typeof data.ciphertext === 'string'
+          ? Array.from(Uint8Array.from(atob(data.ciphertext), c => c.charCodeAt(0)))
+          : data.ciphertext;
+
         const existing = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
         existing.push({
           ephemeralPublicKey: data.ephemeralPublicKey,
-          iv: data.iv,
-          ciphertext: data.ciphertext,
+          iv,
+          ciphertext,
         });
 
         db.run("UPDATE sessions SET encrypted_data = ?, status = 'collecting', finalize_token = ? WHERE id = ?",
