@@ -141,10 +141,7 @@ export default function OAuthCallbackPage() {
           }
           store.setSession(sessionId, oauth.publicKeyJwk, token);
 
-          setStatus('sending');
-          await sendEncryptedEhrData(sessionId, encrypted, token);
-
-          // Also save locally for download feature
+          // Save locally FIRST so data isn't lost if upload fails
           await store.addProviderData(sessionId, {
             name: oauth.providerName,
             fhirBaseUrl: oauth.fhirBaseUrl,
@@ -153,11 +150,20 @@ export default function OAuthCallbackPage() {
             attachments: ehrData.attachments,
           });
 
-          setStatus('done');
-          setTimeout(() => {
-            setStatus('idle');
-            navigate(`/connect/${sessionId}?provider_added=true`);
-          }, 1500);
+          setStatus('sending');
+          try {
+            await sendEncryptedEhrData(sessionId, encrypted, token);
+            setStatus('done');
+            setTimeout(() => {
+              setStatus('idle');
+              navigate(`/connect/${sessionId}?provider_added=true`);
+            }, 1500);
+          } catch (uploadErr) {
+            // Upload failed but data is saved locally - let user download instead
+            console.error('Upload failed:', uploadErr);
+            store.setUploadFailed(true);
+            setStatus('upload_failed' as any);
+          }
         }
       } catch (err) {
         console.error('OAuth processing error:', err);
@@ -184,6 +190,8 @@ export default function OAuthCallbackPage() {
         return 'Saving data...';
       case 'done':
         return 'Success! Redirecting...';
+      case 'upload_failed' as any:
+        return 'Upload failed, but your data is saved locally.';
       case 'error':
         return store.error || 'An error occurred';
       default:
@@ -258,6 +266,17 @@ export default function OAuthCallbackPage() {
           <button className="btn" onClick={() => navigate(isLocalCollection ? '/collect' : `/connect/${resolvedSessionId}`)}>
             ← Try Again
           </button>
+        )}
+        {(store.status as string) === 'upload_failed' && resolvedSessionId && (
+          <div className="upload-failed-actions">
+            <p>You can download your data and share it manually with your AI agent.</p>
+            <button className="btn btn-primary" onClick={() => navigate(`/connect/${resolvedSessionId}?upload_failed=true`)}>
+              Download Data
+            </button>
+            <button className="btn" onClick={() => navigate(`/connect/${resolvedSessionId}`)}>
+              Try Again
+            </button>
+          </div>
         )}
         {(isLoading || status === 'loading') && (
           <p className="security-info">
