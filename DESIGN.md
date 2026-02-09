@@ -496,11 +496,15 @@ Check if health data is ready. Supports long-polling with `?timeout=N` (max 60s)
     {
       "ephemeralPublicKey": {"kty": "EC", "crv": "P-256", ...},
       "iv": [1, 2, 3, ...],
-      "ciphertext": [4, 5, 6, ...]
+      "ciphertext": [4, 5, 6, ...],
+      "version": 2
     }
   ]
 }
 ```
+
+> **Note:** `version: 2` indicates the ciphertext contains gzip-compressed JSON.
+> The finalize script decompresses after decryption. Version 1 (or missing) is uncompressed.
 
 ### POST /api/receive-ehr
 
@@ -511,11 +515,14 @@ Receive encrypted health data from the browser.
 {
   "sessionId": "d2d5a05d...",
   "encrypted": true,
+  "version": 2,
   "ephemeralPublicKey": {"kty": "EC", "crv": "P-256", ...},
-  "iv": [1, 2, 3, ...],
-  "ciphertext": [4, 5, 6, ...]
+  "iv": "base64...",
+  "ciphertext": "base64..."
 }
 ```
+
+> **Note:** Browser sends base64-encoded iv/ciphertext; server converts to number arrays for storage.
 
 **Response:**
 ```json
