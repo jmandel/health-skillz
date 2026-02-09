@@ -143,6 +143,7 @@ function getVendors() {
 const server = Bun.serve({
   port,
   development: process.env.NODE_ENV !== 'production',
+  maxRequestBodySize: 1024 * 1024 * 1024, // 1GB (default is 128MB)
 
   routes: {
     // SPA routes - all handled by React Router
@@ -263,6 +264,7 @@ const server = Bun.serve({
           ephemeralPublicKey: data.ephemeralPublicKey,
           iv,
           ciphertext,
+          version: data.version || 1,  // v1 = uncompressed, v2 = gzip compressed
         });
 
         db.run("UPDATE sessions SET encrypted_data = ?, status = 'collecting', finalize_token = ? WHERE id = ?",

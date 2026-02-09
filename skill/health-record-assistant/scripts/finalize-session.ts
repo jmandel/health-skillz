@@ -69,6 +69,12 @@ const privateKey = await crypto.subtle.importKey(
   ['deriveBits']
 );
 
+async function decompress(data: Uint8Array): Promise<Uint8Array> {
+  const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream('gzip'));
+  const blob = await new Response(stream).blob();
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
 async function decryptProvider(encrypted: any) {
   const ephemeralPublicKey = await crypto.subtle.importKey(
     'jwk',
@@ -101,7 +107,15 @@ async function decryptProvider(encrypted: any) {
     ciphertext
   );
 
-  return JSON.parse(new TextDecoder().decode(decrypted));
+  // v2 payloads are gzip compressed; v1 are plain JSON
+  let jsonBytes: Uint8Array;
+  if (encrypted.version === 2) {
+    jsonBytes = await decompress(new Uint8Array(decrypted));
+  } else {
+    jsonBytes = new Uint8Array(decrypted);
+  }
+
+  return JSON.parse(new TextDecoder().decode(jsonBytes));
 }
 
 function slugify(name: string): string {

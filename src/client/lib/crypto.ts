@@ -3,9 +3,10 @@
 
 export interface EncryptedPayload {
   encrypted: true;
+  version: 2;  // v2 = compressed + base64
   ephemeralPublicKey: JsonWebKey;
   iv: string;  // base64 (server converts to number[] for backward compat)
-  ciphertext: string;  // base64
+  ciphertext: string;  // base64 of encrypted gzip data
 }
 
 function toBase64(bytes: Uint8Array): string {
@@ -88,20 +89,31 @@ export async function encryptData(
   // Generate random IV
   const iv = crypto.getRandomValues(new Uint8Array(12));
 
-  // Encrypt the full payload including metadata (providerName, connectedAt)
+  // Compress, then encrypt the full payload including metadata
   // This ensures server never sees any PHI or identifying info
   const encoder = new TextEncoder();
-  const dataBytes = encoder.encode(JSON.stringify(data));
+  const jsonBytes = encoder.encode(JSON.stringify(data));
+  
+  // Compress with gzip using CompressionStream API
+  const compressed = await compress(jsonBytes);
+  
   const ciphertext = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv },
     sharedKey,
-    dataBytes
+    compressed
   );
 
   return {
     encrypted: true,
+    version: 2,
     ephemeralPublicKey: ephemeralPublicKeyJwk,
     iv: toBase64(iv),
     ciphertext: toBase64(new Uint8Array(ciphertext)),
   };
+}
+
+async function compress(data: Uint8Array): Promise<Uint8Array> {
+  const stream = new Blob([data]).stream().pipeThrough(new CompressionStream('gzip'));
+  const blob = await new Response(stream).blob();
+  return new Uint8Array(await blob.arrayBuffer());
 }
