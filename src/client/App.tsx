@@ -5,6 +5,7 @@ import ProviderSelectPage from './pages/ProviderSelectPage';
 import OAuthCallbackPage from './pages/OAuthCallbackPage';
 import CollectPage from './pages/CollectPage';
 import CollectProviderSelectPage from './pages/CollectProviderSelectPage';
+import ConnectionsPage from './pages/ConnectionsPage';
 import './index.css';
 
 export default function App() {
@@ -25,6 +26,9 @@ export default function App() {
         <Route path="/collect" element={<CollectPage />} />
         <Route path="/collect/select" element={<CollectProviderSelectPage />} />
         <Route path="/collect/callback" element={<OAuthCallbackPage />} />
+
+        {/* Persistent connections management */}
+        <Route path="/connections" element={<ConnectionsPage />} />
       </Routes>
     </BrowserRouter>
   );

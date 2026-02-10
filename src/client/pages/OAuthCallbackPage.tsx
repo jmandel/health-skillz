@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useSessionStore } from '../store/session';
 import { loadOAuthState, clearOAuthState, loadSession, loadProviderData } from '../lib/storage';
+import { saveConnection, saveFhirData, findConnectionByEndpoint, type SavedConnection } from '../lib/connections';
 import { exchangeCodeForToken } from '../lib/smart/oauth';
 import { fetchPatientData, type ProgressInfo } from '../lib/smart/client';
 import { encryptData, encryptAndUploadStreaming, type StreamingProgress } from '../lib/crypto';
@@ -163,6 +164,38 @@ export default function OAuthCallbackPage() {
         const patientId = tokenResponse.patient;
         if (!patientId) {
           throw new Error('No patient ID in token response');
+        }
+
+        // Save persistent connection if we got a refresh token
+        if (tokenResponse.refresh_token) {
+          try {
+            const now = new Date().toISOString();
+            // Check for existing connection to same patient/endpoint
+            const existing = await findConnectionByEndpoint(oauth.fhirBaseUrl, patientId);
+            const conn: SavedConnection = {
+              id: existing?.id ?? crypto.randomUUID(),
+              providerName: oauth.providerName,
+              fhirBaseUrl: oauth.fhirBaseUrl,
+              tokenEndpoint: oauth.tokenEndpoint,
+              clientId: oauth.clientId,
+              patientId,
+              refreshToken: tokenResponse.refresh_token,
+              scopes: tokenResponse.scope || '',
+              createdAt: existing?.createdAt ?? now,
+              lastRefreshedAt: now,
+              lastFetchedAt: null,
+              dataSizeBytes: null,
+              status: 'active',
+            };
+            await saveConnection(conn);
+            console.log(`[Connection] Saved persistent connection for ${oauth.providerName} (${existing ? 'updated' : 'new'})`);
+            // Also cache the FHIR data in the connection
+            await saveFhirData(conn.id, ehrData.fhir, ehrData.attachments);
+            console.log(`[Connection] Cached FHIR data for ${oauth.providerName}`);
+          } catch (connErr) {
+            // Non-fatal — the one-shot flow still works without persistent connection
+            console.warn('[Connection] Failed to save persistent connection:', connErr);
+          }
         }
 
         setStatus('loading');

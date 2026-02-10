@@ -4,6 +4,16 @@ import { useSessionStore } from '../store/session';
 import { getSessionInfo, finalizeSession, sendEncryptedEhrData, logClientError } from '../lib/api';
 import { getFullData, clearAllData, loadProviderData } from '../lib/storage';
 import { encryptDataAuto } from '../lib/crypto';
+import {
+  getAllConnections,
+  getFhirData,
+  saveFhirData,
+  updateConnectionToken,
+  updateConnectionStatus,
+  type SavedConnection,
+} from '../lib/connections';
+import { refreshAccessToken } from '../lib/smart/oauth';
+import { fetchPatientData } from '../lib/smart/client';
 import ProviderList from '../components/ProviderList';
 import StatusMessage from '../components/StatusMessage';
 
@@ -29,7 +39,24 @@ export default function ConnectPage() {
   } = useSessionStore();
 
   const [dataCleared, setDataCleared] = useState(false);
+
+  const formatAge = (iso: string) => {
+    const ms = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(ms / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    return `${days}d ago`;
+  };
   const [uploadProgress, setUploadProgress] = useState<{ loaded: number; total: number } | null>(null);
+
+  // Saved connections state
+  const [savedConnections, setSavedConnections] = useState<SavedConnection[]>([]);
+  const [selectedConnections, setSelectedConnections] = useState<Set<string>>(new Set());
+  const [refreshingConn, setRefreshingConn] = useState<string | null>(null);
+  const [sendingSelected, setSendingSelected] = useState(false);
 
   // Initialize store and load session
   useEffect(() => {
@@ -63,6 +90,122 @@ export default function ConnectPage() {
 
     syncWithServer();
   }, [sessionId, initialized, storeSessionId, init, setSession, setStatus, setError, clearError]);
+
+  // Load saved connections
+  useEffect(() => {
+    getAllConnections().then(conns => {
+      setSavedConnections(conns);
+      // Auto-select active connections that have cached data
+      const autoSelected = new Set<string>();
+      for (const c of conns) {
+        if (c.status === 'active' && c.dataSizeBytes) {
+          autoSelected.add(c.id);
+        }
+      }
+      setSelectedConnections(autoSelected);
+    });
+  }, [providers]); // Reload when providers change (after OAuth callback)
+
+  const toggleConnection = useCallback((id: string) => {
+    setSelectedConnections(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // Refresh a saved connection: get new access token, re-fetch FHIR data
+  const handleRefreshConnection = useCallback(async (conn: SavedConnection) => {
+    if (!publicKeyJwk) return;
+    setRefreshingConn(conn.id);
+    try {
+      // 1. Use refresh token to get new access token
+      const tokenResponse = await refreshAccessToken(
+        conn.tokenEndpoint,
+        conn.clientId,
+        conn.refreshToken
+      );
+
+      // 2. CRITICAL: save rolling refresh token immediately
+      if (tokenResponse.refresh_token) {
+        await updateConnectionToken(conn.id, tokenResponse.refresh_token);
+      }
+
+      // 3. Fetch fresh FHIR data
+      const patientId = tokenResponse.patient || conn.patientId;
+      const ehrData = await fetchPatientData(
+        conn.fhirBaseUrl,
+        tokenResponse.access_token,
+        patientId
+      );
+
+      // 4. Cache it
+      await saveFhirData(conn.id, ehrData.fhir, ehrData.attachments);
+
+      // 5. Reload connections list and auto-select
+      const updated = await getAllConnections();
+      setSavedConnections(updated);
+      setSelectedConnections(prev => new Set([...prev, conn.id]));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('400') || msg.includes('401')) {
+        await updateConnectionStatus(conn.id, 'expired', msg);
+      } else {
+        await updateConnectionStatus(conn.id, 'error', msg);
+      }
+      const updated = await getAllConnections();
+      setSavedConnections(updated);
+    } finally {
+      setRefreshingConn(null);
+    }
+  }, [publicKeyJwk]);
+
+  // Send selected saved connections' data (encrypt + upload)
+  const handleSendSelected = useCallback(async () => {
+    if (!sessionId || !publicKeyJwk || selectedConnections.size === 0) return;
+
+    setSendingSelected(true);
+    setStatus('sending');
+
+    // Ensure we have a finalize token
+    let token = finalizeToken;
+    if (!token) {
+      token = crypto.randomUUID();
+      setSession(sessionId, publicKeyJwk, token);
+    }
+
+    try {
+      for (const connId of selectedConnections) {
+        const cached = await getFhirData(connId);
+        if (!cached) continue;
+
+        const conn = savedConnections.find(c => c.id === connId);
+        const providerData = {
+          name: conn?.providerName || 'Unknown',
+          fhirBaseUrl: conn?.fhirBaseUrl || '',
+          connectedAt: cached.fetchedAt,
+          fhir: cached.fhir,
+          attachments: cached.attachments,
+        };
+
+        // Save to session storage too (for download/retry)
+        await useSessionStore.getState().addProviderData(sessionId, providerData);
+
+        // Encrypt and upload
+        const encrypted = await encryptDataAuto(providerData, publicKeyJwk);
+        await sendEncryptedEhrData(sessionId, encrypted, token, setUploadProgress);
+      }
+
+      // Auto-finalize
+      await finalizeSession(sessionId, token);
+      setStatus('done');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to send data');
+    } finally {
+      setSendingSelected(false);
+    }
+  }, [sessionId, publicKeyJwk, finalizeToken, selectedConnections, savedConnections, setStatus, setError, setSession]);
 
   const startConnect = useCallback(() => {
     if (!sessionId || !publicKeyJwk) return;
@@ -296,7 +439,95 @@ export default function ConnectPage() {
       <div className="connect-card">
         <h1>🏥 Connect Your Health Records</h1>
 
-        {!hasProviders ? (
+        {/* Saved connections section */}
+        {savedConnections.length > 0 && !hasProviders && status !== 'done' && (
+          <div style={{ marginBottom: '24px' }}>
+            <p style={{ fontWeight: 500, marginBottom: '12px' }}>
+              Select saved connections to share:
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {savedConnections.map(conn => {
+                const hasData = !!conn.dataSizeBytes;
+                const isSelected = selectedConnections.has(conn.id);
+                const isRefreshing = refreshingConn === conn.id;
+                const dataAge = conn.lastFetchedAt
+                  ? formatAge(conn.lastFetchedAt)
+                  : null;
+                const dataMB = conn.dataSizeBytes
+                  ? (conn.dataSizeBytes / 1024 / 1024).toFixed(1)
+                  : null;
+
+                return (
+                  <div
+                    key={conn.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      padding: '12px',
+                      background: isSelected ? '#f0fdf4' : '#f9fafb',
+                      border: `1px solid ${isSelected ? '#bbf7d0' : '#e5e7eb'}`,
+                      borderRadius: '8px',
+                      opacity: conn.status !== 'active' ? 0.6 : 1,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleConnection(conn.id)}
+                      disabled={!hasData || conn.status !== 'active' || isRefreshing || sendingSelected}
+                      style={{ width: '18px', height: '18px' }}
+                    />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 500, fontSize: '14px' }}>
+                        {conn.providerName}
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#666' }}>
+                        {conn.status !== 'active' ? (
+                          <span style={{ color: '#dc2626' }}>
+                            ⚠️ {conn.status === 'expired' ? 'Token expired — re-authorize' : conn.lastError || 'Error'}
+                          </span>
+                        ) : hasData ? (
+                          <span>Data: {dataMB} MB · {dataAge}</span>
+                        ) : (
+                          <span style={{ color: '#999' }}>No cached data — click refresh</span>
+                        )}
+                      </div>
+                    </div>
+                    {conn.status === 'active' && (
+                      <button
+                        className="btn btn-secondary"
+                        onClick={() => handleRefreshConnection(conn)}
+                        disabled={isRefreshing || sendingSelected}
+                        style={{ fontSize: '12px', padding: '4px 10px', whiteSpace: 'nowrap' }}
+                      >
+                        {isRefreshing ? '⏳ Refreshing...' : '🔄 Refresh'}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ marginTop: '12px', display: 'flex', gap: '8px' }}>
+              <button
+                className="btn btn-success"
+                onClick={handleSendSelected}
+                disabled={selectedConnections.size === 0 || sendingSelected || isWorking}
+              >
+                {sendingSelected ? 'Sending...' : `✅ Send ${selectedConnections.size} connection${selectedConnections.size !== 1 ? 's' : ''} to AI`}
+              </button>
+              <button
+                className="btn btn-secondary"
+                onClick={startConnect}
+                disabled={isWorking}
+              >
+                ➕ Add New Provider
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!hasProviders && savedConnections.length === 0 ? (
           <>
             <div className="warning-box">
               <strong>⚠️ Demo project:</strong> This is an open-source demo hosted on shared infrastructure with no uptime or security guarantees. While data is end-to-end encrypted, no warranties are provided. If connecting real records, understand you're trusting this demo infrastructure. <a href="https://github.com/jmandel/health-skillz" target="_blank" rel="noopener">Source code</a>
@@ -310,7 +541,7 @@ export default function ConnectPage() {
               Connect to a Health Provider
             </button>
           </>
-        ) : (
+        ) : hasProviders ? (
           <>
             <p>Connected providers:</p>
             <ProviderList providers={providers} />
@@ -349,7 +580,7 @@ export default function ConnectPage() {
               </p>
             )}
           </>
-        )}
+        ) : null}
 
         {isWorking && (
           <StatusMessage

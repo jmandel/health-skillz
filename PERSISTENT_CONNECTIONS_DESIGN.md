@@ -147,82 +147,142 @@ connections without a Claude session:
 
 ## Refresh Token Lifecycle
 
-### Assumptions
-- Epic refresh tokens last ~90 days if unused (not documented, conservative)
-- Each use of a refresh token may return a new refresh token (rolling refresh)
-- Patient picks the access duration at authorization time
+### What Epic Actually Documents (key insight!)
 
-### Keeping connections alive
+Epic has **two distinct refresh token modes**, and they behave very
+differently:
 
-The goal: exercise each refresh token at least once every ~60 days so it
-doesn't expire. Three mechanisms, from least to most intrusive:
+#### Rolling Refresh (default for most customers)
 
-**1. Opportunistic refresh (invisible)**
-Whenever the user visits any health-skillz page (session link, homepage,
-`/connections`), silently refresh all connections that are >30 days old.
-This happens in the background. If it fails, mark the connection as stale.
+The persistent access period has a **fixed end date** set by the first
+refresh token. When you use a refresh token and get a new one, the new
+token's expiration is the **same** as the original. Refreshing does NOT
+extend the window.
+
+```
+Day 0: Patient authorizes, picks "1 week"
+        → refresh_token_1 expires Day 7
+Day 3: Use refresh_token_1 → get refresh_token_2
+        → refresh_token_2 STILL expires Day 7
+Day 7: All tokens stop working. Period over.
+```
+
+This means our original "refresh every 30 days to prevent expiry"
+assumption was **wrong** for rolling refresh. The clock is ticking from
+authorization regardless of how often you refresh.
+
+#### Indefinite Persistent Access (requires customer config)
+
+New refresh tokens get **new, later** expiration dates. Each refresh
+pushes the window forward. This is what enables true long-lived connections.
+
+But it requires each Epic customer to configure it:
+> Navigate to Login and Access Configuration in MyChart →
+> OAuth Access Duration Configuration →
+> Specify 'Indefinite' in the Global Max OAuth Access Duration field.
+
+And even then, the **patient** still picks the duration at auth time.
+The customer just makes "Indefinite" available as an option.
+
+### What this means for our design
+
+**We cannot assume connections live forever.** The access period is:
+1. Bounded by what the Epic customer has configured (could be max 1 week)
+2. Chosen by the patient at authorization time (could pick 1 hour)
+3. For rolling refresh: fixed from day 0, not extendable by refreshing
+4. For indefinite: extendable, but only if customer enables it
+
+**We should track and show the expiration.** When we get a refresh token
+back, if it's a JWT we can decode the `exp` claim to know the hard
+deadline. Show the user: "This connection expires Jan 25" so there are
+no surprises.
+
+**Refreshing is still valuable** — not to extend the period, but to:
+- Get a fresh access_token (they expire in ~1 hour)
+- Test that the connection still works before the user needs it
+- For indefinite-mode customers, actually extend the period
+
+### Revised approach
+
+**1. Opportunistic refresh on page visit (still do this)**
+Whenever the user visits any health-skillz page, silently refresh
+connections that haven't been tested recently. This validates they still
+work and (for indefinite-mode) extends them.
 
 ```typescript
 // On any page load:
 const connections = await getAllConnections();
 for (const conn of connections) {
-  if (conn.lastRefreshedAt < Date.now() - 30 * DAY_MS) {
+  const hoursSinceRefresh = (Date.now() - conn.lastRefreshedAt) / 3600000;
+  if (hoursSinceRefresh > 1) { // Access tokens expire in ~1 hour
     try {
-      await silentRefresh(conn);
+      const result = await silentRefresh(conn);
+      conn.lastRefreshedAt = Date.now();
+      // Check if we got a new refresh token with a later expiry
+      if (result.refresh_token) {
+        conn.refreshToken = result.refresh_token;
+        conn.expiresAt = decodeRefreshTokenExpiry(result.refresh_token);
+      }
+      await saveConnection(conn);
     } catch {
-      conn.status = 'stale';
+      conn.status = 'expired';
       await saveConnection(conn);
     }
   }
 }
 ```
 
-This works great if the user uses health-skillz at least once a month.
-For infrequent users, we need:
-
-**2. Push notification nudge (opt-in)**
-When a user saves a connection, offer: "Want a reminder to keep this
-connection active?" If yes, request notification permission and register
-a service worker.
-
-The service worker checks IndexedDB periodically. If any connection is
->45 days since last refresh and the page isn't open:
+**2. Show connection health clearly**
 
 ```
-🏥 Health Skillz
-Your Mass General connection expires soon.
-Tap to keep it active.
+┌─────────────────────────────────────┐
+│ 🏥 Mass General (Epic)              │
+│ Authorized: Jan 15                 │
+│ Expires: Jan 22 (5 days left)      │  ← rolling
+│ Status: ✅ Active                    │
+└─────────────────────────────────────┘
+
+┌─────────────────────────────────────┐
+│ 🏥 Stanford Health (Epic)           │
+│ Authorized: Dec 1                  │
+│ Expires: No expiry set             │  ← indefinite
+│ Last refreshed: 2 days ago         │
+│ Status: ✅ Active                    │
+└─────────────────────────────────────┘
+
+┌─────────────────────────────────────┐
+│ ⚠️ UCSF (Epic)                      │
+│ Authorized: Nov 10                 │
+│ Expired: Dec 10                    │
+│ [Re-authorize] [Remove]            │
+└─────────────────────────────────────┘
 ```
 
-Tapping opens the site → opportunistic refresh kicks in → done.
+**3. Guide the user at authorization time**
+When the patient is on Epic's consent screen choosing the access duration,
+we can't control what's offered (that's customer-configured). But we can
+show guidance before the redirect:
 
-**Important**: This does NOT require a push server. The service worker can
-use the Notification API directly (local notifications) triggered by
-periodic checks when the browser is open. True push notifications would
-require a server, but local notifications triggered by a service worker's
-periodic wake-up may be enough.
+> "Tip: When asked how long to grant access, choose the longest option
+> available to keep your connection active longer."
 
-Actually — let's be honest about the limitations:
-- `periodicSync` requires Chrome + PWA install. No Safari, no Firefox.
-- Local notifications from service workers require the page to be open
-  or the service worker to wake up, which browsers throttle aggressively.
-- The most reliable approach: when the user visits, check and refresh.
-  If they don't visit for 90 days, the connection dies. That's okay.
+**4. Graceful degradation (still essential)**
+Connections will expire. Make re-authorization painless:
+- Pre-fill the provider (we know which one)
+- One click to start OAuth for that specific endpoint
+- After re-auth, the connection is refreshed in place (same slot)
 
-**3. Accept graceful degradation**
-If a connection expires, it's not catastrophic. The user just re-authorizes.
-The UX clearly shows "Connection expired — Re-authorize" and the OAuth
-flow is familiar. Don't over-engineer the keep-alive.
+**5. Skip push notifications / service workers for now**
+The `periodicSync` API (Chrome+PWA only) could theoretically do background
+refreshes, but:
+- Only helps for indefinite-mode customers
+- Unreliable (browser throttles aggressively)
+- The fallback (re-authorize) is straightforward
+- Not worth the complexity for v1
 
-### Recommended approach
-
-Do #1 (opportunistic refresh on page load) and #3 (graceful degradation).
-Skip #2 for now. The complexity of service worker + notifications isn't
-worth it when the fallback (re-authorize) is straightforward.
-
-Later, if demand exists, add an email-based reminder: "Your health
-connection is about to expire. Click here to refresh it." This requires
-collecting an email address but is far more reliable than push notifications.
+Later, if demand exists, consider email-based reminders: "Your Stanford
+Health connection expires in 3 days. Click to refresh." Requires collecting
+an email but is more reliable than service workers.
 
 ## Data Model
 

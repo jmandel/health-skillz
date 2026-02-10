@@ -172,6 +172,8 @@ const server = Bun.serve({
     // Self-service collection flow
     "/collect": homepage,
     "/collect/select": homepage,
+    // Connections management
+    "/connections": homepage,
   },
 
   async fetch(req) {
