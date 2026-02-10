@@ -50,6 +50,12 @@ export default function HomePage() {
           <p style={{ fontSize: '14px', color: '#666' }}>
             <strong>To install:</strong> Settings → Capabilities → Skills → Upload .zip
           </p>
+          <p style={{ fontSize: '14px', color: '#666', marginTop: '8px' }}>
+            <strong>⚠️ Requires network access:</strong> Your AI agent's sandbox must be able to reach the web.
+            For Claude.ai, go to <a href="https://claude.ai/settings/capabilities" target="_blank" rel="noopener">Settings → Capabilities</a> and 
+            enable <em>Allow network egress</em> with <em>All domains</em>.
+            Other agent platforms have different setups.
+          </p>
           
           <hr style={{ margin: '24px 0', border: 'none', borderTop: '1px solid #e0e0e0' }} />
           
