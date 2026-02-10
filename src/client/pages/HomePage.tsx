@@ -88,8 +88,8 @@ export default function HomePage() {
                     Three requirements: <strong>1)</strong> your agent can access the web,
                     <strong>2)</strong> it can run code or access a local shell
                     (to execute the skill's scripts), and <strong>3)</strong> you
-                    paste in the intro message above. If your AI can't run scripts,
-                    collect records here and
+                    paste in the intro message above. If your AI doesn't have
+                    web access, collect records here and
                     {' '}<strong>download a JSON export</strong> to upload directly.
                   </p>
                 </div>
