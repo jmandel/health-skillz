@@ -419,6 +419,13 @@ export default function OAuthCallbackPage() {
             </button>
             <button 
               className="btn btn-secondary" 
+              onClick={() => navigate(`/connect/${resolvedSessionId}?upload_failed=true`)}
+              style={{ width: '100%', marginBottom: '8px' }}
+            >
+              📥 Download Data Instead
+            </button>
+            <button 
+              className="btn btn-link" 
               onClick={() => navigate(`/connect/${resolvedSessionId}/select`)}
               style={{ width: '100%' }}
             >
