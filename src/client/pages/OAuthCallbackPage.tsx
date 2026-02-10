@@ -26,6 +26,7 @@ export default function OAuthCallbackPage() {
   const [lastEncrypted, setLastEncrypted] = useState<any>(null); // For small files only
   const [lastToken, setLastToken] = useState<string | null>(null);
   const [lastProviderName, setLastProviderName] = useState<string | null>(null);
+  const [processed, setProcessed] = useState(false); // Prevent re-processing on re-render
 
   const status = store.status;
   const setStatus = store.setStatus;
@@ -110,8 +111,9 @@ export default function OAuthCallbackPage() {
   }, [resolvedSessionId, lastEncrypted, lastToken, lastProviderName, navigate, setStatus]);
 
   useEffect(() => {
-    // Already processing or done
-    if (status !== 'idle') return;
+    // Already processed or processing
+    if (processed || status !== 'idle') return;
+    setProcessed(true); // Mark as processed immediately to prevent re-entry
 
     const code = searchParams.get('code');
     const state = searchParams.get('state');
