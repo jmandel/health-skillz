@@ -33,6 +33,10 @@ export interface SavedConnection {
   status: 'active' | 'expired' | 'error';
   /** Error message if status is 'error' */
   lastError?: string;
+  /** Patient display name extracted from FHIR Patient resource */
+  patientDisplayName?: string | null;
+  /** Patient birth date extracted from FHIR Patient resource (YYYY-MM-DD) */
+  patientBirthDate?: string | null;
 }
 
 /** FHIR data cached for a connection. Stored separately from metadata because it can be huge. */

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { loadBrandFile, searchBrands, collapseBrands } from '../lib/brands/loader';
 import type { BrandItem, LoadProgress, VendorConfig } from '../lib/brands/types';
 import { loadSession, saveOAuthState } from '../lib/storage';
@@ -11,9 +11,16 @@ import StatusMessage from '../components/StatusMessage';
 
 const PAGE_SIZE = 100;
 
+/**
+ * ProviderSelectPage — unified for both standalone (/records/add) and
+ * session mode (/records/add?session=XYZ).
+ */
 export default function ProviderSelectPage() {
-  const { sessionId } = useParams<{ sessionId: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  // Session ID from query param (session mode) or null (standalone)
+  const sessionId = searchParams.get('session') || undefined;
+  const backUrl = sessionId ? `/connect/${sessionId}` : '/records';
 
   // Loading state
   const [loadProgress, setLoadProgress] = useState<LoadProgress | null>(null);
@@ -38,8 +45,6 @@ export default function ProviderSelectPage() {
 
   // Load session and brand data
   useEffect(() => {
-    if (!sessionId) return;
-
     const init = async () => {
       try {
         // Get vendor configs (separate from session info)
@@ -108,7 +113,9 @@ export default function ProviderSelectPage() {
 
   // Handle connect (start OAuth)
   const handleConnect = async () => {
-    if (!selectedItem || !sessionId) return;
+    if (!selectedItem) return;
+    // For standalone mode, use a local session ID
+    const effectiveSessionId = sessionId || 'local_' + crypto.randomUUID();
 
     const vendorName = (selectedItem as any)._vendor as string;
     const vendorConfig = vendors[vendorName];
@@ -131,7 +138,7 @@ export default function ProviderSelectPage() {
       const pkce = await generatePKCE();
 
       // Use configured redirect URI (must match what's registered with EHR)
-      const redirectUri = vendorConfig.redirectUrl || `${window.location.origin}/connect/${sessionId}/callback`;
+      const redirectUri = vendorConfig.redirectUrl || `${window.location.origin}/connect/callback`;
 
       // Build authorization URL (sessionId encoded in state for cross-origin recovery)
       const { authUrl, state, tokenEndpoint } = await buildAuthorizationUrl({
@@ -140,13 +147,13 @@ export default function ProviderSelectPage() {
         scopes: vendorConfig.scopes,
         redirectUri,
         pkce,
-        sessionId,
+        sessionId: effectiveSessionId,
       });
 
       // Save OAuth state keyed by state nonce (survives cross-origin redirect)
       const session = loadSession();
       saveOAuthState(state, {
-        sessionId,
+        sessionId: effectiveSessionId,
         publicKeyJwk: session?.publicKeyJwk || null,
         codeVerifier: pkce.codeVerifier,
         tokenEndpoint,
@@ -197,7 +204,7 @@ export default function ProviderSelectPage() {
         <div className="connect-card">
           <h1>🏥 Select Your Provider</h1>
           <StatusMessage status="error" message={error} />
-          <button className="btn" onClick={() => navigate(`/connect/${sessionId}`)}>
+          <button className="btn" onClick={() => navigate(backUrl)}>
             ← Go Back
           </button>
         </div>
@@ -210,7 +217,7 @@ export default function ProviderSelectPage() {
       <div className="provider-select-header">
         <button
           className="back-button"
-          onClick={() => navigate(`/connect/${sessionId}`)}
+          onClick={() => navigate(backUrl)}
         >
           ← Back
         </button>

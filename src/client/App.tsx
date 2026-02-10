@@ -1,11 +1,9 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import HomePage from './pages/HomePage';
+import RecordsPage from './pages/RecordsPage';
 import ConnectPage from './pages/ConnectPage';
 import ProviderSelectPage from './pages/ProviderSelectPage';
 import OAuthCallbackPage from './pages/OAuthCallbackPage';
-import CollectPage from './pages/CollectPage';
-import CollectProviderSelectPage from './pages/CollectProviderSelectPage';
-import ConnectionsPage from './pages/ConnectionsPage';
 import './index.css';
 
 export default function App() {
@@ -13,22 +11,21 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<HomePage />} />
-        
-        {/* Agent-initiated flow (with server session) */}
-        <Route path="/connect/:sessionId" element={<ConnectPage />} />
-        <Route path="/connect/:sessionId/select" element={<ProviderSelectPage />} />
-        <Route path="/connect/:sessionId/callback" element={<OAuthCallbackPage />} />
-        
-        {/* OAuth callback - single URL for both flows, page detects which */}
-        <Route path="/connect/callback" element={<OAuthCallbackPage />} />
-        
-        {/* Self-service collection flow (local only) */}
-        <Route path="/collect" element={<CollectPage />} />
-        <Route path="/collect/select" element={<CollectProviderSelectPage />} />
-        <Route path="/collect/callback" element={<OAuthCallbackPage />} />
 
-        {/* Persistent connections management */}
-        <Route path="/connections" element={<ConnectionsPage />} />
+        {/* Records hub (standalone) */}
+        <Route path="/records" element={<RecordsPage />} />
+        <Route path="/records/add" element={<ProviderSelectPage />} />
+        <Route path="/records/callback" element={<OAuthCallbackPage />} />
+
+        {/* AI session flow */}
+        <Route path="/connect/:sessionId" element={<ConnectPage />} />
+
+        {/* OAuth callback (shared) */}
+        <Route path="/connect/callback" element={<OAuthCallbackPage />} />
+
+        {/* Legacy routes — redirect */}
+        <Route path="/collect" element={<RecordsPage />} />
+        <Route path="/connections" element={<RecordsPage />} />
       </Routes>
     </BrowserRouter>
   );

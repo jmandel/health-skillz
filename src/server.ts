@@ -163,16 +163,16 @@ const server = Bun.serve({
   routes: {
     // SPA routes - all handled by React Router
     "/": homepage,
-    // Agent-initiated flow
+    // Records hub
+    "/records": homepage,
+    "/records/add": homepage,
+    "/records/callback": homepage,
+    // AI session
     "/connect/:sessionId": homepage,
-    "/connect/:sessionId/select": homepage,
-    "/connect/:sessionId/callback": homepage,
-    // OAuth callback - single URL, page detects local vs agent session
+    // OAuth callback (shared)
     "/connect/callback": homepage,
-    // Self-service collection flow
+    // Legacy routes
     "/collect": homepage,
-    "/collect/select": homepage,
-    // Connections management
     "/connections": homepage,
   },
 
