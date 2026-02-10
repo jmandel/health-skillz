@@ -188,9 +188,9 @@ export default function ProviderSelectPage() {
   // Loading state
   if (loadProgress?.phase !== 'ready' && !error) {
     return (
-      <div className="connect-container">
-        <div className="connect-card">
-          <h1>Select a provider</h1>
+      <div className="page-centered">
+        <div className="panel">
+          <h1 className="page-title">Select a provider</h1>
           <StatusMessage status="loading" message={getProgressMessage()} />
         </div>
       </div>
@@ -200,11 +200,11 @@ export default function ProviderSelectPage() {
   // Error state
   if (error) {
     return (
-      <div className="connect-container">
-        <div className="connect-card">
-          <h1>Select a provider</h1>
+      <div className="page-centered">
+        <div className="panel">
+          <h1 className="page-title">Select a provider</h1>
           <StatusMessage status="error" message={error} />
-          <button className="btn" onClick={() => navigate(backUrl)}>
+          <button className="btn btn-secondary" onClick={() => navigate(backUrl)}>
             Back
           </button>
         </div>
