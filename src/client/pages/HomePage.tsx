@@ -51,6 +51,49 @@ export default function HomePage() {
               <div className="copy-box-hint">
                 {copied ? '✓ Copied!' : 'Click to copy'}
               </div>
+              <button className="help-toggle" style={{ marginTop: 10 }} onClick={() => setShowHelp(!showHelp)}>
+                {showHelp ? '▾' : '▸'} Setup notes for specific AI tools
+              </button>
+              {showHelp && (
+                <div className="help-detail">
+                  <h4>Claude.ai (web app)</h4>
+                  <p>
+                    The sandbox blocks network access by default. Before pasting the message,
+                    go to <strong>Settings → Profile → Analysis tool</strong> and
+                    enable <strong>"Allow connections to outside services"</strong>.
+                    Without this, the skill's scripts will fail with network errors.
+                  </p>
+                  <p style={{ marginTop: 6 }}>
+                    Alternatively, collect records here first, download the <strong>skill zip with
+                    data bundled in</strong>, and upload it via Settings → Profile → Claude Skills → Add Skill.
+                    No network access needed for that path.
+                  </p>
+
+                  <h4>Claude Code (CLI)</h4>
+                  <p>
+                    Network access is allowed by default. Just paste the message.
+                    Claude will download the skill, run the scripts, and walk you through it.
+                    Requires <a href="https://bun.sh" target="_blank" rel="noopener">Bun</a> installed locally.
+                  </p>
+
+                  <h4>Codex CLI</h4>
+                  <p>
+                    Same as Claude Code — full shell and network access.
+                    Paste the message or tell it to read <code>SKILL.md</code> from
+                    the unzipped skill folder. Requires Bun.
+                  </p>
+
+                  <h4>Any other AI tool</h4>
+                  <p>
+                    Three requirements: <strong>1)</strong> your agent can access the web,
+                    <strong>2)</strong> it can run code or access a local shell
+                    (to execute the skill's scripts), and <strong>3)</strong> you
+                    paste in the intro message above. If your AI can't run scripts,
+                    collect records here and
+                    {' '}<strong>download a JSON export</strong> to upload directly.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -63,59 +106,12 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Setup help */}
-        <div className="card home-section">
-          <button className="help-toggle" onClick={() => setShowHelp(!showHelp)}>
-            {showHelp ? '▾' : '▸'} Setup notes for specific AI tools
-          </button>
-          {showHelp && (
-            <div className="help-detail">
-              <h4>Claude.ai (web app)</h4>
-              <p>
-                The sandbox blocks network access by default. Before pasting the message,
-                go to <strong>Settings → Profile → Analysis tool</strong> and
-                enable <strong>"Allow connections to outside services"</strong>.
-                Without this, the skill's scripts will fail with network errors.
-              </p>
-              <p style={{ marginTop: 6 }}>
-                Alternatively, collect records here first, download the <strong>skill zip with
-                data bundled in</strong>, and upload it via Settings → Profile → Claude Skills → Add Skill.
-                No network access needed for that path.
-              </p>
-
-              <h4>Claude Code (CLI)</h4>
-              <p>
-                Network access is allowed by default. Just paste the message.
-                Claude will download the skill, run the scripts, and walk you through it.
-                Requires <a href="https://bun.sh" target="_blank" rel="noopener">Bun</a> installed locally.
-              </p>
-
-              <h4>Codex CLI</h4>
-              <p>
-                Same as Claude Code — full shell and network access.
-                Paste the message or tell it to read <code>SKILL.md</code> from
-                the unzipped skill folder. Requires Bun.
-              </p>
-
-              <h4>Any other AI tool</h4>
-              <p>
-                Three requirements: <strong>1)</strong> your agent can access the web,
-                <strong>2)</strong> it can run code or access a local shell
-                (to execute the skill's scripts), and <strong>3)</strong> you
-                paste in the intro message above. If your AI can't run scripts,
-                collect records here and
-                {' '}<strong>download a JSON export</strong> to upload directly.
-              </p>
-            </div>
-          )}
-        </div>
-
         {/* Direct download */}
         <div className="card home-section">
           <h2>Direct download</h2>
           <p className="step-text" style={{ marginBottom: 8 }}>
             The skill zip contains instructions and scripts for AI agents.
-            No health data is included — that stays in your browser.
+            No health data is included.
           </p>
           <a href="/skill.zip" className="btn btn-secondary" style={{ fontSize: '0.85rem', padding: '6px 14px' }} download>
             Download skill (.zip)
