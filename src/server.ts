@@ -270,7 +270,8 @@ const server = Bun.serve({
           if (!data.chunk || typeof data.chunk.index !== 'number' || !data.chunk.ephemeralPublicKey || !data.chunk.iv || !data.chunk.ciphertext) {
             return Response.json({ success: false, error: "missing_chunk_fields" }, { status: 400, headers: corsHeaders });
           }
-          if (typeof data.totalChunks !== 'number' || data.totalChunks < 1) {
+          // totalChunks: -1 means "unknown, more coming", positive means final count
+          if (typeof data.totalChunks !== 'number' || (data.totalChunks < 1 && data.totalChunks !== -1)) {
             return Response.json({ success: false, error: "invalid_total_chunks" }, { status: 400, headers: corsHeaders });
           }
         } else {
@@ -322,10 +323,13 @@ const server = Bun.serve({
             providerEntry = {
               _chunkGroupId: chunkGroupId,
               version: 3,
-              totalChunks: data.totalChunks,
+              totalChunks: data.totalChunks, // -1 if unknown
               chunks: [],
             };
             existing.push(providerEntry);
+          } else if (data.totalChunks > 0) {
+            // Update totalChunks when we finally know it
+            providerEntry.totalChunks = data.totalChunks;
           }
           
           // Add chunk (avoid duplicates)
@@ -343,14 +347,15 @@ const server = Bun.serve({
           providerEntry.chunks.sort((a: any, b: any) => a.index - b.index);
           
           const receivedChunks = providerEntry.chunks.length;
-          const isComplete = receivedChunks === data.totalChunks;
+          const knownTotal = providerEntry.totalChunks > 0 ? providerEntry.totalChunks : '?';
+          const isComplete = providerEntry.totalChunks > 0 && receivedChunks === providerEntry.totalChunks;
           
           // Remove temp groupId when complete
           if (isComplete) {
             delete providerEntry._chunkGroupId;
           }
           
-          console.log(`Received chunk ${chunkIndex + 1}/${data.totalChunks} for ${data.sessionId} (${receivedChunks}/${data.totalChunks} complete)`);
+          console.log(`Received chunk ${chunkIndex + 1}/${knownTotal} for ${data.sessionId} (${receivedChunks}/${knownTotal} complete)`);
         } else {
           // v1/v2 single payload
           // Convert base64 to number arrays if needed (browser sends base64 for smaller payload)
