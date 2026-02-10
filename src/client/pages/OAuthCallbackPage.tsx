@@ -116,35 +116,22 @@ export default function OAuthCallbackPage() {
   const displayStatus = storeProgress || localStatus;
 
   return (
-    <div className="connect-container">
-      <div className="connect-card">
-        <h1 style={{ fontSize: '1.3rem', marginBottom: 16 }}>🏥 Retrieving Health Records</h1>
+    <div className="page-centered">
+      <div className="panel">        <div className="page-title">Retrieving health records</div>
 
         {errorMsg ? (
           <>
-            <StatusMessage status="error" message={errorMsg} />
-            <button
-              className="btn"
-              onClick={() => navigate('/records')}
-              style={{ marginTop: 12 }}
-            >
-              ← Back to Records
+            <div className="alert alert-error" style={{ marginBottom: 12 }}>{errorMsg}</div>
+            <button className="btn btn-secondary" onClick={() => navigate('/records')}>
+              Back to records
             </button>
           </>
         ) : (
           <>
             <StatusMessage status={done ? 'success' : 'loading'} message={displayStatus} />
-
-            {/* Show a visual progress indication */}
             {!done && (
-              <div style={{ marginTop: 16, textAlign: 'center', color: '#666', fontSize: '0.85rem' }}>
-                This may take up to a minute depending on how much data is available.
-              </div>
+              <p className="security-info">This may take up to a minute.</p>
             )}
-
-            <p className="security-info" style={{ marginTop: 16 }}>
-              🔒 Your data is saved only in your browser.
-            </p>
           </>
         )}
       </div>

@@ -190,7 +190,7 @@ export default function ProviderSelectPage() {
     return (
       <div className="connect-container">
         <div className="connect-card">
-          <h1>🏥 Select Your Provider</h1>
+          <h1>Select a provider</h1>
           <StatusMessage status="loading" message={getProgressMessage()} />
         </div>
       </div>
@@ -202,10 +202,10 @@ export default function ProviderSelectPage() {
     return (
       <div className="connect-container">
         <div className="connect-card">
-          <h1>🏥 Select Your Provider</h1>
+          <h1>Select a provider</h1>
           <StatusMessage status="error" message={error} />
           <button className="btn" onClick={() => navigate(backUrl)}>
-            ← Go Back
+            Back
           </button>
         </div>
       </div>
@@ -219,7 +219,7 @@ export default function ProviderSelectPage() {
           className="back-button"
           onClick={() => navigate(backUrl)}
         >
-          ← Back
+          Back
         </button>
         <h1>Select Your Healthcare Provider</h1>
         <p>

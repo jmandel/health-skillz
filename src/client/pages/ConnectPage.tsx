@@ -36,8 +36,8 @@ export default function ConnectPage() {
   // Loading / error states
   if (!sessionId) {
     return (
-      <div className="connect-container">
-        <div className="connect-card">
+      <div className="page-centered">
+        <div className="panel">
           <StatusMessage status="error" message="No session ID" />
         </div>
       </div>
@@ -47,18 +47,17 @@ export default function ConnectPage() {
   if (!store.session) {
     if (store.status === 'error') {
       return (
-        <div className="connect-container">
-          <div className="connect-card">
-            <h1>🏥 Health Records</h1>
+        <div className="page-centered">
+          <div className="panel">
+            <div className="page-title">Session error</div>
             <StatusMessage status="error" message={store.error || 'Session not found or expired'} />
           </div>
         </div>
       );
     }
     return (
-      <div className="connect-container">
-        <div className="connect-card">
-          <h1>🏥 Health Records</h1>
+      <div className="page-centered">
+        <div className="panel">
           <StatusMessage status="loading" message="Loading session…" />
         </div>
       </div>
@@ -68,8 +67,8 @@ export default function ConnectPage() {
   return (
     <>
       {justAdded && (
-        <div style={{ background: '#d1fae5', padding: '8px 16px', textAlign: 'center', fontSize: '0.9rem' }}>
-          ✅ Provider connected successfully!
+        <div className="alert alert-success" style={{ position: 'fixed', top: 0, left: 0, right: 0, borderRadius: 0, textAlign: 'center', zIndex: 100 }}>
+          Provider connected.
         </div>
       )}
       <RecordsPage />
