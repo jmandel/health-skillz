@@ -230,9 +230,9 @@ const server = Bun.serve({
 
         const encryptedData = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
         if (row.status === "finalized" && encryptedData.length > 0) {
+          // Don't include encryptedProviders here - use /api/chunks endpoint for data
           return Response.json({
             ready: true,
-            encryptedProviders: encryptedData,
             providerCount: encryptedData.length
           }, { headers: corsHeaders });
         }

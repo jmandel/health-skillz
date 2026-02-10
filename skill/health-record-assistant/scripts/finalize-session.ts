@@ -18,12 +18,11 @@ if (!sessionId || !privateKeyJwkStr || !outputDir) {
 
 const privateKeyJwk = JSON.parse(privateKeyJwkStr);
 
-// Poll until ready
+// Poll until ready (just checks status, doesn't download data)
 console.log(JSON.stringify({ status: 'polling', sessionId }));
 
 let attempts = 0;
 const maxAttempts = 60; // 30 mins with 30s polls
-let pollResult: any = null;
 
 while (attempts < maxAttempts) {
   const pollRes = await fetch(`${BASE_URL}/api/poll/${sessionId}?timeout=30`);
@@ -33,13 +32,10 @@ while (attempts < maxAttempts) {
     process.exit(1);
   }
 
-  pollResult = await pollRes.json();
+  const pollResult = await pollRes.json() as any;
   
   if (pollResult.ready) {
-    console.log(JSON.stringify({ 
-      status: 'ready', 
-      providerCount: pollResult.encryptedProviders?.length || 0 
-    }));
+    console.log(JSON.stringify({ status: 'ready', providerCount: pollResult.providerCount || 0 }));
     break;
   }
 
@@ -55,14 +51,21 @@ while (attempts < maxAttempts) {
   attempts++;
 }
 
-if (!pollResult?.ready) {
+if (attempts >= maxAttempts) {
   console.log(JSON.stringify({ status: 'timeout', message: 'Session not finalized within time limit' }));
   process.exit(1);
 }
 
-// Decrypt
-console.log(JSON.stringify({ status: 'decrypting' }));
+// Fetch chunk metadata (small JSON, no ciphertext)
+console.log(JSON.stringify({ status: 'fetching_metadata' }));
+const metaRes = await fetch(`${BASE_URL}/api/chunks/${sessionId}/meta`);
+if (!metaRes.ok) {
+  console.log(JSON.stringify({ status: 'error', error: `Failed to fetch metadata: ${metaRes.status}` }));
+  process.exit(1);
+}
+const meta = await metaRes.json() as any;
 
+// Import private key
 const privateKey = await crypto.subtle.importKey(
   'jwk',
   privateKeyJwk,
@@ -77,10 +80,10 @@ async function decompress(data: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await blob.arrayBuffer());
 }
 
-async function decryptChunk(chunk: any): Promise<Uint8Array> {
+async function decryptChunk(ciphertext: Uint8Array, chunkMeta: any): Promise<Uint8Array> {
   const ephemeralPublicKey = await crypto.subtle.importKey(
     'jwk',
-    chunk.ephemeralPublicKey,
+    chunkMeta.ephemeralPublicKey,
     { name: 'ECDH', namedCurve: 'P-256' },
     false,
     []
@@ -100,13 +103,7 @@ async function decryptChunk(chunk: any): Promise<Uint8Array> {
     ['decrypt']
   );
 
-  // Handle both array and base64 string formats for iv/ciphertext
-  const iv = typeof chunk.iv === 'string' 
-    ? Uint8Array.from(atob(chunk.iv), c => c.charCodeAt(0))
-    : new Uint8Array(chunk.iv);
-  const ciphertext = typeof chunk.ciphertext === 'string'
-    ? Uint8Array.from(atob(chunk.ciphertext), c => c.charCodeAt(0))
-    : new Uint8Array(chunk.ciphertext);
+  const iv = Uint8Array.from(atob(chunkMeta.iv), c => c.charCodeAt(0));
 
   const decrypted = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv },
@@ -114,28 +111,33 @@ async function decryptChunk(chunk: any): Promise<Uint8Array> {
     ciphertext
   );
 
-  // Return raw decrypted bytes - chunks are parts of a gzip stream, not individually compressed
   return new Uint8Array(decrypted);
 }
 
-async function decryptProvider(encrypted: any) {
-  // v3: chunked format - stream decrypt through decompressor (low memory)
-  if (encrypted.version === 3 && encrypted.chunks) {
-    // Silently decrypt chunks - no per-chunk logging to keep output short
+async function decryptProvider(providerMeta: any) {
+  const providerIndex = providerMeta.providerIndex;
+  
+  // v3: chunked format - stream download + decrypt through decompressor
+  if (providerMeta.version === 3 && providerMeta.chunks) {
+    const sortedChunks = [...providerMeta.chunks].sort((a: any, b: any) => a.index - b.index);
     
-    // Sort chunks by index
-    const sortedChunks = [...encrypted.chunks].sort((a, b) => a.index - b.index);
-    
-    // Create a stream that yields decrypted chunks
-    let chunkIndex = 0;
+    // Create a stream that fetches, decrypts chunks on demand
+    let chunkIdx = 0;
     const decryptedStream = new ReadableStream({
       async pull(controller) {
-        if (chunkIndex >= sortedChunks.length) {
+        if (chunkIdx >= sortedChunks.length) {
           controller.close();
           return;
         }
-        const chunk = sortedChunks[chunkIndex++];
-        const decrypted = await decryptChunk(chunk);
+        const chunkMeta = sortedChunks[chunkIdx++];
+        
+        // Fetch binary ciphertext
+        const res = await fetch(`${BASE_URL}/api/chunks/${sessionId}/${providerIndex}/${chunkMeta.index}`);
+        if (!res.ok) throw new Error(`Failed to fetch chunk ${chunkMeta.index}`);
+        const ciphertext = new Uint8Array(await res.arrayBuffer());
+        
+        // Decrypt
+        const decrypted = await decryptChunk(ciphertext, chunkMeta);
         controller.enqueue(decrypted);
       }
     });
@@ -151,7 +153,7 @@ async function decryptProvider(encrypted: any) {
       outputChunks.push(value);
     }
     
-    // Combine decompressed output and parse
+    // Combine and parse
     const totalLength = outputChunks.reduce((sum, part) => sum + part.length, 0);
     const combined = new Uint8Array(totalLength);
     let offset = 0;
@@ -163,7 +165,9 @@ async function decryptProvider(encrypted: any) {
     return JSON.parse(new TextDecoder().decode(combined));
   }
   
-  // v1/v2: single encrypted payload
+  // v1/v2: data included in metadata response
+  const encrypted = providerMeta;
+  
   const ephemeralPublicKey = await crypto.subtle.importKey(
     'jwk',
     encrypted.ephemeralPublicKey,
@@ -199,7 +203,6 @@ async function decryptProvider(encrypted: any) {
     ciphertext
   );
 
-  // v2 payloads are gzip compressed; v1 are plain JSON
   let jsonBytes: Uint8Array;
   if (encrypted.version === 2) {
     jsonBytes = await decompress(new Uint8Array(decrypted));
@@ -221,11 +224,12 @@ function slugify(name: string): string {
 mkdirSync(outputDir, { recursive: true });
 
 // Decrypt and save each provider
+console.log(JSON.stringify({ status: 'decrypting' }));
 const files: string[] = [];
 const usedNames = new Map<string, number>();
 
-for (const encrypted of pollResult.encryptedProviders) {
-  const provider = await decryptProvider(encrypted);
+for (const providerMeta of meta.providers) {
+  const provider = await decryptProvider(providerMeta);
   const baseSlug = slugify(provider.name);
   
   // Handle duplicate names
