@@ -230,10 +230,28 @@ const server = Bun.serve({
 
         const encryptedData = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
         if (row.status === "finalized" && encryptedData.length > 0) {
-          // Don't include encryptedProviders here - use /api/chunks endpoint for data
+          // Return metadata (IVs, keys) but not ciphertext - use /api/chunks for binary data
+          const providers = encryptedData.map((p: any, i: number) => {
+            if (p.version === 3 && p.chunks) {
+              return {
+                providerIndex: i,
+                version: 3,
+                totalChunks: p.chunks.length,
+                chunks: p.chunks.map((c: any) => ({
+                  index: c.index,
+                  ephemeralPublicKey: c.ephemeralPublicKey,
+                  iv: c.iv,
+                }))
+              };
+            } else {
+              // v1/v2 - return full payload (small)
+              return { providerIndex: i, version: p.version || 1, ...p };
+            }
+          });
           return Response.json({
             ready: true,
-            providerCount: encryptedData.length
+            providerCount: encryptedData.length,
+            providers
           }, { headers: corsHeaders });
         }
 

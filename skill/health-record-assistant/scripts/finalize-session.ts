@@ -24,6 +24,8 @@ console.log(JSON.stringify({ status: 'polling', sessionId }));
 let attempts = 0;
 const maxAttempts = 60; // 30 mins with 30s polls
 
+let meta: any = null;
+
 while (attempts < maxAttempts) {
   const pollRes = await fetch(`${BASE_URL}/api/poll/${sessionId}?timeout=30`);
   
@@ -36,6 +38,7 @@ while (attempts < maxAttempts) {
   
   if (pollResult.ready) {
     console.log(JSON.stringify({ status: 'ready', providerCount: pollResult.providerCount || 0 }));
+    meta = pollResult; // Poll response includes metadata
     break;
   }
 
@@ -51,19 +54,10 @@ while (attempts < maxAttempts) {
   attempts++;
 }
 
-if (attempts >= maxAttempts) {
+if (!meta) {
   console.log(JSON.stringify({ status: 'timeout', message: 'Session not finalized within time limit' }));
   process.exit(1);
 }
-
-// Fetch chunk metadata (small JSON, no ciphertext)
-console.log(JSON.stringify({ status: 'fetching_metadata' }));
-const metaRes = await fetch(`${BASE_URL}/api/chunks/${sessionId}/meta`);
-if (!metaRes.ok) {
-  console.log(JSON.stringify({ status: 'error', error: `Failed to fetch metadata: ${metaRes.status}` }));
-  process.exit(1);
-}
-const meta = await metaRes.json() as any;
 
 // Import private key
 const privateKey = await crypto.subtle.importKey(
