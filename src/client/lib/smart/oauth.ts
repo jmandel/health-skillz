@@ -1,4 +1,4 @@
-// SMART on FHIR OAuth implementation with PKCE
+// SMART on FHIR OAuth implementation with PKCE + confidential client (private_key_jwt)
 
 export interface PKCE {
   codeVerifier: string;
@@ -33,6 +33,7 @@ export interface TokenResponse {
   scope?: string;
   patient?: string; // Patient ID
   id_token?: string;
+  refresh_token?: string; // Returned when offline_access scope is granted
 }
 
 /**
@@ -149,12 +150,16 @@ export async function buildAuthorizationUrl(
   // Generate state (includes sessionId for cross-origin redirect recovery)
   const state = generateState(sessionId);
 
+  // Append offline_access + launch/patient to resource scopes
+  // offline_access triggers refresh token issuance for confidential clients
+  const allScopes = ensureScopes(scopes, ['offline_access', 'launch/patient']);
+
   // Build authorization URL
   const authUrl = new URL(config.authorization_endpoint);
   authUrl.searchParams.set('response_type', 'code');
   authUrl.searchParams.set('client_id', clientId);
   authUrl.searchParams.set('redirect_uri', redirectUri);
-  authUrl.searchParams.set('scope', scopes);
+  authUrl.searchParams.set('scope', allScopes);
   authUrl.searchParams.set('state', state);
   authUrl.searchParams.set('aud', fhirBaseUrl);
   authUrl.searchParams.set('code_challenge', pkce.codeChallenge);
@@ -169,6 +174,7 @@ export async function buildAuthorizationUrl(
 
 /**
  * Exchange authorization code for access token.
+ * Uses private_key_jwt client authentication to get refresh tokens.
  */
 export async function exchangeCodeForToken(
   code: string,
@@ -177,13 +183,19 @@ export async function exchangeCodeForToken(
   redirectUri: string,
   codeVerifier: string
 ): Promise<TokenResponse> {
+  const { createClientAssertion } = await import('./client-assertion');
+
   const body = new URLSearchParams({
     grant_type: 'authorization_code',
     code,
-    client_id: clientId,
     redirect_uri: redirectUri,
     code_verifier: codeVerifier,
+    client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
   });
+
+  // Sign a JWT client assertion — this is what makes us a "confidential" client
+  const assertion = await createClientAssertion(clientId, tokenEndpoint);
+  body.set('client_assertion', assertion);
 
   const response = await fetch(tokenEndpoint, {
     method: 'POST',
@@ -199,6 +211,54 @@ export async function exchangeCodeForToken(
   }
 
   return await response.json();
+}
+
+/**
+ * Use a refresh token to get a new access token.
+ * Returns the full token response — caller MUST save any new refresh_token
+ * (Epic uses rolling refresh tokens, old one is invalidated).
+ */
+export async function refreshAccessToken(
+  tokenEndpoint: string,
+  clientId: string,
+  refreshToken: string
+): Promise<TokenResponse> {
+  const { createClientAssertion } = await import('./client-assertion');
+
+  const assertion = await createClientAssertion(clientId, tokenEndpoint);
+
+  const body = new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: refreshToken,
+    client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+    client_assertion: assertion,
+  });
+
+  const response = await fetch(tokenEndpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: body.toString(),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Token refresh failed: ${response.status} - ${text}`);
+  }
+
+  return await response.json();
+}
+
+/**
+ * Ensure specific scopes are included in the scope string.
+ */
+function ensureScopes(scopes: string, required: string[]): string {
+  const existing = new Set(scopes.split(/\s+/).filter(Boolean));
+  for (const s of required) {
+    existing.add(s);
+  }
+  return Array.from(existing).join(' ');
 }
 
 /**
