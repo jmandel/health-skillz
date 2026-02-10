@@ -48,7 +48,7 @@ export default function HomePage() {
               <div className="copy-box" onClick={handleCopy} style={{ marginTop: 8 }}>
                 {AI_MESSAGE}
               </div>
-              <div className="copy-box-hint">
+              <div className="copy-box-hint" onClick={handleCopy} style={{ cursor: 'pointer' }}>
                 {copied ? '✓ Copied!' : 'Click to copy'}
               </div>
               <button className="help-toggle" style={{ marginTop: 10 }} onClick={() => setShowHelp(!showHelp)}>
