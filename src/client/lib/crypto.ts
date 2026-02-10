@@ -132,21 +132,73 @@ async function compress(data: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await blob.arrayBuffer());
 }
 
-// Chunk size: 5MB before compression
+// Chunk size: 5MB of compressed data per chunk
 const CHUNK_SIZE = 5 * 1024 * 1024;
 
 export interface ChunkProgress {
   phase: 'compressing' | 'encrypting' | 'done';
   currentChunk: number;
-  totalChunks: number;
+  totalChunks: number;  // May be 0 during streaming (unknown until done)
   bytesProcessed: number;
   totalBytes: number;
 }
 
 /**
- * Encrypt data in chunks for large payloads.
- * Each chunk is independently encrypted with its own ephemeral key.
- * Server stores chunks; agent decrypts and concatenates.
+ * Encrypt a single chunk of compressed data.
+ */
+async function encryptChunk(
+  compressedData: Uint8Array,
+  publicKey: CryptoKey,
+  index: number
+): Promise<EncryptedChunk> {
+  // Generate ephemeral keypair for this chunk
+  const ephemeralKeyPair = await crypto.subtle.generateKey(
+    { name: 'ECDH', namedCurve: 'P-256' },
+    true,
+    ['deriveKey']
+  );
+  
+  const ephemeralPublicKeyJwk = await crypto.subtle.exportKey(
+    'jwk',
+    ephemeralKeyPair.publicKey
+  );
+  
+  // Derive shared secret
+  const sharedKey = await crypto.subtle.deriveKey(
+    { name: 'ECDH', public: publicKey },
+    ephemeralKeyPair.privateKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt']
+  );
+  
+  // Generate random IV
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  
+  // Encrypt
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    sharedKey,
+    compressedData.buffer as ArrayBuffer
+  );
+  
+  return {
+    index,
+    ephemeralPublicKey: ephemeralPublicKeyJwk,
+    iv: toBase64(iv),
+    ciphertext: toBase64(new Uint8Array(ciphertext)),
+  };
+}
+
+/**
+ * Encrypt data using streaming compression → chunking → encryption.
+ * 
+ * Flow: JSON string → gzip stream → collect into 5MB chunks → encrypt each chunk
+ * 
+ * Benefits:
+ * - Better compression (gzip sees full data context)
+ * - Low memory (streams through, never holds full data)
+ * - Each chunk independently encrypted with own ephemeral key
  */
 export async function encryptDataChunked(
   data: EncryptionInput,
@@ -162,86 +214,105 @@ export async function encryptDataChunked(
     []
   );
 
-  // Serialize to JSON
-  const encoder = new TextEncoder();
+  // Serialize to JSON and get total size for progress
   const jsonString = JSON.stringify(data);
   const totalBytes = jsonString.length;
+  const encoder = new TextEncoder();
   
-  // Split into chunks
-  const chunkStrings: string[] = [];
-  for (let i = 0; i < jsonString.length; i += CHUNK_SIZE) {
-    chunkStrings.push(jsonString.slice(i, i + CHUNK_SIZE));
+  // Create readable stream from JSON string
+  const jsonStream = new ReadableStream({
+    start(controller) {
+      // Stream in chunks to avoid holding full encoded data
+      const chunkSize = 1024 * 1024; // 1MB at a time
+      let offset = 0;
+      
+      function pushChunk() {
+        if (offset >= jsonString.length) {
+          controller.close();
+          return;
+        }
+        const slice = jsonString.slice(offset, offset + chunkSize);
+        controller.enqueue(encoder.encode(slice));
+        offset += chunkSize;
+        
+        // Report progress during compression phase
+        onProgress?.({
+          phase: 'compressing',
+          currentChunk: 0,
+          totalChunks: 0,
+          bytesProcessed: Math.min(offset, jsonString.length),
+          totalBytes,
+        });
+        
+        // Yield to allow UI updates
+        setTimeout(pushChunk, 0);
+      }
+      pushChunk();
+    }
+  });
+  
+  // Pipe through gzip compression
+  const compressedStream = jsonStream.pipeThrough(new CompressionStream('gzip'));
+  
+  // Collect compressed data into chunks and encrypt each
+  const reader = compressedStream.getReader();
+  const encryptedChunks: EncryptedChunk[] = [];
+  let buffer = new Uint8Array(0);
+  let chunkIndex = 0;
+  let compressedBytes = 0;
+  
+  while (true) {
+    const { done, value } = await reader.read();
+    
+    if (value) {
+      // Append to buffer
+      const newBuffer = new Uint8Array(buffer.length + value.length);
+      newBuffer.set(buffer);
+      newBuffer.set(value, buffer.length);
+      buffer = newBuffer;
+      compressedBytes += value.length;
+    }
+    
+    // Process complete chunks
+    while (buffer.length >= CHUNK_SIZE) {
+      const chunk = buffer.slice(0, CHUNK_SIZE);
+      buffer = buffer.slice(CHUNK_SIZE);
+      
+      onProgress?.({
+        phase: 'encrypting',
+        currentChunk: chunkIndex + 1,
+        totalChunks: 0, // Unknown until done
+        bytesProcessed: compressedBytes,
+        totalBytes,
+      });
+      
+      const encrypted = await encryptChunk(chunk, publicKey, chunkIndex);
+      encryptedChunks.push(encrypted);
+      chunkIndex++;
+      
+      // Yield to allow GC and UI updates
+      await new Promise(r => setTimeout(r, 0));
+    }
+    
+    if (done) break;
   }
   
-  const totalChunks = chunkStrings.length;
-  const encryptedChunks: EncryptedChunk[] = [];
-  let bytesProcessed = 0;
-  
-  for (let index = 0; index < chunkStrings.length; index++) {
-    const chunkString = chunkStrings[index];
-    bytesProcessed += chunkString.length;
-    
-    onProgress?.({
-      phase: 'compressing',
-      currentChunk: index + 1,
-      totalChunks,
-      bytesProcessed,
-      totalBytes,
-    });
-    
-    // Compress this chunk
-    const chunkBytes = encoder.encode(chunkString);
-    const compressed = await compress(chunkBytes);
-    
+  // Encrypt any remaining data in buffer
+  if (buffer.length > 0) {
     onProgress?.({
       phase: 'encrypting',
-      currentChunk: index + 1,
-      totalChunks,
-      bytesProcessed,
+      currentChunk: chunkIndex + 1,
+      totalChunks: chunkIndex + 1,
+      bytesProcessed: compressedBytes,
       totalBytes,
     });
     
-    // Generate ephemeral keypair for this chunk
-    const ephemeralKeyPair = await crypto.subtle.generateKey(
-      { name: 'ECDH', namedCurve: 'P-256' },
-      true,
-      ['deriveKey']
-    );
-    
-    const ephemeralPublicKeyJwk = await crypto.subtle.exportKey(
-      'jwk',
-      ephemeralKeyPair.publicKey
-    );
-    
-    // Derive shared secret for this chunk
-    const sharedKey = await crypto.subtle.deriveKey(
-      { name: 'ECDH', public: publicKey },
-      ephemeralKeyPair.privateKey,
-      { name: 'AES-GCM', length: 256 },
-      false,
-      ['encrypt']
-    );
-    
-    // Generate random IV
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    
-    // Encrypt
-    const ciphertext = await crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv },
-      sharedKey,
-      compressed.buffer as ArrayBuffer
-    );
-    
-    encryptedChunks.push({
-      index,
-      ephemeralPublicKey: ephemeralPublicKeyJwk,
-      iv: toBase64(iv),
-      ciphertext: toBase64(new Uint8Array(ciphertext)),
-    });
-    
-    // Allow GC between chunks
-    await new Promise(r => setTimeout(r, 0));
+    const encrypted = await encryptChunk(buffer, publicKey, chunkIndex);
+    encryptedChunks.push(encrypted);
+    chunkIndex++;
   }
+  
+  const totalChunks = encryptedChunks.length;
   
   onProgress?.({
     phase: 'done',
