@@ -59,8 +59,8 @@ export default function HomePage() {
                   <h4>Claude.ai (web app)</h4>
                   <p>
                     The sandbox blocks network access by default. Before pasting the message,
-                    go to <strong>Settings → Profile → Analysis tool</strong> and
-                    enable <strong>"Allow connections to outside services"</strong>.
+                    go to <a href="https://claude.ai/settings/capabilities" target="_blank" rel="noopener"><strong>Settings → Capabilities</strong></a> and
+                    enable network access for the analysis tool.
                     Without this, the skill's scripts will fail with network errors.
                   </p>
                   <p style={{ marginTop: 6 }}>
