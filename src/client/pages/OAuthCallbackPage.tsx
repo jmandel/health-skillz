@@ -417,10 +417,10 @@ export default function OAuthCallbackPage() {
             </button>
             <button 
               className="btn btn-secondary" 
-              onClick={() => navigate(`/connect/${resolvedSessionId}?upload_failed=true`)}
+              onClick={() => navigate(`/connect/${resolvedSessionId}/select`)}
               style={{ width: '100%' }}
             >
-              📥 Download Data Instead
+              ➕ Connect to Another Provider
             </button>
             {store.uploadError && (
               <div style={{ marginTop: '16px', padding: '12px', background: '#fff3cd', borderRadius: '8px', border: '1px solid #ffc107', fontSize: '12px' }}>
