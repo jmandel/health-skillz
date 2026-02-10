@@ -230,28 +230,11 @@ const server = Bun.serve({
 
         const encryptedData = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
         if (row.status === "finalized" && encryptedData.length > 0) {
-          const responseData = JSON.stringify({
+          return Response.json({
             ready: true,
             encryptedProviders: encryptedData,
             providerCount: encryptedData.length
-          });
-          
-          // Gzip compress if client accepts it (base64 JSON compresses ~4:1)
-          const acceptEncoding = req.headers.get("accept-encoding") || "";
-          if (acceptEncoding.includes("gzip")) {
-            const compressed = Bun.gzipSync(Buffer.from(responseData));
-            return new Response(compressed, {
-              headers: {
-                ...corsHeaders,
-                "Content-Type": "application/json",
-                "Content-Encoding": "gzip",
-              }
-            });
-          }
-          
-          return new Response(responseData, {
-            headers: { ...corsHeaders, "Content-Type": "application/json" }
-          });
+          }, { headers: corsHeaders });
         }
 
         await new Promise(r => setTimeout(r, 500));
