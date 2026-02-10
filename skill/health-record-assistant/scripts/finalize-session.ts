@@ -75,7 +75,75 @@ async function decompress(data: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await blob.arrayBuffer());
 }
 
+async function decryptChunk(chunk: any): Promise<Uint8Array> {
+  const ephemeralPublicKey = await crypto.subtle.importKey(
+    'jwk',
+    chunk.ephemeralPublicKey,
+    { name: 'ECDH', namedCurve: 'P-256' },
+    false,
+    []
+  );
+
+  const sharedSecret = await crypto.subtle.deriveBits(
+    { name: 'ECDH', public: ephemeralPublicKey },
+    privateKey,
+    256
+  );
+
+  const aesKey = await crypto.subtle.importKey(
+    'raw',
+    sharedSecret,
+    { name: 'AES-GCM' },
+    false,
+    ['decrypt']
+  );
+
+  // Handle both array and base64 string formats for iv/ciphertext
+  const iv = typeof chunk.iv === 'string' 
+    ? Uint8Array.from(atob(chunk.iv), c => c.charCodeAt(0))
+    : new Uint8Array(chunk.iv);
+  const ciphertext = typeof chunk.ciphertext === 'string'
+    ? Uint8Array.from(atob(chunk.ciphertext), c => c.charCodeAt(0))
+    : new Uint8Array(chunk.ciphertext);
+
+  const decrypted = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv },
+    aesKey,
+    ciphertext
+  );
+
+  // Each chunk is gzip compressed
+  return await decompress(new Uint8Array(decrypted));
+}
+
 async function decryptProvider(encrypted: any) {
+  // v3: chunked format - decrypt each chunk and concatenate
+  if (encrypted.version === 3 && encrypted.chunks) {
+    console.log(JSON.stringify({ status: 'decrypting_chunks', count: encrypted.chunks.length }));
+    
+    // Sort chunks by index
+    const sortedChunks = [...encrypted.chunks].sort((a, b) => a.index - b.index);
+    
+    // Decrypt each chunk and collect the plaintext
+    const plaintextParts: Uint8Array[] = [];
+    for (const chunk of sortedChunks) {
+      const decrypted = await decryptChunk(chunk);
+      plaintextParts.push(decrypted);
+    }
+    
+    // Concatenate all parts
+    const totalLength = plaintextParts.reduce((sum, part) => sum + part.length, 0);
+    const combined = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const part of plaintextParts) {
+      combined.set(part, offset);
+      offset += part.length;
+    }
+    
+    return JSON.parse(new TextDecoder().decode(combined));
+  }
+  
+  // v1/v2: single encrypted payload
   const ephemeralPublicKey = await crypto.subtle.importKey(
     'jwk',
     encrypted.ephemeralPublicKey,
@@ -98,8 +166,12 @@ async function decryptProvider(encrypted: any) {
     ['decrypt']
   );
 
-  const iv = new Uint8Array(encrypted.iv);
-  const ciphertext = new Uint8Array(encrypted.ciphertext);
+  const iv = typeof encrypted.iv === 'string' 
+    ? Uint8Array.from(atob(encrypted.iv), c => c.charCodeAt(0))
+    : new Uint8Array(encrypted.iv);
+  const ciphertext = typeof encrypted.ciphertext === 'string'
+    ? Uint8Array.from(atob(encrypted.ciphertext), c => c.charCodeAt(0))
+    : new Uint8Array(encrypted.ciphertext);
 
   const decrypted = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv },

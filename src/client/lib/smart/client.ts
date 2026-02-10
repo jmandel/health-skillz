@@ -320,6 +320,24 @@ export async function fetchPatientData(
         });
       }
     );
+    
+    // Strip inline attachment.data from FHIR resources - content is now in result.attachments
+    // This avoids data duplication. The attachments array is the canonical location.
+    for (const resource of attachmentSources) {
+      if (resource.resourceType === 'DocumentReference') {
+        for (const content of resource.content || []) {
+          if (content.attachment?.data) {
+            delete content.attachment.data;
+          }
+        }
+      } else if (resource.resourceType === 'DiagnosticReport') {
+        for (const media of resource.media || []) {
+          if (media.link?.data) {
+            delete media.link.data;
+          }
+        }
+      }
+    }
   }
   
   onProgress?.({
