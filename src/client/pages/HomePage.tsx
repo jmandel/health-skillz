@@ -4,7 +4,7 @@ export default function HomePage() {
       <div className="hero">
         <h1>🏥 Health Record Skill</h1>
         <p>
-          A Skill for analyzing your personal health records using SMART on FHIR
+          Connect your AI to your health records via SMART on FHIR
         </p>
       </div>
 
@@ -12,23 +12,23 @@ export default function HomePage() {
         <div className="card">
           <h2>What is this?</h2>
           <p>
-            Health Record Skill is a <strong>Skill</strong> that enables your AI agent to
-            securely fetch and analyze your electronic health records directly from your
-            healthcare provider's patient portal (like Epic MyChart).
+            Health Record Skill lets your AI agent securely access your electronic health 
+            records from your patient portal (like Epic MyChart). You control what you 
+            share and what questions you ask.
           </p>
 
           <div className="feature-grid">
             <div className="feature">
               <h4>🔒 Secure & Private</h4>
-              <p>Uses SMART on FHIR - the same standard your healthcare apps use.</p>
+              <p>Uses SMART on FHIR — the same standard your healthcare apps use. End-to-end encrypted.</p>
             </div>
             <div className="feature">
-              <h4>📊 Rich Analysis</h4>
-              <p>Understand medications, lab trends, conditions, and clinical notes.</p>
+              <h4>🏥 Your Data</h4>
+              <p>Labs, medications, conditions, clinical notes — whatever your portal has.</p>
             </div>
             <div className="feature">
               <h4>⚡ Easy Setup</h4>
-              <p>Install the skill, ask your AI to analyze your records. One-click connection.</p>
+              <p>Install the skill, ask to connect your records, sign in to your portal.</p>
             </div>
             <div className="feature">
               <h4>📝 Open Source</h4>
@@ -72,20 +72,17 @@ export default function HomePage() {
           <h2>How It Works</h2>
           <h3>1. Ask Your AI</h3>
           <pre>
-            <code>"Can you analyze my health records?"</code>
+            <code>"I'd like to look at my health records"</code>
           </pre>
 
           <h3>2. Connect Your Records</h3>
           <p>Your AI provides a secure link. Click it, select your provider, sign in.</p>
 
-          <h3>3. Get Insights</h3>
-          <ul>
-            <li>Current medications and what they're for</li>
-            <li>Lab result trends over time</li>
-            <li>Conditions explained in plain language</li>
-            <li>Preventive care that might be due</li>
-            <li>Clinical notes from your visits</li>
-          </ul>
+          <h3>3. Ask Your Questions</h3>
+          <p>
+            Your AI has access to your labs, medications, conditions, and clinical notes.
+            Ask about whatever matters to you.
+          </p>
         </div>
 
         <div className="card">
