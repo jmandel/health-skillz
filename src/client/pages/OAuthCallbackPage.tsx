@@ -113,8 +113,11 @@ export default function OAuthCallbackPage() {
 
   useEffect(() => {
     // Already processed or processing
-    if (processed || status !== 'idle') return;
+    if (processed) return;
     setProcessed(true); // Mark as processed immediately to prevent re-entry
+
+    // Reset store to clean state before processing
+    store.clearError();
 
     const code = searchParams.get('code');
     const state = searchParams.get('state');
@@ -166,38 +169,6 @@ export default function OAuthCallbackPage() {
           throw new Error('No patient ID in token response');
         }
 
-        // Save persistent connection if we got a refresh token
-        if (tokenResponse.refresh_token) {
-          try {
-            const now = new Date().toISOString();
-            // Check for existing connection to same patient/endpoint
-            const existing = await findConnectionByEndpoint(oauth.fhirBaseUrl, patientId);
-            const conn: SavedConnection = {
-              id: existing?.id ?? crypto.randomUUID(),
-              providerName: oauth.providerName,
-              fhirBaseUrl: oauth.fhirBaseUrl,
-              tokenEndpoint: oauth.tokenEndpoint,
-              clientId: oauth.clientId,
-              patientId,
-              refreshToken: tokenResponse.refresh_token,
-              scopes: tokenResponse.scope || '',
-              createdAt: existing?.createdAt ?? now,
-              lastRefreshedAt: now,
-              lastFetchedAt: null,
-              dataSizeBytes: null,
-              status: 'active',
-            };
-            await saveConnection(conn);
-            console.log(`[Connection] Saved persistent connection for ${oauth.providerName} (${existing ? 'updated' : 'new'})`);
-            // Also cache the FHIR data in the connection
-            await saveFhirData(conn.id, ehrData.fhir, ehrData.attachments);
-            console.log(`[Connection] Cached FHIR data for ${oauth.providerName}`);
-          } catch (connErr) {
-            // Non-fatal — the one-shot flow still works without persistent connection
-            console.warn('[Connection] Failed to save persistent connection:', connErr);
-          }
-        }
-
         setStatus('loading');
         const ehrData = await fetchPatientData(
           oauth.fhirBaseUrl,
@@ -217,6 +188,34 @@ export default function OAuthCallbackPage() {
         );
 
         const connectedAt = new Date().toISOString();
+
+        // Save persistent connection if we got a refresh token
+        if (tokenResponse.refresh_token) {
+          try {
+            const now = new Date().toISOString();
+            const existing = await findConnectionByEndpoint(oauth.fhirBaseUrl, patientId);
+            const conn: SavedConnection = {
+              id: existing?.id ?? crypto.randomUUID(),
+              providerName: oauth.providerName,
+              fhirBaseUrl: oauth.fhirBaseUrl,
+              tokenEndpoint: oauth.tokenEndpoint,
+              clientId: oauth.clientId,
+              patientId,
+              refreshToken: tokenResponse.refresh_token,
+              scopes: tokenResponse.scope || '',
+              createdAt: existing?.createdAt ?? now,
+              lastRefreshedAt: now,
+              lastFetchedAt: now,
+              dataSizeBytes: JSON.stringify(ehrData.fhir).length,
+              status: 'active',
+            };
+            await saveConnection(conn);
+            await saveFhirData(conn.id, ehrData.fhir, ehrData.attachments);
+            console.log(`[Connection] Saved connection + data for ${oauth.providerName} (${existing ? 'updated' : 'new'})`);
+          } catch (connErr) {
+            console.warn('[Connection] Failed to save persistent connection:', connErr);
+          }
+        }
         
         if (isLocalCollection) {
           // Local collection: just save to IndexedDB, no encryption or server
@@ -372,6 +371,18 @@ export default function OAuthCallbackPage() {
         return 'Processing...';
     }
   };
+
+  // Don't show anything until we've started processing
+  if (store.status === 'idle' && !processed) {
+    return (
+      <div className="connect-container">
+        <div className="connect-card">
+          <h1>🏥 Retrieving Health Records</h1>
+          <StatusMessage status="loading" message="Completing authorization..." />
+        </div>
+      </div>
+    );
+  }
 
   const isLoading = store.status !== 'error' && store.status !== 'done' && store.status !== 'idle';
 
