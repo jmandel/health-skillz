@@ -381,7 +381,7 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
       status: 'active',
       patientDisplayName: displayName,
       patientBirthDate: birthDate,
-    } as any; // patientDisplayName/birthDate added dynamically until interface updated
+    };
 
     // Save connection + data
     await saveConnection(conn);
