@@ -27,13 +27,6 @@ export interface EncryptedPayload {
   ciphertext: string;  // base64
 }
 
-export interface EncryptedChunk {
-  index: number;
-  ephemeralPublicKey: JsonWebKey;
-  iv: string;
-  ciphertext: string;
-}
-
 export interface ChunkedEncryptedPayload {
   encrypted: true;
   version: 3;

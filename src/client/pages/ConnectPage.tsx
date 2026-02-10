@@ -362,10 +362,6 @@ export default function ConnectPage() {
           />
         )}
 
-        {status === 'error' && error && (
-          <StatusMessage status="error" message={error} />
-        )}
-
         <div className="security-info">
           <p>
             🔒 <strong>End-to-end encrypted</strong>: Your health data is encrypted in your
