@@ -154,13 +154,13 @@ export default function ConnectPage() {
     );
   }
 
-  // Error state (session not found)
-  if (status === 'error' && !storeSessionId) {
+  // Error state (session not found or mismatch)
+  if (status === 'error' || (sessionId && storeSessionId && sessionId !== storeSessionId)) {
     return (
       <div className="connect-container">
         <div className="connect-card">
           <h1>🏥 Connect Your Health Records</h1>
-          <StatusMessage status="error" message={error || 'Session not found'} />
+          <StatusMessage status="error" message={error || 'Session not found or expired'} />
         </div>
       </div>
     );

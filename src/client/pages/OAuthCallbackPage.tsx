@@ -272,7 +272,7 @@ export default function OAuthCallbackPage() {
               sessionId,
               errorCode: 'upload_failed',
               httpStatus,
-              context: `provider:${oauth.providerName},payload_size:${JSON.stringify(encrypted).length}`,
+              context: `provider:${oauth.providerName},json_size:${jsonSize}`,
             });
             
             const errorDetails = [
@@ -282,7 +282,7 @@ export default function OAuthCallbackPage() {
               `Provider: ${oauth.providerName}`,
               `HTTP Status: ${httpStatus || 'unknown'}`,
               `Error: ${errorMsg}`,
-              `Payload size: ${JSON.stringify(encrypted).length} bytes`,
+              `Data size: ${Math.round(jsonSize / 1024)} KB`,
             ].join('\n');
             console.error('Upload failed:', errorDetails);
             store.setUploadFailed(true, errorDetails);
