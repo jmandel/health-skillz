@@ -1,12 +1,17 @@
 // API client for health-skillz server
 
 import type { VendorConfig } from './brands/types';
+import type { EncryptedChunk } from './crypto';
 
 export interface SessionInfo {
   sessionId: string;
   publicKey: JsonWebKey;
   status: string;
   providerCount: number;
+  pendingChunks?: {
+    receivedChunks: number[];
+    totalChunks: number;
+  } | null;
 }
 
 export interface Provider {
@@ -181,6 +186,62 @@ export async function sendEncryptedEhrData(
   });
 
   return uploadChunk(`${BASE_URL}/api/receive-ehr`, body, onProgress);
+}
+
+export interface StreamingUploadProgress {
+  phase: 'processing' | 'uploading' | 'done';
+  currentChunk: number;
+  bytesIn: number;
+  totalBytesIn: number;
+  bytesOut: number;
+}
+
+/**
+ * Upload a single encrypted chunk to server.
+ */
+/**
+ * Upload a single encrypted chunk with retry logic.
+ * Retries up to 3 times with exponential backoff on transient failures.
+ */
+export async function uploadEncryptedChunk(
+  sessionId: string,
+  finalizeToken: string,
+  chunk: EncryptedChunk,
+  chunkIndex: number,
+  totalChunks: number | null // null if unknown yet
+): Promise<any> {
+  const body = JSON.stringify({
+    sessionId,
+    finalizeToken,
+    version: 3,
+    totalChunks: totalChunks ?? -1, // -1 means "more coming, count unknown"
+    chunk,
+  });
+  
+  const maxRetries = 3;
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await uploadChunk(`${BASE_URL}/api/receive-ehr`, body);
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      
+      // Don't retry on 4xx errors (client errors)
+      if (lastError.message.includes('Server returned 4')) {
+        throw lastError;
+      }
+      
+      // Retry on 5xx, network errors, timeouts
+      if (attempt < maxRetries - 1) {
+        const delay = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
+        console.log(`Chunk ${chunkIndex} upload failed (attempt ${attempt + 1}/${maxRetries}), retrying in ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+  }
+  
+  throw lastError ?? new Error('Upload failed after retries');
 }
 
 export async function finalizeSession(

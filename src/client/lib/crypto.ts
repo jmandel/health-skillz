@@ -23,6 +23,125 @@ export interface ChunkedEncryptedPayload {
   chunks: EncryptedChunk[];
 }
 
+export interface StreamingProgress {
+  phase: 'processing' | 'uploading' | 'done';
+  currentChunk: number;
+  bytesIn: number;  // uncompressed input bytes processed
+  totalBytesIn: number; // total input size
+  bytesOut: number; // compressed+encrypted bytes sent so far
+}
+
+/**
+ * Streaming encrypt and upload - processes data in chunks without holding full payload.
+ * Flow: JSON → compress → 5MB chunks → encrypt → upload (per chunk)
+ * 
+ * Returns total chunks uploaded. Server assembles them.
+ */
+export async function encryptAndUploadStreaming(
+  data: EncryptionInput,
+  publicKeyJwk: JsonWebKey,
+  uploadChunk: (chunk: EncryptedChunk, index: number, isLast: boolean) => Promise<void>,
+  onProgress?: (progress: StreamingProgress) => void,
+  skipChunks?: number[] // Chunk indices already uploaded (for resume)
+): Promise<{ totalChunks: number }> {
+  const skipSet = new Set(skipChunks || []);
+  // Import recipient's public key once
+  const publicKey = await crypto.subtle.importKey(
+    'jwk',
+    publicKeyJwk,
+    { name: 'ECDH', namedCurve: 'P-256' },
+    false,
+    []
+  );
+
+  // Serialize to JSON - we need the string but will stream it
+  const jsonString = JSON.stringify(data);
+  const totalBytesIn = jsonString.length;
+  const encoder = new TextEncoder();
+  
+  let bytesIn = 0;
+  let bytesOut = 0;
+  let chunkIndex = 0;
+  let buffer = new Uint8Array(0);
+  
+  // Process JSON in 1MB slices through compression
+  const inputChunkSize = 1024 * 1024;
+  
+  // Helper to process and upload a complete chunk
+  const processChunk = async (chunkData: Uint8Array, isLast: boolean) => {
+    // Skip if already uploaded (resume case)
+    if (skipSet.has(chunkIndex)) {
+      console.log(`Skipping chunk ${chunkIndex} (already uploaded)`);
+      bytesOut += chunkData.length;
+      chunkIndex++;
+      return;
+    }
+    
+    onProgress?.({
+      phase: 'uploading',
+      currentChunk: chunkIndex + 1,
+      bytesIn,
+      totalBytesIn,
+      bytesOut,
+    });
+    
+    const encrypted = await encryptChunk(chunkData, publicKey, chunkIndex);
+    await uploadChunk(encrypted, chunkIndex, isLast);
+    
+    bytesOut += chunkData.length;
+    chunkIndex++;
+  };
+  
+  // Stream through compression in slices
+  for (let offset = 0; offset < jsonString.length; offset += inputChunkSize) {
+    const slice = jsonString.slice(offset, offset + inputChunkSize);
+    const sliceBytes = encoder.encode(slice);
+    bytesIn = Math.min(offset + inputChunkSize, jsonString.length);
+    
+    onProgress?.({
+      phase: 'processing',
+      currentChunk: chunkIndex + 1,
+      bytesIn,
+      totalBytesIn,
+      bytesOut,
+    });
+    
+    // Compress this slice
+    const compressed = await compress(sliceBytes);
+    
+    // Append to buffer
+    const newBuffer = new Uint8Array(buffer.length + compressed.length);
+    newBuffer.set(buffer);
+    newBuffer.set(compressed, buffer.length);
+    buffer = newBuffer;
+    
+    // Process complete chunks
+    while (buffer.length >= CHUNK_SIZE) {
+      const chunk = buffer.slice(0, CHUNK_SIZE);
+      buffer = buffer.slice(CHUNK_SIZE);
+      await processChunk(chunk, false);
+    }
+    
+    // Yield to UI
+    await new Promise(r => setTimeout(r, 0));
+  }
+  
+  // Upload final chunk if any remaining data
+  if (buffer.length > 0) {
+    await processChunk(buffer, true);
+  }
+  
+  onProgress?.({
+    phase: 'done',
+    currentChunk: chunkIndex,
+    bytesIn: totalBytesIn,
+    totalBytesIn,
+    bytesOut,
+  });
+  
+  return { totalChunks: chunkIndex };
+}
+
 function toBase64(bytes: Uint8Array): string {
   let binary = '';
   for (let i = 0; i < bytes.length; i++) {

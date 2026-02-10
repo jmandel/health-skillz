@@ -418,11 +418,23 @@ const server = Bun.serve({
       if (!row) return new Response("Session not found", { status: 404, headers: corsHeaders });
 
       const encryptedData = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
+      
+      // Include chunk upload progress for v3 uploads
+      let pendingChunks: { receivedChunks: number[]; totalChunks: number } | null = null;
+      const pendingProvider = encryptedData.find((e: any) => e._chunkGroupId);
+      if (pendingProvider) {
+        pendingChunks = {
+          receivedChunks: pendingProvider.chunks?.map((c: any) => c.index) || [],
+          totalChunks: pendingProvider.totalChunks || -1,
+        };
+      }
+      
       return Response.json({
         sessionId,
         publicKey: row.public_key ? JSON.parse(row.public_key) : null,
         status: row.status,
         providerCount: encryptedData.length,
+        pendingChunks,
       }, { headers: corsHeaders });
     }
 

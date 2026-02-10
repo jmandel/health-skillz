@@ -4,8 +4,9 @@ import { useSessionStore } from '../store/session';
 import { loadOAuthState, clearOAuthState, loadSession, loadProviderData } from '../lib/storage';
 import { exchangeCodeForToken } from '../lib/smart/oauth';
 import { fetchPatientData, type ProgressInfo } from '../lib/smart/client';
-import { encryptDataAuto, type ChunkProgress } from '../lib/crypto';
-import { sendEncryptedEhrData, logClientError } from '../lib/api';
+import { encryptData, encryptAndUploadStreaming, type StreamingProgress } from '../lib/crypto';
+import type { EncryptedChunk } from '../lib/crypto';
+import { sendEncryptedEhrData, uploadEncryptedChunk, logClientError, getSessionInfo } from '../lib/api';
 import StatusMessage from '../components/StatusMessage';
 
 export default function OAuthCallbackPage() {
@@ -21,8 +22,8 @@ export default function OAuthCallbackPage() {
   });
   const [resolvedSessionId, setResolvedSessionId] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<{ loaded: number; total: number } | null>(null);
-  const [encryptProgress, setEncryptProgress] = useState<ChunkProgress | null>(null);
-  const [lastEncrypted, setLastEncrypted] = useState<any>(null);
+  const [streamingProgress, setStreamingProgress] = useState<StreamingProgress | null>(null);
+  const [lastEncrypted, setLastEncrypted] = useState<any>(null); // For small files only
   const [lastToken, setLastToken] = useState<string | null>(null);
   const [lastProviderName, setLastProviderName] = useState<string | null>(null);
 
@@ -30,16 +31,54 @@ export default function OAuthCallbackPage() {
   const setStatus = store.setStatus;
   const setError = store.setError;
 
-  // Retry upload handler
+  // Retry upload handler - re-encrypts from stored data
   const handleRetryUpload = useCallback(async () => {
-    if (!resolvedSessionId || !lastEncrypted || !lastToken) return;
+    if (!resolvedSessionId || !lastToken) return;
+    
+    // Get the session's public key
+    const savedSession = loadSession();
+    const publicKeyJwk = savedSession?.publicKeyJwk;
+    if (!publicKeyJwk) {
+      store.setUploadFailed(true, 'No encryption key found. Please start over.');
+      return;
+    }
     
     setUploadProgress(null);
+    setStreamingProgress(null);
     setStatus('sending');
     store.setUploadFailed(false);
     
     try {
-      await sendEncryptedEhrData(resolvedSessionId, lastEncrypted, lastToken, setUploadProgress);
+      // If we have cached encrypted data (small file), use it
+      if (lastEncrypted) {
+        await sendEncryptedEhrData(resolvedSessionId, lastEncrypted, lastToken, setUploadProgress);
+      } else {
+        // Large file: reload from storage and re-encrypt with streaming
+        const providers = await loadProviderData(resolvedSessionId);
+        if (!providers || providers.length === 0) {
+          throw new Error('No provider data found. Please start over.');
+        }
+        // Upload the most recent provider
+        const providerData = providers[providers.length - 1];
+        
+        // Check for already-uploaded chunks (resume support)
+        const sessionInfo = await getSessionInfo(resolvedSessionId);
+        const skipChunks = sessionInfo.pendingChunks?.receivedChunks || [];
+        if (skipChunks.length > 0) {
+          console.log(`Resuming upload: ${skipChunks.length} chunks already received`);
+        }
+        
+        await encryptAndUploadStreaming(
+          providerData,
+          publicKeyJwk,
+          async (chunk: EncryptedChunk, index: number, isLast: boolean) => {
+            await uploadEncryptedChunk(resolvedSessionId, lastToken!, chunk, index, isLast ? index + 1 : null);
+          },
+          setStreamingProgress,
+          skipChunks
+        );
+      }
+      
       setStatus('done');
       setTimeout(() => {
         navigate(`/connect/${resolvedSessionId}?provider_added=true`);
@@ -165,20 +204,8 @@ export default function OAuthCallbackPage() {
           if (!oauth.publicKeyJwk) {
             throw new Error('No encryption key available');
           }
-          const encrypted = await encryptDataAuto(
-            {
-              name: oauth.providerName,
-              fhirBaseUrl: oauth.fhirBaseUrl,
-              connectedAt,
-              fhir: ehrData.fhir,
-              attachments: ehrData.attachments,
-            },
-            oauth.publicKeyJwk,
-            setEncryptProgress
-          );
-
+          
           // Persist finalize token before sending
-          // Read from localStorage directly since store may not be initialized after OAuth redirect
           const savedSession = loadSession();
           let token = savedSession?.finalizeToken ?? null;
           if (!token) {
@@ -187,25 +214,49 @@ export default function OAuthCallbackPage() {
           store.setSession(sessionId, oauth.publicKeyJwk, token);
 
           // Save locally FIRST so data isn't lost if upload fails
-          await store.addProviderData(sessionId, {
+          const providerData = {
             name: oauth.providerName,
             fhirBaseUrl: oauth.fhirBaseUrl,
             connectedAt,
             fhir: ehrData.fhir,
             attachments: ehrData.attachments,
-          });
+          };
+          await store.addProviderData(sessionId, providerData);
 
           // Save for retry if upload fails
-          setLastEncrypted(encrypted);
           setLastToken(token);
           setLastProviderName(oauth.providerName);
           
-          setStatus('sending');
+          // Check data size to decide approach
+          const jsonSize = JSON.stringify(providerData).length;
+          const CHUNK_THRESHOLD = 5 * 1024 * 1024; // 5MB
+          
           try {
-            await sendEncryptedEhrData(sessionId, encrypted, token, setUploadProgress);
+            if (jsonSize > CHUNK_THRESHOLD) {
+              // Large data: use streaming encrypt + upload
+              setStatus('sending'); // Combined encrypt+upload
+              let totalChunks = 0;
+              
+              await encryptAndUploadStreaming(
+                providerData,
+                oauth.publicKeyJwk,
+                async (chunk: EncryptedChunk, index: number, isLast: boolean) => {
+                  totalChunks = index + 1;
+                  await uploadEncryptedChunk(sessionId, token!, chunk, index, isLast ? totalChunks : null);
+                },
+                setStreamingProgress
+              );
+              
+            } else {
+              // Small data: encrypt then upload (original v2 flow)
+              const encrypted = await encryptData(providerData, oauth.publicKeyJwk);
+              setLastEncrypted(encrypted);
+              setStatus('sending');
+              await sendEncryptedEhrData(sessionId, encrypted, token, setUploadProgress);
+            }
+            
             setStatus('done');
             setTimeout(() => {
-              // Don't set idle before navigate - causes flash of error
               navigate(`/connect/${sessionId}?provider_added=true`);
             }, 1500);
           } catch (uploadErr) {
@@ -256,13 +307,17 @@ export default function OAuthCallbackPage() {
       case 'loading':
         return null; // Use custom progress display
       case 'encrypting':
-        if (encryptProgress && encryptProgress.totalChunks > 1) {
-          const mb = (encryptProgress.bytesProcessed / 1024 / 1024).toFixed(1);
-          const totalMb = (encryptProgress.totalBytes / 1024 / 1024).toFixed(1);
-          return `Encrypting chunk ${encryptProgress.currentChunk}/${encryptProgress.totalChunks} (${mb}/${totalMb} MB)...`;
-        }
         return 'Encrypting data...';
       case 'sending':
+        // Streaming progress (large files)
+        if (streamingProgress) {
+          const pct = Math.round((streamingProgress.bytesIn / streamingProgress.totalBytesIn) * 100);
+          const mb = (streamingProgress.bytesIn / 1024 / 1024).toFixed(1);
+          const totalMb = (streamingProgress.totalBytesIn / 1024 / 1024).toFixed(1);
+          const phase = streamingProgress.phase === 'processing' ? 'Processing' : 'Uploading';
+          return `${phase} chunk ${streamingProgress.currentChunk}... ${mb}/${totalMb} MB (${pct}%)`;
+        }
+        // Simple upload progress (small files)
         if (uploadProgress) {
           const pct = Math.round((uploadProgress.loaded / uploadProgress.total) * 100);
           const kb = Math.round(uploadProgress.loaded / 1024);
