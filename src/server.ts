@@ -378,7 +378,6 @@ const server = Bun.serve({
 
         db.run("UPDATE sessions SET encrypted_data = ?, status = 'collecting', finalize_token = ? WHERE id = ?",
           [JSON.stringify(existing), data.finalizeToken, data.sessionId]);
-        console.log(`Received EHR data for ${data.sessionId} (${existing.length} providers)`);
 
         return Response.json({
           success: true,
