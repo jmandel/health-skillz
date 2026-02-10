@@ -522,27 +522,42 @@ const server = Bun.serve({
           }, { headers: corsHeaders });
         }
         
-        // Generate synthetic bundle of requested size
+        // Only generate big data for DocumentReference (single resource type)
+        // Other resource types return empty to avoid multiplying the data
+        if (!resourcePath.startsWith('DocumentReference')) {
+          return Response.json({
+            resourceType: 'Bundle',
+            type: 'searchset',
+            total: 0,
+            entry: [],
+          }, { headers: corsHeaders });
+        }
+        
+        // Generate synthetic bundle of requested size as DocumentReferences with inline data
         const targetBytes = sizeMB * 1024 * 1024;
         const entries: any[] = [];
         let currentSize = 100;
         let resourceId = 0;
         
         while (currentSize < targetBytes) {
-          const paddingSize = Math.min(10000, targetBytes - currentSize);
-          const observation = {
-            resourceType: 'Observation',
-            id: `test-obs-${resourceId++}`,
-            status: 'final',
-            code: { coding: [{ system: 'http://loinc.org', code: '12345-6', display: 'Test Observation' }] },
-            valueString: 'X'.repeat(paddingSize),
-            effectiveDateTime: new Date().toISOString(),
+          const paddingSize = Math.min(50000, targetBytes - currentSize); // 50KB chunks
+          const docRef = {
+            resourceType: 'DocumentReference',
+            id: `test-doc-${resourceId++}`,
+            status: 'current',
+            type: { coding: [{ system: 'http://loinc.org', code: '34133-9', display: 'Summary of episode note' }] },
+            content: [{
+              attachment: {
+                contentType: 'text/plain',
+                data: Buffer.from('X'.repeat(paddingSize)).toString('base64'),
+              }
+            }],
           };
-          entries.push({ resource: observation });
-          currentSize += JSON.stringify(observation).length + 50;
+          entries.push({ resource: docRef });
+          currentSize += JSON.stringify(docRef).length + 50;
         }
         
-        console.log(`[TEST] Generated ${sizeMB}MB synthetic data: ${entries.length} resources, ~${Math.round(currentSize/1024/1024)}MB`);
+        console.log(`[TEST] Generated ${sizeMB}MB synthetic data: ${entries.length} DocumentReferences, ~${Math.round(currentSize/1024/1024)}MB`);
         
         return Response.json({
           resourceType: 'Bundle',
