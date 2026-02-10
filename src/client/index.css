@@ -611,6 +611,31 @@ code {
   font-size: 0.8rem;
 }
 
+/* --- Footer --- */
+.site-footer {
+  margin-top: auto;
+  padding: 32px 0 24px;
+  width: 100%;
+}
+.footer-links {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+}
+.footer-links a { color: var(--text-tertiary); }
+.footer-links a:hover { color: var(--accent); text-decoration: none; }
+.footer-sep { color: var(--border); }
+.footer-note {
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+  margin-top: 8px;
+}
+.footer-note a { color: var(--text-secondary); }
+
 /* --- Misc legacy compat --- */
 .security-info { font-size: 0.82rem; color: var(--text-tertiary); margin-top: 16px; }
 .hero { display: none; } /* killed */

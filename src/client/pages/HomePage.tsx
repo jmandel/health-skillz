@@ -110,27 +110,41 @@ export default function HomePage() {
           )}
         </div>
 
-        {/* Testing */}
+        {/* Direct download */}
         <div className="card home-section">
-          <h2>Testing</h2>
-          <p className="step-text">
-            Use Epic's sandbox: username <code>fhircamila</code>, password <code>epicepic1</code>
+          <h2>Direct download</h2>
+          <p className="step-text" style={{ marginBottom: 8 }}>
+            The skill zip contains instructions and scripts for AI agents.
+            No health data is included — that stays in your browser.
           </p>
-        </div>
-
-        {/* Direct downloads */}
-        <div className="card home-section">
-          <h2>Direct downloads</h2>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <a href="/skill.zip" className="btn btn-secondary" style={{ fontSize: '0.85rem', padding: '6px 14px' }} download>
-              Download skill (.zip)
-            </a>
-            <Link to="/records" className="btn btn-secondary" style={{ fontSize: '0.85rem', padding: '6px 14px' }}>
-              Download records (.json)
-            </Link>
-          </div>
+          <a href="/skill.zip" className="btn btn-secondary" style={{ fontSize: '0.85rem', padding: '6px 14px' }} download>
+            Download skill (.zip)
+          </a>
         </div>
       </div>
+
+      {/* Footer */}
+      <footer className="site-footer">
+        <div className="container">
+          <div className="footer-links">
+            <a href="https://github.com/jmandel/health-skillz" target="_blank" rel="noopener">
+              GitHub
+            </a>
+            <span className="footer-sep">·</span>
+            <a href="https://github.com/jmandel/health-skillz/issues" target="_blank" rel="noopener">
+              Report an issue
+            </a>
+            <span className="footer-sep">·</span>
+            <a href="https://github.com/jmandel/health-skillz#readme" target="_blank" rel="noopener">
+              Documentation
+            </a>
+          </div>
+          <p className="footer-note">
+            Your health data never leaves your browser unencrypted.
+            {' '}<a href="https://github.com/jmandel/health-skillz/blob/main/DESIGN.md" target="_blank" rel="noopener">Learn how it works</a>.
+          </p>
+        </div>
+      </footer>
     </div>
   );
 }
