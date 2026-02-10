@@ -251,6 +251,72 @@ const server = Bun.serve({
       }, { headers: corsHeaders });
     }
 
+    // API: Binary chunks endpoint - efficient download without base64 overhead
+    // GET /api/chunks/{sessionId}/meta - returns chunk metadata (small JSON)
+    // GET /api/chunks/{sessionId}/{providerIndex}/{chunkIndex} - returns raw binary ciphertext
+    if (path.startsWith("/api/chunks/") && req.method === "GET") {
+      const parts = path.replace("/api/chunks/", "").split("/");
+      const sessionId = parts[0];
+      
+      const row = db.query("SELECT status, encrypted_data FROM sessions WHERE id = ?").get(sessionId) as any;
+      if (!row) return new Response("Session not found", { status: 404, headers: corsHeaders });
+      if (row.status !== "finalized") return new Response("Session not finalized", { status: 400, headers: corsHeaders });
+      
+      const providers = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
+      if (providers.length === 0) return new Response("No data", { status: 404, headers: corsHeaders });
+      
+      // GET /api/chunks/{sessionId}/meta
+      if (parts[1] === "meta") {
+        // Return metadata without ciphertext
+        const meta = providers.map((p: any, i: number) => {
+          if (p.version === 3 && p.chunks) {
+            return {
+              providerIndex: i,
+              version: 3,
+              totalChunks: p.chunks.length,
+              chunks: p.chunks.map((c: any) => ({
+                index: c.index,
+                ephemeralPublicKey: c.ephemeralPublicKey,
+                iv: c.iv, // Keep as base64, it's small
+              }))
+            };
+          } else {
+            // v1/v2 - return full payload (usually small)
+            return { providerIndex: i, version: p.version || 1, ...p };
+          }
+        });
+        return Response.json({ providers: meta }, { headers: corsHeaders });
+      }
+      
+      // GET /api/chunks/{sessionId}/{providerIndex}/{chunkIndex}
+      const providerIndex = parseInt(parts[1]);
+      const chunkIndex = parseInt(parts[2]);
+      
+      if (isNaN(providerIndex) || providerIndex >= providers.length) {
+        return new Response("Invalid provider index", { status: 400, headers: corsHeaders });
+      }
+      
+      const provider = providers[providerIndex];
+      if (provider.version !== 3 || !provider.chunks) {
+        return new Response("Provider is not chunked", { status: 400, headers: corsHeaders });
+      }
+      
+      const chunk = provider.chunks.find((c: any) => c.index === chunkIndex);
+      if (!chunk) {
+        return new Response("Chunk not found", { status: 404, headers: corsHeaders });
+      }
+      
+      // Return raw binary ciphertext (decode from base64)
+      const ciphertext = Uint8Array.from(atob(chunk.ciphertext), c => c.charCodeAt(0));
+      return new Response(ciphertext, {
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/octet-stream",
+          "Content-Length": ciphertext.length.toString(),
+        }
+      });
+    }
+
     // API: Receive encrypted EHR data (also sets finalizeToken on first call)
     if (path === "/api/receive-ehr" && req.method === "POST") {
       try {
