@@ -137,6 +137,20 @@ function getVendors() {
       redirectUrl: brand.redirectURL || `${baseURL}/connect/callback`,
     };
   }
+  
+  // Add synthetic test data provider (various sizes)
+  for (const size of [1, 10, 50, 100]) {
+    vendors[`__test_${size}mb__`] = {
+      clientId: 'test',
+      scopes: 'patient/*.rs',
+      brandFiles: [`/test/${size}mb/brand.json`],
+      tags: ['test'],
+      redirectUrl: `${baseURL}/connect/callback`,
+      testProvider: true,
+      testSizeMB: size,
+    };
+  }
+  
   return vendors;
 }
 
@@ -409,6 +423,133 @@ const server = Bun.serve({
         return Response.json({ logged: true, errorId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}` }, { headers: corsHeaders });
       } catch (e) {
         return Response.json({ logged: false }, { status: 400, headers: corsHeaders });
+      }
+    }
+
+    // Test provider: all routes under /test/{size}mb/
+    const testMatch = path.match(/^\/test\/(\d+)mb\/(.*)$/);
+    if (testMatch) {
+      const sizeMB = parseInt(testMatch[1]);
+      const subPath = testMatch[2];
+      
+      // Brand file
+      if (subPath === 'brand.json') {
+        return Response.json({
+          items: [{
+            id: `test-synthetic-${sizeMB}mb`,
+            displayName: `🧪 Test Data Generator (${sizeMB} MB)`,
+            brandName: `Test Data ${sizeMB}MB`,
+            itemType: 'brand',
+            brandId: `test-${sizeMB}mb`,
+            endpoints: [{
+              url: `${baseURL}/test/${sizeMB}mb/fhir`,
+              name: 'FHIR R4',
+              connectionType: 'hl7-fhir-rest',
+            }],
+            searchName: `test data generator ${sizeMB}mb synthetic`,
+          }],
+          processedTimestamp: new Date().toISOString(),
+        }, { headers: corsHeaders });
+      }
+      
+      // SMART configuration
+      if (subPath === 'fhir/.well-known/smart-configuration') {
+        return Response.json({
+          authorization_endpoint: `${baseURL}/test/${sizeMB}mb/authorize`,
+          token_endpoint: `${baseURL}/test/${sizeMB}mb/token`,
+          capabilities: ['launch-standalone', 'client-public', 'permission-patient'],
+        }, { headers: corsHeaders });
+      }
+      
+      // FHIR metadata
+      if (subPath === 'fhir/metadata') {
+        return Response.json({
+          resourceType: 'CapabilityStatement',
+          status: 'active',
+          kind: 'instance',
+          fhirVersion: '4.0.1',
+          format: ['json'],
+          rest: [{
+            mode: 'server',
+            security: {
+              extension: [{
+                url: 'http://fhir-registry.smarthealthit.org/StructureDefinition/oauth-uris',
+                extension: [
+                  { url: 'authorize', valueUri: `${baseURL}/test/${sizeMB}mb/authorize` },
+                  { url: 'token', valueUri: `${baseURL}/test/${sizeMB}mb/token` },
+                ]
+              }]
+            }
+          }]
+        }, { headers: corsHeaders });
+      }
+      
+      // OAuth authorize
+      if (subPath === 'authorize') {
+        const state = url.searchParams.get('state');
+        const redirectUri = url.searchParams.get('redirect_uri');
+        
+        if (!state || !redirectUri) {
+          return new Response('Missing state or redirect_uri', { status: 400 });
+        }
+        
+        const code = `test_${sizeMB}mb_${Date.now()}`;
+        return Response.redirect(`${redirectUri}?code=${code}&state=${state}`, 302);
+      }
+      
+      // OAuth token
+      if (subPath === 'token' && req.method === 'POST') {
+        return Response.json({
+          access_token: `test_token_${sizeMB}mb`,
+          token_type: 'Bearer',
+          expires_in: 3600,
+          patient: `test-patient-${sizeMB}mb`,
+          scope: 'patient/*.rs',
+        }, { headers: corsHeaders });
+      }
+      
+      // FHIR resources
+      if (subPath.startsWith('fhir/')) {
+        const resourcePath = subPath.replace('fhir/', '');
+        
+        // Patient resource
+        if (resourcePath.startsWith('Patient/')) {
+          return Response.json({
+            resourceType: 'Patient',
+            id: 'test-patient',
+            name: [{ given: ['Test'], family: 'Patient' }],
+            birthDate: '1990-01-01',
+          }, { headers: corsHeaders });
+        }
+        
+        // Generate synthetic bundle of requested size
+        const targetBytes = sizeMB * 1024 * 1024;
+        const entries: any[] = [];
+        let currentSize = 100;
+        let resourceId = 0;
+        
+        while (currentSize < targetBytes) {
+          const paddingSize = Math.min(10000, targetBytes - currentSize);
+          const observation = {
+            resourceType: 'Observation',
+            id: `test-obs-${resourceId++}`,
+            status: 'final',
+            code: { coding: [{ system: 'http://loinc.org', code: '12345-6', display: 'Test Observation' }] },
+            valueString: 'X'.repeat(paddingSize),
+            effectiveDateTime: new Date().toISOString(),
+          };
+          entries.push({ resource: observation });
+          currentSize += JSON.stringify(observation).length + 50;
+        }
+        
+        console.log(`[TEST] Generated ${sizeMB}MB synthetic data: ${entries.length} resources, ~${Math.round(currentSize/1024/1024)}MB`);
+        
+        return Response.json({
+          resourceType: 'Bundle',
+          type: 'searchset',
+          total: entries.length,
+          entry: entries,
+        }, { headers: corsHeaders });
       }
     }
 
