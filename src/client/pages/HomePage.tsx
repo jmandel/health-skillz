@@ -72,7 +72,7 @@ export default function HomePage() {
           <h2>How It Works</h2>
           <h3>1. Ask Your AI</h3>
           <pre>
-            <code>"I'd like to look at my health records"</code>
+            <code>"Can you find the note from when I went to the ER in March?"</code>
           </pre>
 
           <h3>2. Connect Your Records</h3>
