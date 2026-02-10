@@ -43,7 +43,7 @@ export default function RecordsPage() {
 
   if (!s.loaded) {
     return (
-      <div className="page-centered">
+      <div className="page-top">
         <div className="panel">
           <StatusMessage status="loading" message="Loading…" />
         </div>
@@ -52,7 +52,7 @@ export default function RecordsPage() {
   }
 
   return (
-    <div className="page-centered">
+    <div className="page-top">
       <div className="panel panel-wide">
         <div className="page-title">
           {isSession ? 'Share records with AI' : 'My Health Records'}
