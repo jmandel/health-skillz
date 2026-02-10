@@ -43,12 +43,14 @@ while (attempts < maxAttempts) {
     break;
   }
 
-  console.log(JSON.stringify({ 
-    status: 'waiting', 
-    sessionStatus: pollResult.status,
-    providerCount: pollResult.providerCount || 0,
-    attempt: attempts + 1
-  }));
+  // Only log waiting status every 5 attempts to reduce noise
+  if (attempts % 5 === 0) {
+    console.log(JSON.stringify({ 
+      status: 'waiting', 
+      providerCount: pollResult.providerCount || 0,
+      attempt: attempts + 1
+    }));
+  }
   
   attempts++;
 }
