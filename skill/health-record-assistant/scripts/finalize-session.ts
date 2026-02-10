@@ -117,32 +117,48 @@ async function decryptChunk(chunk: any): Promise<Uint8Array> {
 }
 
 async function decryptProvider(encrypted: any) {
-  // v3: chunked format - decrypt each chunk and concatenate
+  // v3: chunked format - stream decrypt through decompressor (low memory)
   if (encrypted.version === 3 && encrypted.chunks) {
     console.log(JSON.stringify({ status: 'decrypting_chunks', count: encrypted.chunks.length }));
     
     // Sort chunks by index
     const sortedChunks = [...encrypted.chunks].sort((a, b) => a.index - b.index);
     
-    // Decrypt each chunk and collect the plaintext
-    const plaintextParts: Uint8Array[] = [];
-    for (const chunk of sortedChunks) {
-      const decrypted = await decryptChunk(chunk);
-      plaintextParts.push(decrypted);
+    // Create a stream that yields decrypted chunks
+    let chunkIndex = 0;
+    const decryptedStream = new ReadableStream({
+      async pull(controller) {
+        if (chunkIndex >= sortedChunks.length) {
+          controller.close();
+          return;
+        }
+        const chunk = sortedChunks[chunkIndex++];
+        const decrypted = await decryptChunk(chunk);
+        controller.enqueue(decrypted);
+      }
+    });
+    
+    // Pipe through decompressor and collect output
+    const decompressedStream = decryptedStream.pipeThrough(new DecompressionStream('gzip'));
+    const reader = decompressedStream.getReader();
+    const outputChunks: Uint8Array[] = [];
+    
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      outputChunks.push(value);
     }
     
-    // Concatenate all parts (these are parts of a single gzip stream)
-    const totalLength = plaintextParts.reduce((sum, part) => sum + part.length, 0);
+    // Combine decompressed output and parse
+    const totalLength = outputChunks.reduce((sum, part) => sum + part.length, 0);
     const combined = new Uint8Array(totalLength);
     let offset = 0;
-    for (const part of plaintextParts) {
+    for (const part of outputChunks) {
       combined.set(part, offset);
       offset += part.length;
     }
     
-    // Decompress the complete gzip stream
-    const decompressed = await decompress(combined);
-    return JSON.parse(new TextDecoder().decode(decompressed));
+    return JSON.parse(new TextDecoder().decode(combined));
   }
   
   // v1/v2: single encrypted payload
