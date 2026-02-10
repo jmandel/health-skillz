@@ -776,6 +776,24 @@ const server = Bun.serve({
       }
     }
 
+    // JWKS endpoints — serve both keysets under .well-known/
+    if (path.startsWith("/.well-known/") && path.endsWith(".json")) {
+      const filename = path.replace("/.well-known/", "");
+      const allowed = [
+        "jwks.json",
+        "jwks-intentionally-publishing-private-keys-which-are-not-sensitive-in-this-architecture.json",
+      ];
+      if (allowed.includes(filename)) {
+        const jwksPath = `./data/${filename}`;
+        if (existsSync(jwksPath)) {
+          return new Response(readFileSync(jwksPath, "utf-8"), {
+            headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600", ...corsHeaders },
+          });
+        }
+        return new Response('{"keys":[]}', { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } });
+      }
+    }
+
     // Legacy callback URL redirect (if any old links use /ehr-connect/callback)
     if (path === "/ehr-connect/callback") {
       return Response.redirect(`${baseURL}/connect/callback${url.search}`, 302);

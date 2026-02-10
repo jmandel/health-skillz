@@ -8,7 +8,8 @@
     "dev": "bun run --watch src/server.ts",
     "build:brands": "bun run scripts/download-brands.ts",
     "build:skill": "bun run scripts/package-skill.ts",
-    "setup": "bun run build:brands && bun run build:skill"
+    "generate-jwks": "bun run scripts/generate-jwks.ts",
+    "setup": "bun run build:brands && bun run build:skill && bun run generate-jwks"
   },
   "dependencies": {
     "jszip": "^3.10.1",
