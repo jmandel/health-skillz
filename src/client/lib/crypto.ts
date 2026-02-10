@@ -100,7 +100,7 @@ export async function encryptData(
   const ciphertext = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv },
     sharedKey,
-    compressed
+    compressed.buffer as ArrayBuffer
   );
 
   return {
@@ -113,7 +113,7 @@ export async function encryptData(
 }
 
 async function compress(data: Uint8Array): Promise<Uint8Array> {
-  const stream = new Blob([data]).stream().pipeThrough(new CompressionStream('gzip'));
+  const stream = new Blob([data as BlobPart]).stream().pipeThrough(new CompressionStream('gzip'));
   const blob = await new Response(stream).blob();
   return new Uint8Array(await blob.arrayBuffer());
 }
