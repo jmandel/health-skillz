@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useSessionStore } from '../store/session';
 import { getSessionInfo, finalizeSession } from '../lib/api';
 import { getFullData, clearAllData } from '../lib/storage';
@@ -8,7 +8,9 @@ import StatusMessage from '../components/StatusMessage';
 
 export default function ConnectPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const uploadFailed = searchParams.get('upload_failed') === 'true';
   const {
     sessionId: storeSessionId,
     publicKeyJwk,
@@ -109,6 +111,38 @@ export default function ConnectPage() {
         <div className="connect-card">
           <h1>🏥 Connect Your Health Records</h1>
           <StatusMessage status="error" message={error || 'Session not found'} />
+        </div>
+      </div>
+    );
+  }
+
+  // Upload failed state - data saved locally but not sent to server
+  if (uploadFailed && providers.length > 0) {
+    return (
+      <div className="connect-container">
+        <div className="connect-card">
+          <h1>🏥 Connect Your Health Records</h1>
+          <StatusMessage
+            status="error"
+            message="Upload failed, but your data is saved locally."
+          />
+          <p style={{ marginTop: '16px' }}>
+            Download your records and share the file directly with your AI.
+          </p>
+          <button
+            className="btn btn-primary"
+            onClick={handleDownload}
+            style={{ marginTop: '16px' }}
+          >
+            📥 Download My Records (JSON)
+          </button>
+          <button
+            className="btn btn-link"
+            onClick={() => navigate(`/connect/${sessionId}/select`)}
+            style={{ marginTop: '8px' }}
+          >
+            Try connecting again
+          </button>
         </div>
       </div>
     );
