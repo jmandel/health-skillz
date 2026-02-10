@@ -160,8 +160,16 @@ export default function OAuthCallbackPage() {
             }, 1500);
           } catch (uploadErr) {
             // Upload failed but data is saved locally - let user download instead
-            console.error('Upload failed:', uploadErr);
-            store.setUploadFailed(true);
+            const errorMsg = uploadErr instanceof Error ? uploadErr.message : String(uploadErr);
+            const errorDetails = [
+              `Time: ${new Date().toISOString()}`,
+              `Session: ${sessionId}`,
+              `Provider: ${oauth.providerName}`,
+              `Error: ${errorMsg}`,
+              `Payload size: ${JSON.stringify(encrypted).length} bytes`,
+            ].join('\n');
+            console.error('Upload failed:', errorDetails);
+            store.setUploadFailed(true, errorDetails);
             setStatus('upload_failed' as any);
           }
         }

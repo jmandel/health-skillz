@@ -19,6 +19,7 @@ export default function ConnectPage() {
     status,
     error,
     initialized,
+    uploadError,
     init,
     setSession,
     setStatus,
@@ -143,6 +144,28 @@ export default function ConnectPage() {
           >
             Try connecting again
           </button>
+          {uploadError && (
+            <details style={{ marginTop: '24px', fontSize: '12px', color: '#666' }}>
+              <summary style={{ cursor: 'pointer' }}>Error details (for bug reports)</summary>
+              <pre style={{ 
+                marginTop: '8px', 
+                padding: '12px', 
+                background: '#f5f5f5', 
+                borderRadius: '4px',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-all'
+              }}>
+                {uploadError}
+              </pre>
+              <button
+                className="btn btn-link"
+                onClick={() => navigator.clipboard.writeText(uploadError)}
+                style={{ marginTop: '4px', fontSize: '12px' }}
+              >
+                Copy to clipboard
+              </button>
+            </details>
+          )}
         </div>
       </div>
     );

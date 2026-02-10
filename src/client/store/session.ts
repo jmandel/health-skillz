@@ -22,6 +22,7 @@ interface SessionState {
   error: string | null;
   initialized: boolean;
   uploadFailed: boolean;
+  uploadError: string | null;
 }
 
 interface SessionActions {
@@ -52,7 +53,7 @@ interface SessionActions {
   markFinalized: () => void;
 
   // Mark upload as failed (data still saved locally)
-  setUploadFailed: (failed: boolean) => void;
+  setUploadFailed: (failed: boolean, error?: string) => void;
 
   // Clear everything and start fresh
   clearAndReset: () => Promise<void>;
@@ -74,6 +75,7 @@ const initialState: SessionState = {
   error: null,
   initialized: false,
   uploadFailed: false,
+  uploadError: null,
 };
 
 export const useSessionStore = create<SessionState & SessionActions>((set, get) => ({
@@ -178,7 +180,7 @@ export const useSessionStore = create<SessionState & SessionActions>((set, get) 
     set({ finalized: true });
   },
 
-  setUploadFailed: (failed) => set({ uploadFailed: failed }),
+  setUploadFailed: (failed, error) => set({ uploadFailed: failed, uploadError: error || null }),
 
   clearAndReset: async () => {
     await clearAllData();
