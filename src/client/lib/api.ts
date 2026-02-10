@@ -109,3 +109,28 @@ export async function getVendorConfigs(): Promise<Record<string, VendorConfig>> 
   }
   return res.json();
 }
+
+// Log client-side error to server (non-sensitive diagnostic info)
+export interface ClientErrorInfo {
+  sessionId?: string;
+  errorCode?: string;
+  httpStatus?: number;
+  context?: string;
+}
+
+export async function logClientError(info: ClientErrorInfo): Promise<{ logged: boolean; errorId?: string }> {
+  try {
+    const res = await fetch(`${BASE_URL}/api/log-error`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...info,
+        userAgent: navigator.userAgent,
+      }),
+    });
+    return res.json();
+  } catch (e) {
+    // Don't throw - error logging should never break the app
+    return { logged: false };
+  }
+}

@@ -184,6 +184,10 @@ export async function getFullData(): Promise<{ providers: ProviderData[] } | nul
   return { providers };
 }
 
+export async function loadProviderData(sessionId: string): Promise<ProviderData[]> {
+  return await idbGet(`providers_${sessionId}`) || [];
+}
+
 export function getProvidersSummary(): Array<{ name: string; connectedAt: string }> {
   const session = loadSession();
   if (!session) return [];

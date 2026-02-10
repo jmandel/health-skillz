@@ -380,6 +380,35 @@ const server = Bun.serve({
       return await buildSkillZip();
     }
 
+    // API: Log client-side error (non-sensitive diagnostic info only)
+    if (path === "/api/log-error" && req.method === "POST") {
+      try {
+        const body = await req.json() as {
+          sessionId?: string;
+          errorCode?: string;
+          httpStatus?: number;
+          context?: string;
+          userAgent?: string;
+        };
+        
+        // Sanitize and log - no sensitive data
+        const logEntry = {
+          time: new Date().toISOString(),
+          sessionId: body.sessionId?.slice(0, 32) || 'unknown',
+          errorCode: String(body.errorCode || 'unknown').slice(0, 100),
+          httpStatus: typeof body.httpStatus === 'number' ? body.httpStatus : null,
+          context: String(body.context || '').slice(0, 200),
+          userAgent: String(body.userAgent || '').slice(0, 200),
+        };
+        
+        console.log(`[CLIENT ERROR]`, JSON.stringify(logEntry));
+        
+        return Response.json({ logged: true, errorId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}` }, { headers: corsHeaders });
+      } catch (e) {
+        return Response.json({ logged: false }, { status: 400, headers: corsHeaders });
+      }
+    }
+
     // Health check
     if (path === "/health") {
       return new Response("ok");

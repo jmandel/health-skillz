@@ -5,7 +5,7 @@ import { loadOAuthState, clearOAuthState, loadSession } from '../lib/storage';
 import { exchangeCodeForToken } from '../lib/smart/oauth';
 import { fetchPatientData, type ProgressInfo } from '../lib/smart/client';
 import { encryptData } from '../lib/crypto';
-import { sendEncryptedEhrData } from '../lib/api';
+import { sendEncryptedEhrData, logClientError } from '../lib/api';
 import StatusMessage from '../components/StatusMessage';
 
 export default function OAuthCallbackPage() {
@@ -161,10 +161,25 @@ export default function OAuthCallbackPage() {
           } catch (uploadErr) {
             // Upload failed but data is saved locally - let user download instead
             const errorMsg = uploadErr instanceof Error ? uploadErr.message : String(uploadErr);
+            
+            // Parse HTTP status from error message if available
+            const httpStatusMatch = errorMsg.match(/Server returned (\d+)/);
+            const httpStatus = httpStatusMatch ? parseInt(httpStatusMatch[1]) : undefined;
+            
+            // Log to server (non-sensitive info only)
+            const logResult = await logClientError({
+              sessionId,
+              errorCode: 'upload_failed',
+              httpStatus,
+              context: `provider:${oauth.providerName},payload_size:${JSON.stringify(encrypted).length}`,
+            });
+            
             const errorDetails = [
+              `Error ID: ${logResult.errorId || 'not-logged'}`,
               `Time: ${new Date().toISOString()}`,
               `Session: ${sessionId}`,
               `Provider: ${oauth.providerName}`,
+              `HTTP Status: ${httpStatus || 'unknown'}`,
               `Error: ${errorMsg}`,
               `Payload size: ${JSON.stringify(encrypted).length} bytes`,
             ].join('\n');

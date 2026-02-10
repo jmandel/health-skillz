@@ -1,8 +1,9 @@
 import { useEffect, useCallback, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useSessionStore } from '../store/session';
-import { getSessionInfo, finalizeSession } from '../lib/api';
-import { getFullData, clearAllData } from '../lib/storage';
+import { getSessionInfo, finalizeSession, sendEncryptedEhrData, logClientError } from '../lib/api';
+import { getFullData, clearAllData, loadProviderData } from '../lib/storage';
+import { encryptData } from '../lib/crypto';
 import ProviderList from '../components/ProviderList';
 import StatusMessage from '../components/StatusMessage';
 
@@ -81,6 +82,52 @@ export default function ConnectPage() {
     }
   }, [sessionId, finalizeToken, setStatus, setError]);
 
+  const handleRetryUpload = useCallback(async () => {
+    if (!sessionId || !publicKeyJwk || !finalizeToken) return;
+    
+    setStatus('sending');
+    clearError();
+    
+    try {
+      // Get stored provider data and re-encrypt/upload each
+      const providerData = await loadProviderData(sessionId);
+      if (!providerData || providerData.length === 0) {
+        throw new Error('No provider data found locally');
+      }
+      
+      for (const provider of providerData) {
+        const encrypted = await encryptData(provider, publicKeyJwk);
+        await sendEncryptedEhrData(sessionId, encrypted, finalizeToken);
+      }
+      
+      // Success - clear the upload_failed flag and redirect
+      useSessionStore.getState().setUploadFailed(false);
+      navigate(`/connect/${sessionId}?provider_added=true`);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      const httpStatusMatch = errorMsg.match(/Server returned (\d+)/);
+      const httpStatus = httpStatusMatch ? parseInt(httpStatusMatch[1]) : undefined;
+      
+      const logResult = await logClientError({
+        sessionId,
+        errorCode: 'retry_upload_failed',
+        httpStatus,
+        context: 'retry_from_connect_page',
+      });
+      
+      const errorDetails = [
+        `Error ID: ${logResult.errorId || 'not-logged'}`,
+        `Time: ${new Date().toISOString()}`,
+        `Session: ${sessionId}`,
+        `HTTP Status: ${httpStatus || 'unknown'}`,
+        `Error: ${errorMsg}`,
+      ].join('\n');
+      
+      useSessionStore.getState().setUploadFailed(true, errorDetails);
+      setStatus('idle');
+    }
+  }, [sessionId, publicKeyJwk, finalizeToken, navigate, setStatus, clearError]);
+
   const handleDownload = useCallback(async () => {
     const data = await getFullData();
     if (!data) return;
@@ -122,50 +169,69 @@ export default function ConnectPage() {
     return (
       <div className="connect-container">
         <div className="connect-card">
-          <h1>🏥 Connect Your Health Records</h1>
+          <h1>🏥 Upload Failed</h1>
           <StatusMessage
             status="error"
-            message="Upload failed, but your data is saved locally."
+            message="Could not send data to server, but your records are saved locally."
           />
-          <p style={{ marginTop: '16px' }}>
-            Download your records and share the file directly with your AI.
-          </p>
-          <button
-            className="btn btn-primary"
-            onClick={handleDownload}
-            style={{ marginTop: '16px' }}
-          >
-            📥 Download My Records (JSON)
-          </button>
-          <button
-            className="btn btn-link"
-            onClick={() => navigate(`/connect/${sessionId}/select`)}
-            style={{ marginTop: '8px' }}
-          >
-            Try connecting again
-          </button>
+          
+          <div style={{ marginTop: '20px', padding: '16px', background: '#f8f9fa', borderRadius: '8px' }}>
+            <p style={{ margin: '0 0 12px 0', fontWeight: 500 }}>What you can do:</p>
+            <button
+              className="btn btn-primary"
+              onClick={handleDownload}
+              style={{ width: '100%', marginBottom: '8px' }}
+            >
+              📥 Download Records &amp; Share Manually
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={handleRetryUpload}
+              style={{ width: '100%' }}
+            >
+              🔄 Retry Upload
+            </button>
+          </div>
+
           {uploadError && (
-            <details style={{ marginTop: '24px', fontSize: '12px', color: '#666' }}>
-              <summary style={{ cursor: 'pointer' }}>Error details (for bug reports)</summary>
+            <div style={{ marginTop: '20px', padding: '16px', background: '#fff3cd', borderRadius: '8px', border: '1px solid #ffc107' }}>
+              <p style={{ margin: '0 0 8px 0', fontWeight: 500, fontSize: '14px' }}>⚠️ Error Details</p>
               <pre style={{ 
-                marginTop: '8px', 
+                margin: '0 0 12px 0',
                 padding: '12px', 
-                background: '#f5f5f5', 
+                background: '#fff', 
                 borderRadius: '4px',
                 whiteSpace: 'pre-wrap',
-                wordBreak: 'break-all'
+                wordBreak: 'break-all',
+                fontSize: '12px',
+                border: '1px solid #ddd'
               }}>
                 {uploadError}
               </pre>
               <button
-                className="btn btn-link"
-                onClick={() => navigator.clipboard.writeText(uploadError)}
-                style={{ marginTop: '4px', fontSize: '12px' }}
+                className="btn btn-secondary"
+                onClick={() => {
+                  navigator.clipboard.writeText(uploadError);
+                  alert('Error details copied to clipboard');
+                }}
+                style={{ fontSize: '13px' }}
               >
-                Copy to clipboard
+                📋 Copy Error Details
               </button>
-            </details>
+            </div>
           )}
+
+          <button
+            className="btn btn-link"
+            onClick={async () => {
+              await clearAllData();
+              init();
+              navigate(`/connect/${sessionId}`);
+            }}
+            style={{ marginTop: '16px', color: '#999', fontSize: '13px' }}
+          >
+            Clear data and start over
+          </button>
         </div>
       </div>
     );
