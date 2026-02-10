@@ -401,12 +401,12 @@ export default function OAuthCallbackPage() {
             </div>
           </div>
         )}
-        {store.status === 'error' && resolvedSessionId && (
+        {store.status === 'error' && resolvedSessionId && !store.uploadFailed && (
           <button className="btn" onClick={() => navigate(isLocalCollection ? '/collect' : `/connect/${resolvedSessionId}`)}>
             ← Try Again
           </button>
         )}
-        {(store.status as string) === 'upload_failed' && resolvedSessionId && (
+        {(store.status === 'error' && store.uploadFailed || (store.status as string) === 'upload_failed') && resolvedSessionId && (
           <div className="upload-failed-actions" style={{ marginTop: '16px' }}>
             <button 
               className="btn btn-primary" 
