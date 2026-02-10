@@ -319,6 +319,7 @@ interface Attachment {
 **Design rationale:**
 - Each provider is a separate object (preserves data provenance)
 - FHIR resources grouped by type for easy querying
+- **Attachments are canonical**: Inline `attachment.data` is stripped from FHIR resources to avoid duplication. All attachment content lives in `attachments[]` array, referenced by `resourceId`
 - Attachments pre-extracted for text search
 - Referenced resources (Practitioner, Organization) fetched and included
 

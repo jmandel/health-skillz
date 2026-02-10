@@ -18,7 +18,7 @@ interface ProviderData {
     AllergyIntolerance?: AllergyIntolerance[];
     Encounter?: Encounter[];
     DiagnosticReport?: DiagnosticReport[];
-    DocumentReference?: DocumentReference[];
+    DocumentReference?: DocumentReference[];  // Note: attachment.data stripped, see attachments[]
     CareTeam?: CareTeam[];
     Goal?: Goal[];
     CarePlan?: CarePlan[];
@@ -26,7 +26,7 @@ interface ProviderData {
     // Other types may also be present (Device, MedicationDispense, etc.)
     [resourceType: string]: any[];
   };
-  attachments: Attachment[];
+  attachments: Attachment[];  // Canonical location for all attachment content
 }
 
 interface Attachment {
@@ -37,5 +37,11 @@ interface Attachment {
   contentBase64: string | null;     // Raw content, base64 encoded
 }
 ```
+
+**Important:** Attachment content is stored ONLY in the `attachments[]` array. Inline `attachment.data` 
+is stripped from FHIR resources (DocumentReference, DiagnosticReport) to avoid duplication. The FHIR 
+resources retain `attachment.url` and metadata but not the raw content. To find attachment content:
+1. Look up the attachment in `attachments[]` by `resourceId`
+2. Use `contentPlaintext` for text, `contentBase64` for binary
 
 Each provider is a separate slice — no merging, preserves data provenance.

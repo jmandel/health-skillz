@@ -82,7 +82,9 @@ const conditions = data.fhir.Condition
 
 ### Understanding Attachments
 
-The `attachments` array contains clinical documents extracted from `DocumentReference` resources. Each attachment has `contentPlaintext` (extracted text) and `contentBase64` (raw encoded content).
+The `attachments` array is the **canonical location** for all attachment content. It contains clinical documents extracted from `DocumentReference` and `DiagnosticReport` resources. Each attachment has `contentPlaintext` (extracted text) and `contentBase64` (raw encoded content).
+
+**Note:** Inline `attachment.data` is stripped from FHIR resources to avoid duplication. The FHIR resources retain metadata (`attachment.url`, `contentType`, etc.) but the actual content is only in `attachments[]`. To find content for a DocumentReference, look up by `resourceId` in the attachments array.
 
 **Critical: attachments can easily overwhelm your context window.** A typical patient has 50-200 attachments totaling 300K+ characters. Loading them all at once will consume most of your context. Always use the index-first approach below.
 
