@@ -1,0 +1,26 @@
+{
+  "server": {
+    "port": 8000,
+    "baseURL": "https://health-skillz-vnext.joshuamandel.com"
+  },
+  "brands": [
+    {
+      "name": "epic-sandbox",
+      "file": "./brands/epic-sandbox.json",
+      "tags": ["epic", "sandbox"],
+      "clientId": "0c8cc257-4510-4b61-ac4f-987e97b885e6",
+      "scopes": "patient/*.rs",
+      "note": "Epic Sandbox - Username 'fhircamila', Password 'epicepic1'"
+    },
+    {
+      "name": "epic-prod",
+      "file": "./brands/epic-prod.json",
+      "tags": ["epic", "prod"],
+      "clientId": "391787cc-3dae-4249-a28b-88a7dfecd2aa",
+      "scopes": "patient/*.rs"
+    }
+  ],
+  "session": {
+    "timeoutMinutes": 60
+  }
+}
