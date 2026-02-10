@@ -70,18 +70,19 @@ export default function HomePage() {
 
         <div className="card">
           <h2>How It Works</h2>
-          <h3>1. Ask Your AI</h3>
+          <h3>1. Connect Your Records</h3>
+          <p>
+            Your AI gives you a secure link to sign into your patient portal. 
+            Or <a href="/collect">collect ahead of time</a> and bring the data to any conversation.
+          </p>
+
+          <h3>2. Ask Your Questions</h3>
           <pre>
             <code>"Can you find the note from when I went to the ER in March?"</code>
           </pre>
-
-          <h3>2. Connect Your Records</h3>
-          <p>Your AI provides a secure link. Click it, select your provider, sign in.</p>
-
-          <h3>3. Ask Your Questions</h3>
           <p>
-            Your AI has access to your labs, medications, conditions, and clinical notes.
-            Ask about whatever matters to you.
+            Your AI can search clinical notes, look up labs, list medications — 
+            whatever you need from your records.
           </p>
         </div>
 
