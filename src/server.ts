@@ -614,7 +614,9 @@ const server = Bun.serve({
         }
         
         // Generate synthetic bundle of requested size as DocumentReferences with inline data
-        const targetBytes = sizeMB * 1024 * 1024;
+        // Account for base64 expansion (4/3) and JSON overhead (~1.5x)
+        // So for 100MB final, we need ~50MB of raw random data
+        const targetBytes = Math.round(sizeMB * 1024 * 1024 / 3);
         const entries: any[] = [];
         let currentSize = 100;
         let resourceId = 0;
