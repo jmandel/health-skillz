@@ -22,6 +22,22 @@ export interface EncryptedPayload {
   ciphertext: string;  // base64
 }
 
+export interface EncryptedChunk {
+  index: number;
+  ephemeralPublicKey: JsonWebKey;
+  iv: string;
+  ciphertext: string;
+}
+
+export interface ChunkedEncryptedPayload {
+  encrypted: true;
+  version: 3;
+  totalChunks: number;
+  chunks: EncryptedChunk[];
+}
+
+export type AnyEncryptedPayload = EncryptedPayload | ChunkedEncryptedPayload;
+
 const BASE_URL = '';  // Same-origin API
 
 export async function getSessionInfo(sessionId: string): Promise<SessionInfo> {
@@ -53,19 +69,12 @@ export interface UploadProgress {
   total: number;
 }
 
-export async function sendEncryptedEhrData(
-  sessionId: string,
-  payload: EncryptedPayload,
-  finalizeToken: string,
+// Upload a single chunk with progress
+function uploadChunk(
+  url: string,
+  body: string,
   onProgress?: (progress: UploadProgress) => void
-): Promise<{ success: boolean; providerCount: number; redirectTo: string; errorId?: string }> {
-  const body = JSON.stringify({
-    ...payload,
-    sessionId,
-    finalizeToken,
-  });
-
-  // Use XMLHttpRequest for upload progress tracking
+): Promise<any> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     
@@ -83,7 +92,6 @@ export async function sendEncryptedEhrData(
           reject(new Error(`Invalid JSON response: ${xhr.responseText.slice(0, 100)}`));
         }
       } else {
-        // Try to extract errorId from response
         let errorId = '';
         try {
           const errJson = JSON.parse(xhr.responseText);
@@ -93,19 +101,86 @@ export async function sendEncryptedEhrData(
       }
     });
     
-    xhr.addEventListener('error', () => {
-      reject(new Error('Network error during upload'));
-    });
+    xhr.addEventListener('error', () => reject(new Error('Network error during upload')));
+    xhr.addEventListener('timeout', () => reject(new Error('Upload timed out')));
     
-    xhr.addEventListener('timeout', () => {
-      reject(new Error('Upload timed out'));
-    });
-    
-    xhr.open('POST', `${BASE_URL}/api/receive-ehr`);
+    xhr.open('POST', url);
     xhr.setRequestHeader('Content-Type', 'application/json');
-    xhr.timeout = 120000; // 2 minute timeout
+    xhr.timeout = 120000;
     xhr.send(body);
   });
+}
+
+export interface ChunkedUploadProgress {
+  currentChunk: number;
+  totalChunks: number;
+  chunkLoaded: number;
+  chunkTotal: number;
+  totalLoaded: number;
+  totalSize: number;
+}
+
+export async function sendEncryptedEhrData(
+  sessionId: string,
+  payload: AnyEncryptedPayload,
+  finalizeToken: string,
+  onProgress?: (progress: UploadProgress) => void,
+  onChunkedProgress?: (progress: ChunkedUploadProgress) => void
+): Promise<{ success: boolean; providerCount: number; redirectTo: string; errorId?: string }> {
+  
+  // v3 chunked upload
+  if (payload.version === 3) {
+    const chunked = payload as ChunkedEncryptedPayload;
+    let totalUploaded = 0;
+    
+    // Calculate total size of all chunks
+    const chunkSizes = chunked.chunks.map(c => JSON.stringify(c).length);
+    const totalSize = chunkSizes.reduce((a, b) => a + b, 0);
+    
+    let result: any;
+    for (let i = 0; i < chunked.chunks.length; i++) {
+      const chunk = chunked.chunks[i];
+      const body = JSON.stringify({
+        sessionId,
+        finalizeToken,
+        version: 3,
+        totalChunks: chunked.totalChunks,
+        chunk,
+      });
+      
+      const chunkSize = chunkSizes[i];
+      
+      result = await uploadChunk(
+        `${BASE_URL}/api/receive-ehr`,
+        body,
+        (p) => {
+          onChunkedProgress?.({
+            currentChunk: i + 1,
+            totalChunks: chunked.totalChunks,
+            chunkLoaded: p.loaded,
+            chunkTotal: p.total,
+            totalLoaded: totalUploaded + p.loaded,
+            totalSize,
+          });
+          // Also report simple progress
+          onProgress?.({ loaded: totalUploaded + p.loaded, total: totalSize });
+        }
+      );
+      
+      totalUploaded += chunkSize;
+    }
+    
+    return result;
+  }
+  
+  // v2 single upload
+  const body = JSON.stringify({
+    ...payload,
+    sessionId,
+    finalizeToken,
+  });
+
+  return uploadChunk(`${BASE_URL}/api/receive-ehr`, body, onProgress);
 }
 
 export async function finalizeSession(

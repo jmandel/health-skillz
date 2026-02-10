@@ -4,7 +4,7 @@ import { useSessionStore } from '../store/session';
 import { loadOAuthState, clearOAuthState, loadSession, loadProviderData } from '../lib/storage';
 import { exchangeCodeForToken } from '../lib/smart/oauth';
 import { fetchPatientData, type ProgressInfo } from '../lib/smart/client';
-import { encryptData } from '../lib/crypto';
+import { encryptDataAuto, type ChunkProgress } from '../lib/crypto';
 import { sendEncryptedEhrData, logClientError } from '../lib/api';
 import StatusMessage from '../components/StatusMessage';
 
@@ -21,6 +21,7 @@ export default function OAuthCallbackPage() {
   });
   const [resolvedSessionId, setResolvedSessionId] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<{ loaded: number; total: number } | null>(null);
+  const [encryptProgress, setEncryptProgress] = useState<ChunkProgress | null>(null);
   const [lastEncrypted, setLastEncrypted] = useState<any>(null);
   const [lastToken, setLastToken] = useState<string | null>(null);
   const [lastProviderName, setLastProviderName] = useState<string | null>(null);
@@ -41,7 +42,6 @@ export default function OAuthCallbackPage() {
       await sendEncryptedEhrData(resolvedSessionId, lastEncrypted, lastToken, setUploadProgress);
       setStatus('done');
       setTimeout(() => {
-        setStatus('idle');
         navigate(`/connect/${resolvedSessionId}?provider_added=true`);
       }, 1500);
     } catch (uploadErr) {
@@ -157,7 +157,6 @@ export default function OAuthCallbackPage() {
 
           setStatus('done');
           setTimeout(() => {
-            setStatus('idle');
             navigate('/collect');
           }, 1500);
         } else {
@@ -166,7 +165,7 @@ export default function OAuthCallbackPage() {
           if (!oauth.publicKeyJwk) {
             throw new Error('No encryption key available');
           }
-          const encrypted = await encryptData(
+          const encrypted = await encryptDataAuto(
             {
               name: oauth.providerName,
               fhirBaseUrl: oauth.fhirBaseUrl,
@@ -174,7 +173,8 @@ export default function OAuthCallbackPage() {
               fhir: ehrData.fhir,
               attachments: ehrData.attachments,
             },
-            oauth.publicKeyJwk
+            oauth.publicKeyJwk,
+            setEncryptProgress
           );
 
           // Persist finalize token before sending
@@ -205,7 +205,7 @@ export default function OAuthCallbackPage() {
             await sendEncryptedEhrData(sessionId, encrypted, token, setUploadProgress);
             setStatus('done');
             setTimeout(() => {
-              setStatus('idle');
+              // Don't set idle before navigate - causes flash of error
               navigate(`/connect/${sessionId}?provider_added=true`);
             }, 1500);
           } catch (uploadErr) {
@@ -256,6 +256,11 @@ export default function OAuthCallbackPage() {
       case 'loading':
         return null; // Use custom progress display
       case 'encrypting':
+        if (encryptProgress && encryptProgress.totalChunks > 1) {
+          const mb = (encryptProgress.bytesProcessed / 1024 / 1024).toFixed(1);
+          const totalMb = (encryptProgress.totalBytes / 1024 / 1024).toFixed(1);
+          return `Encrypting chunk ${encryptProgress.currentChunk}/${encryptProgress.totalChunks} (${mb}/${totalMb} MB)...`;
+        }
         return 'Encrypting data...';
       case 'sending':
         if (uploadProgress) {

@@ -255,11 +255,28 @@ const server = Bun.serve({
     if (path === "/api/receive-ehr" && req.method === "POST") {
       try {
         const data = await req.json() as any;
-        if (!data.sessionId || !data.encrypted || !data.ephemeralPublicKey || !data.iv || !data.ciphertext) {
-          return Response.json({ success: false, error: "missing_fields" }, { status: 400, headers: corsHeaders });
+        
+        // Validate common fields
+        if (!data.sessionId) {
+          return Response.json({ success: false, error: "missing_session_id" }, { status: 400, headers: corsHeaders });
         }
         if (!data.finalizeToken || typeof data.finalizeToken !== "string" || data.finalizeToken.length < 16) {
           return Response.json({ success: false, error: "missing_finalize_token" }, { status: 400, headers: corsHeaders });
+        }
+        
+        // Validate version-specific fields
+        const isV3 = data.version === 3;
+        if (isV3) {
+          if (!data.chunk || typeof data.chunk.index !== 'number' || !data.chunk.ephemeralPublicKey || !data.chunk.iv || !data.chunk.ciphertext) {
+            return Response.json({ success: false, error: "missing_chunk_fields" }, { status: 400, headers: corsHeaders });
+          }
+          if (typeof data.totalChunks !== 'number' || data.totalChunks < 1) {
+            return Response.json({ success: false, error: "invalid_total_chunks" }, { status: 400, headers: corsHeaders });
+          }
+        } else {
+          if (!data.encrypted || !data.ephemeralPublicKey || !data.iv || !data.ciphertext) {
+            return Response.json({ success: false, error: "missing_fields" }, { status: 400, headers: corsHeaders });
+          }
         }
 
         const row = db.query("SELECT encrypted_data, status, finalize_token, simulate_error FROM sessions WHERE id = ?").get(data.sessionId) as any;
@@ -292,21 +309,67 @@ const server = Bun.serve({
           return Response.json({ success: false, error: "token_mismatch" }, { status: 403, headers: corsHeaders });
         }
 
-        // Convert base64 to number arrays if needed (browser sends base64 for smaller payload)
-        const iv = typeof data.iv === 'string' 
-          ? Array.from(Uint8Array.from(atob(data.iv), c => c.charCodeAt(0)))
-          : data.iv;
-        const ciphertext = typeof data.ciphertext === 'string'
-          ? Array.from(Uint8Array.from(atob(data.ciphertext), c => c.charCodeAt(0)))
-          : data.ciphertext;
-
         const existing = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
-        existing.push({
-          ephemeralPublicKey: data.ephemeralPublicKey,
-          iv,
-          ciphertext,
-          version: data.version || 1,  // v1 = uncompressed, v2 = gzip compressed
-        });
+        
+        if (isV3) {
+          // v3 chunked upload - find or create provider entry
+          // Each provider gets an entry with version:3 and chunks array
+          // We use a temporary ID based on finalizeToken to group chunks
+          const chunkGroupId = `chunked_${data.finalizeToken.slice(0, 8)}`;
+          let providerEntry = existing.find((e: any) => e._chunkGroupId === chunkGroupId);
+          
+          if (!providerEntry) {
+            providerEntry = {
+              _chunkGroupId: chunkGroupId,
+              version: 3,
+              totalChunks: data.totalChunks,
+              chunks: [],
+            };
+            existing.push(providerEntry);
+          }
+          
+          // Add chunk (avoid duplicates)
+          const chunkIndex = data.chunk.index;
+          if (!providerEntry.chunks.find((c: any) => c.index === chunkIndex)) {
+            providerEntry.chunks.push({
+              index: chunkIndex,
+              ephemeralPublicKey: data.chunk.ephemeralPublicKey,
+              iv: data.chunk.iv,
+              ciphertext: data.chunk.ciphertext,
+            });
+          }
+          
+          // Sort chunks by index
+          providerEntry.chunks.sort((a: any, b: any) => a.index - b.index);
+          
+          const receivedChunks = providerEntry.chunks.length;
+          const isComplete = receivedChunks === data.totalChunks;
+          
+          // Remove temp groupId when complete
+          if (isComplete) {
+            delete providerEntry._chunkGroupId;
+          }
+          
+          console.log(`Received chunk ${chunkIndex + 1}/${data.totalChunks} for ${data.sessionId} (${receivedChunks}/${data.totalChunks} complete)`);
+        } else {
+          // v1/v2 single payload
+          // Convert base64 to number arrays if needed (browser sends base64 for smaller payload)
+          const iv = typeof data.iv === 'string' 
+            ? Array.from(Uint8Array.from(atob(data.iv), c => c.charCodeAt(0)))
+            : data.iv;
+          const ciphertext = typeof data.ciphertext === 'string'
+            ? Array.from(Uint8Array.from(atob(data.ciphertext), c => c.charCodeAt(0)))
+            : data.ciphertext;
+
+          existing.push({
+            ephemeralPublicKey: data.ephemeralPublicKey,
+            iv,
+            ciphertext,
+            version: data.version || 1,  // v1 = uncompressed, v2 = gzip compressed
+          });
+          
+          console.log(`Received EHR data for ${data.sessionId} (${existing.length} providers)`);
+        }
 
         db.run("UPDATE sessions SET encrypted_data = ?, status = 'collecting', finalize_token = ? WHERE id = ?",
           [JSON.stringify(existing), data.finalizeToken, data.sessionId]);
@@ -549,7 +612,8 @@ const server = Bun.serve({
             content: [{
               attachment: {
                 contentType: 'text/plain',
-                data: Buffer.from('X'.repeat(paddingSize)).toString('base64'),
+                // Use random bytes so data doesn't compress
+                data: Buffer.from(crypto.getRandomValues(new Uint8Array(paddingSize))).toString('base64'),
               }
             }],
           };

@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useSessionStore } from '../store/session';
 import { getSessionInfo, finalizeSession, sendEncryptedEhrData, logClientError } from '../lib/api';
 import { getFullData, clearAllData, loadProviderData } from '../lib/storage';
-import { encryptData } from '../lib/crypto';
+import { encryptDataAuto } from '../lib/crypto';
 import ProviderList from '../components/ProviderList';
 import StatusMessage from '../components/StatusMessage';
 
@@ -98,7 +98,7 @@ export default function ConnectPage() {
       }
       
       for (const provider of providerData) {
-        const encrypted = await encryptData(provider, publicKeyJwk);
+        const encrypted = await encryptDataAuto(provider, publicKeyJwk);
         await sendEncryptedEhrData(sessionId, encrypted, finalizeToken, setUploadProgress);
       }
       
