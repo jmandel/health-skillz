@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useSessionStore } from '../store/session';
-import { loadOAuthState, clearOAuthState, loadSession } from '../lib/storage';
+import { loadOAuthState, clearOAuthState, loadSession, loadProviderData } from '../lib/storage';
 import { exchangeCodeForToken } from '../lib/smart/oauth';
 import { fetchPatientData, type ProgressInfo } from '../lib/smart/client';
 import { encryptData } from '../lib/crypto';
@@ -21,10 +21,54 @@ export default function OAuthCallbackPage() {
   });
   const [resolvedSessionId, setResolvedSessionId] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<{ loaded: number; total: number } | null>(null);
+  const [lastEncrypted, setLastEncrypted] = useState<any>(null);
+  const [lastToken, setLastToken] = useState<string | null>(null);
+  const [lastProviderName, setLastProviderName] = useState<string | null>(null);
 
   const status = store.status;
   const setStatus = store.setStatus;
   const setError = store.setError;
+
+  // Retry upload handler
+  const handleRetryUpload = useCallback(async () => {
+    if (!resolvedSessionId || !lastEncrypted || !lastToken) return;
+    
+    setUploadProgress(null);
+    setStatus('sending');
+    store.setUploadFailed(false);
+    
+    try {
+      await sendEncryptedEhrData(resolvedSessionId, lastEncrypted, lastToken, setUploadProgress);
+      setStatus('done');
+      setTimeout(() => {
+        setStatus('idle');
+        navigate(`/connect/${resolvedSessionId}?provider_added=true`);
+      }, 1500);
+    } catch (uploadErr) {
+      const errorMsg = uploadErr instanceof Error ? uploadErr.message : String(uploadErr);
+      const httpStatusMatch = errorMsg.match(/Server returned (\d+)/);
+      const httpStatus = httpStatusMatch ? parseInt(httpStatusMatch[1]) : undefined;
+      
+      const logResult = await logClientError({
+        sessionId: resolvedSessionId,
+        errorCode: 'retry_upload_failed',
+        httpStatus,
+        context: `provider:${lastProviderName || 'unknown'}`,
+      });
+      
+      const errorDetails = [
+        `Error ID: ${logResult.errorId || 'not-logged'}`,
+        `Time: ${new Date().toISOString()}`,
+        `Session: ${resolvedSessionId}`,
+        `Provider: ${lastProviderName || 'unknown'}`,
+        `HTTP Status: ${httpStatus || 'unknown'}`,
+        `Error: ${errorMsg}`,
+      ].join('\n');
+      
+      store.setUploadFailed(true, errorDetails);
+      setStatus('upload_failed' as any);
+    }
+  }, [resolvedSessionId, lastEncrypted, lastToken, lastProviderName, navigate, setStatus]);
 
   useEffect(() => {
     // Already processing or done
@@ -151,6 +195,11 @@ export default function OAuthCallbackPage() {
             attachments: ehrData.attachments,
           });
 
+          // Save for retry if upload fails
+          setLastEncrypted(encrypted);
+          setLastToken(token);
+          setLastProviderName(oauth.providerName);
+          
           setStatus('sending');
           try {
             await sendEncryptedEhrData(sessionId, encrypted, token, setUploadProgress);
@@ -298,14 +347,39 @@ export default function OAuthCallbackPage() {
           </button>
         )}
         {(store.status as string) === 'upload_failed' && resolvedSessionId && (
-          <div className="upload-failed-actions">
-            <p>You can download your data and share it manually with your AI agent.</p>
-            <button className="btn btn-primary" onClick={() => navigate(`/connect/${resolvedSessionId}?upload_failed=true`)}>
-              Download Data
+          <div className="upload-failed-actions" style={{ marginTop: '16px' }}>
+            <button 
+              className="btn btn-primary" 
+              onClick={handleRetryUpload}
+              style={{ width: '100%', marginBottom: '8px' }}
+            >
+              🔄 Retry Upload
             </button>
-            <button className="btn" onClick={() => navigate(`/connect/${resolvedSessionId}`)}>
-              Try Again
+            <button 
+              className="btn btn-secondary" 
+              onClick={() => navigate(`/connect/${resolvedSessionId}?upload_failed=true`)}
+              style={{ width: '100%' }}
+            >
+              📥 Download Data Instead
             </button>
+            {store.uploadError && (
+              <div style={{ marginTop: '16px', padding: '12px', background: '#fff3cd', borderRadius: '8px', border: '1px solid #ffc107', fontSize: '12px' }}>
+                <strong>Error Details:</strong>
+                <pre style={{ margin: '8px 0 0 0', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                  {store.uploadError}
+                </pre>
+                <button
+                  className="btn btn-link"
+                  onClick={() => {
+                    navigator.clipboard.writeText(store.uploadError || '');
+                    alert('Copied!');
+                  }}
+                  style={{ marginTop: '8px', fontSize: '12px', padding: '4px 8px' }}
+                >
+                  📋 Copy
+                </button>
+              </div>
+            )}
           </div>
         )}
         {(isLoading || status === 'loading') && (
