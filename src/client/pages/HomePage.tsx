@@ -8,14 +8,14 @@ export default function HomePage() {
         <p>Connect your AI to your health records via SMART on FHIR</p>
       </div>
 
-      <div className="connect-container">
-        <div className="connect-card" style={{ textAlign: 'center' }}>
+      <div className="container">
+        <div className="card" style={{ textAlign: 'center' }}>
           <h2 style={{ marginBottom: '0.5rem' }}>Manage Your Records</h2>
           <p style={{ color: '#6b7280', marginBottom: '1rem' }}>
             Connect to patient portals, collect your health data, and share it
             with AI assistants — all from your browser.
           </p>
-          <Link to="/records" className="btn btn-primary" style={{ display: 'inline-block', marginBottom: '0.5rem' }}>
+          <Link to="/records" className="btn" style={{ display: 'inline-block', marginBottom: '0.5rem' }}>
             📦 My Health Records
           </Link>
           <br />
@@ -24,7 +24,7 @@ export default function HomePage() {
           </a>
         </div>
 
-        <div className="connect-card" style={{ marginTop: '1rem' }}>
+        <div className="card">
           <h3 style={{ marginBottom: '0.5rem' }}>How It Works</h3>
           <ol style={{ paddingLeft: '1.2rem', color: '#374151', lineHeight: 1.8 }}>
             <li><strong>Collect</strong> — Sign into your patient portal(s) and save your records to this browser</li>
@@ -33,7 +33,7 @@ export default function HomePage() {
           </ol>
         </div>
 
-        <div className="connect-card" style={{ marginTop: '1rem' }}>
+        <div className="card">
           <h3 style={{ marginBottom: '0.5rem' }}>For Testing</h3>
           <p style={{ color: '#6b7280', fontSize: '0.9rem' }}>
             Use Epic's sandbox with username <code>fhircamila</code> / password <code>epicepic1</code>
