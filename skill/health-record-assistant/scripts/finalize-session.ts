@@ -112,8 +112,8 @@ async function decryptChunk(chunk: any): Promise<Uint8Array> {
     ciphertext
   );
 
-  // Each chunk is gzip compressed
-  return await decompress(new Uint8Array(decrypted));
+  // Return raw decrypted bytes - chunks are parts of a gzip stream, not individually compressed
+  return new Uint8Array(decrypted);
 }
 
 async function decryptProvider(encrypted: any) {
@@ -131,7 +131,7 @@ async function decryptProvider(encrypted: any) {
       plaintextParts.push(decrypted);
     }
     
-    // Concatenate all parts
+    // Concatenate all parts (these are parts of a single gzip stream)
     const totalLength = plaintextParts.reduce((sum, part) => sum + part.length, 0);
     const combined = new Uint8Array(totalLength);
     let offset = 0;
@@ -140,7 +140,9 @@ async function decryptProvider(encrypted: any) {
       offset += part.length;
     }
     
-    return JSON.parse(new TextDecoder().decode(combined));
+    // Decompress the complete gzip stream
+    const decompressed = await decompress(combined);
+    return JSON.parse(new TextDecoder().decode(decompressed));
   }
   
   // v1/v2: single encrypted payload
