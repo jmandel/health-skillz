@@ -737,6 +737,17 @@ const server = Bun.serve({
       return new Response("ok");
     }
 
+    // Debug: random binary data endpoint
+    const randomMatch = path.match(/^\/random\/(\d+(?:\.\d+)?)\.MB\.bin$/);
+    if (randomMatch) {
+      const sizeMB = parseFloat(randomMatch[1]);
+      const bytes = Math.floor(sizeMB * 1024 * 1024);
+      const data = crypto.getRandomValues(new Uint8Array(bytes));
+      return new Response(data, {
+        headers: { ...corsHeaders, "Content-Type": "application/octet-stream" }
+      });
+    }
+
     // Static files with cache headers and gzip compression
     if (path.startsWith("/static/")) {
       const filePath = "." + path;
