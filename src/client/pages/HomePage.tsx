@@ -86,55 +86,6 @@ export default function HomePage() {
           </p>
         </div>
 
-        <div className="card">
-          <h2>Architecture</h2>
-          <div className="architecture">
-{`User asks AI → AI creates session → User clicks link
-    ↓
-User signs into patient portal (Epic MyChart, etc.)
-    ↓
-SMART on FHIR fetches health data
-    ↓
-Data sent to this server, AI polls until ready
-    ↓
-AI analyzes: labs, meds, conditions, notes`}
-          </div>
-        </div>
-
-        <div className="card">
-          <h2>For Developers</h2>
-          <pre>
-            <code>
-{`git clone https://github.com/jmandel/health-skillz
-cd health-skillz
-cp config.json.example config.json
-# Edit config.json with your client IDs
-bun install
-bun run setup
-bun run start`}
-            </code>
-          </pre>
-
-          <h3>API</h3>
-          <ul>
-            <li>
-              <code>POST /api/session</code> - Create session
-            </li>
-            <li>
-              <code>GET /api/poll/{'{id}'}</code> - Poll for data
-            </li>
-            <li>
-              <code>POST /api/data/{'{id}'}</code> - Receive data
-            </li>
-          </ul>
-        </div>
-
-        <div className="card">
-          <h2>Testing (Epic Sandbox)</h2>
-          <p>
-            Username: <code>fhircamila</code> &nbsp; Password: <code>epicepic1</code>
-          </p>
-        </div>
       </div>
 
       <footer>
