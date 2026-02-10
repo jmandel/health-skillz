@@ -4,6 +4,7 @@ brands/
 static/brands/
 static/ehr-connect/
 skill/*.zip
+skill/health-record-assistant/SKILL.md
 *.db
 *.db-journal
 .env
