@@ -121,7 +121,7 @@ async function decryptChunk(chunk: any): Promise<Uint8Array> {
 async function decryptProvider(encrypted: any) {
   // v3: chunked format - stream decrypt through decompressor (low memory)
   if (encrypted.version === 3 && encrypted.chunks) {
-    console.log(JSON.stringify({ status: 'decrypting_chunks', count: encrypted.chunks.length }));
+    // Silently decrypt chunks - no per-chunk logging to keep output short
     
     // Sort chunks by index
     const sortedChunks = [...encrypted.chunks].sort((a, b) => a.index - b.index);
