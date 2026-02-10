@@ -255,14 +255,15 @@ const server = Bun.serve({
         // Test error simulation (set via simulateError when creating session)
         if (row.simulate_error) {
           const simErr = row.simulate_error;
-          console.log(`[TEST] Simulating ${simErr} error for session ${data.sessionId}`);
+          const errorId = `sim-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          console.log(`[TEST] Simulating ${simErr} error for session ${data.sessionId}, errorId: ${errorId}`);
           
           if (simErr === '500') {
-            return Response.json({ success: false, error: "simulated_server_error" }, { status: 500, headers: corsHeaders });
+            return Response.json({ success: false, error: "simulated_server_error", errorId }, { status: 500, headers: corsHeaders });
           }
           if (simErr === 'timeout') {
             await new Promise(r => setTimeout(r, 35000));
-            return Response.json({ success: false, error: "simulated_timeout" }, { status: 504, headers: corsHeaders });
+            return Response.json({ success: false, error: "simulated_timeout", errorId }, { status: 504, headers: corsHeaders });
           }
           if (simErr === 'badresp') {
             return new Response("not valid json {{{", { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -303,7 +304,9 @@ const server = Bun.serve({
           redirectTo: `${baseURL}/connect/${data.sessionId}?provider_added=true`
         }, { headers: corsHeaders });
       } catch (e) {
-        return Response.json({ success: false, error: "processing_error" }, { status: 500, headers: corsHeaders });
+        const errorId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        console.error(`[SERVER ERROR] ${errorId}:`, e);
+        return Response.json({ success: false, error: "processing_error", errorId }, { status: 500, headers: corsHeaders });
       }
     }
 

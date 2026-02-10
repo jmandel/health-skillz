@@ -20,6 +20,7 @@ export default function OAuthCallbackPage() {
     attachments: { completed: 0, total: 0, detail: '', subProgress: null as { current: number; total: number } | null },
   });
   const [resolvedSessionId, setResolvedSessionId] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<{ loaded: number; total: number } | null>(null);
 
   const status = store.status;
   const setStatus = store.setStatus;
@@ -152,7 +153,7 @@ export default function OAuthCallbackPage() {
 
           setStatus('sending');
           try {
-            await sendEncryptedEhrData(sessionId, encrypted, token);
+            await sendEncryptedEhrData(sessionId, encrypted, token, setUploadProgress);
             setStatus('done');
             setTimeout(() => {
               setStatus('idle');
@@ -208,6 +209,12 @@ export default function OAuthCallbackPage() {
       case 'encrypting':
         return 'Encrypting data...';
       case 'sending':
+        if (uploadProgress) {
+          const pct = Math.round((uploadProgress.loaded / uploadProgress.total) * 100);
+          const kb = Math.round(uploadProgress.loaded / 1024);
+          const totalKb = Math.round(uploadProgress.total / 1024);
+          return `Uploading... ${kb} / ${totalKb} KB (${pct}%)`;
+        }
         return 'Sending encrypted data...';
       case 'saving':
         return 'Saving data...';

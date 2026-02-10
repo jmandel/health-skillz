@@ -29,6 +29,7 @@ export default function ConnectPage() {
   } = useSessionStore();
 
   const [dataCleared, setDataCleared] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ loaded: number; total: number } | null>(null);
 
   // Initialize store and load session
   useEffect(() => {
@@ -85,6 +86,7 @@ export default function ConnectPage() {
   const handleRetryUpload = useCallback(async () => {
     if (!sessionId || !publicKeyJwk || !finalizeToken) return;
     
+    setUploadProgress(null);
     setStatus('sending');
     clearError();
     
@@ -97,7 +99,7 @@ export default function ConnectPage() {
       
       for (const provider of providerData) {
         const encrypted = await encryptData(provider, publicKeyJwk);
-        await sendEncryptedEhrData(sessionId, encrypted, finalizeToken);
+        await sendEncryptedEhrData(sessionId, encrypted, finalizeToken, setUploadProgress);
       }
       
       // Success - clear the upload_failed flag and redirect
@@ -187,9 +189,14 @@ export default function ConnectPage() {
             <button
               className="btn btn-secondary"
               onClick={handleRetryUpload}
+              disabled={status === 'sending'}
               style={{ width: '100%' }}
             >
-              🔄 Retry Upload
+              {status === 'sending' 
+                ? (uploadProgress 
+                    ? `Uploading... ${Math.round(uploadProgress.loaded / 1024)} / ${Math.round(uploadProgress.total / 1024)} KB`
+                    : 'Uploading...')
+                : '🔄 Retry Upload'}
             </button>
           </div>
 

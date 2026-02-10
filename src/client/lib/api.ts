@@ -48,25 +48,64 @@ export async function sendEncryptedData(
   return res.json();
 }
 
+export interface UploadProgress {
+  loaded: number;
+  total: number;
+}
+
 export async function sendEncryptedEhrData(
   sessionId: string,
   payload: EncryptedPayload,
-  finalizeToken: string
-): Promise<{ success: boolean; providerCount: number; redirectTo: string }> {
-  const res = await fetch(`${BASE_URL}/api/receive-ehr`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      ...payload,
-      sessionId,
-      finalizeToken,
-    }),
+  finalizeToken: string,
+  onProgress?: (progress: UploadProgress) => void
+): Promise<{ success: boolean; providerCount: number; redirectTo: string; errorId?: string }> {
+  const body = JSON.stringify({
+    ...payload,
+    sessionId,
+    finalizeToken,
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || `Server returned ${res.status}`);
-  }
-  return res.json();
+
+  // Use XMLHttpRequest for upload progress tracking
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress({ loaded: e.loaded, total: e.total });
+      }
+    });
+    
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch (e) {
+          reject(new Error(`Invalid JSON response: ${xhr.responseText.slice(0, 100)}`));
+        }
+      } else {
+        // Try to extract errorId from response
+        let errorId = '';
+        try {
+          const errJson = JSON.parse(xhr.responseText);
+          errorId = errJson.errorId ? ` [${errJson.errorId}]` : '';
+        } catch (e) {}
+        reject(new Error(`Server returned ${xhr.status}${errorId}: ${xhr.responseText.slice(0, 200)}`));
+      }
+    });
+    
+    xhr.addEventListener('error', () => {
+      reject(new Error('Network error during upload'));
+    });
+    
+    xhr.addEventListener('timeout', () => {
+      reject(new Error('Upload timed out'));
+    });
+    
+    xhr.open('POST', `${BASE_URL}/api/receive-ehr`);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.timeout = 120000; // 2 minute timeout
+    xhr.send(body);
+  });
 }
 
 export async function finalizeSession(
