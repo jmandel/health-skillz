@@ -234,6 +234,34 @@ const server = Bun.serve({
     // API: Receive encrypted EHR data (also sets finalizeToken on first call)
     if (path === "/api/receive-ehr" && req.method === "POST") {
       try {
+        // Test error injection: session IDs ending in special suffixes trigger errors
+        const testBody = await req.clone().json() as any;
+        const testSessionId = testBody?.sessionId || '';
+        
+        // -err-500: Immediate 500 error
+        if (testSessionId.endsWith('-err-500')) {
+          console.log(`[TEST] Simulating 500 error for session ${testSessionId}`);
+          return Response.json({ success: false, error: "simulated_server_error" }, { status: 500, headers: corsHeaders });
+        }
+        
+        // -err-timeout: Delay then timeout
+        if (testSessionId.endsWith('-err-timeout')) {
+          console.log(`[TEST] Simulating timeout for session ${testSessionId}`);
+          await new Promise(r => setTimeout(r, 35000));
+          return Response.json({ success: false, error: "simulated_timeout" }, { status: 504, headers: corsHeaders });
+        }
+        
+        // -err-badresp: Malformed JSON response
+        if (testSessionId.endsWith('-err-badresp')) {
+          console.log(`[TEST] Simulating bad response for session ${testSessionId}`);
+          return new Response("not valid json {{{", { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        
+        // -err-disconnect: Close connection abruptly
+        if (testSessionId.endsWith('-err-disconnect')) {
+          console.log(`[TEST] Simulating disconnect for session ${testSessionId}`);
+          throw new Error("Simulated connection reset");
+        }
         const data = await req.json() as any;
         if (!data.sessionId || !data.encrypted || !data.ephemeralPublicKey || !data.iv || !data.ciphertext) {
           return Response.json({ success: false, error: "missing_fields" }, { status: 400, headers: corsHeaders });
