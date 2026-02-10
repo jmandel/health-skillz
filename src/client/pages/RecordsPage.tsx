@@ -20,7 +20,7 @@ function timeAgo(dateStr: string | null): string {
 }
 
 function formatSize(bytes: number | null): string {
-  if (bytes === null) return 'no data';
+  if (bytes === null || bytes === 0) return 'no data';
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -79,6 +79,10 @@ export default function RecordsPage() {
   }
 
   const selectedCount = store.selected.size;
+  const totalCount = store.connections.length;
+  const allSelected = totalCount > 0 && selectedCount === totalCount;
+  const noneSelected = selectedCount === 0;
+  const hasConnections = totalCount > 0;
 
   return (
     <div className="connect-container">
@@ -109,7 +113,7 @@ export default function RecordsPage() {
         )}
 
         {/* Empty state */}
-        {store.connections.length === 0 ? (
+        {!hasConnections ? (
           <div style={{ textAlign: 'center', padding: '2rem 0' }}>
             <p style={{ marginBottom: '1rem', color: '#6b7280' }}>
               No saved connections yet. Connect to a health provider to get started.
@@ -120,8 +124,36 @@ export default function RecordsPage() {
           </div>
         ) : (
           <>
+            {/* Selection toolbar */}
+            {totalCount > 1 && (
+              <div style={{
+                display: 'flex', justifyContent: 'flex-end',
+                gap: '0.25rem', marginBottom: '0.4rem',
+                fontSize: '0.8rem', color: '#6b7280',
+                paddingRight: 4,
+              }}>
+                <button
+                  className="btn-link-inline"
+                  disabled={isBusy || allSelected}
+                  onClick={store.selectAll}
+                  style={{ color: allSelected ? '#ccc' : '#4f46e5', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontSize: '0.8rem', textDecoration: 'underline' }}
+                >
+                  Select all
+                </button>
+                <span style={{ color: '#d1d5db' }}>·</span>
+                <button
+                  className="btn-link-inline"
+                  disabled={isBusy || noneSelected}
+                  onClick={store.selectNone}
+                  style={{ color: noneSelected ? '#ccc' : '#4f46e5', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontSize: '0.8rem', textDecoration: 'underline' }}
+                >
+                  Select none
+                </button>
+              </div>
+            )}
+
             {/* Connection list */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               {store.connections.map((conn) => {
                 const cs = store.connectionState[conn.id];
                 const isRefreshing = cs?.refreshing ?? false;
@@ -130,90 +162,92 @@ export default function RecordsPage() {
                 const progress = cs?.refreshProgress;
 
                 return (
-                  <div
+                  <label
                     key={conn.id}
                     style={{
-                      background: '#f8f9fa', borderRadius: 10,
-                      padding: '12px 16px', border: '1px solid #e5e7eb',
+                      display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
+                      background: isChecked ? '#f0f4ff' : '#f8f9fa',
+                      borderRadius: 10,
+                      padding: '12px 16px',
+                      border: isChecked ? '1px solid #93c5fd' : '1px solid #e5e7eb',
+                      transition: 'background 0.15s, border-color 0.15s',
+                      cursor: isBusy ? 'default' : 'pointer',
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
-                      {/* Checkbox (session mode) */}
-                      {isSession && (
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          disabled={isBusy}
-                          onChange={() => store.toggleSelected(conn.id)}
-                          style={{ marginTop: 4 }}
+                    {/* Checkbox — fixed width column for alignment */}
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      disabled={isBusy}
+                      onChange={() => store.toggleSelected(conn.id)}
+                      style={{ marginTop: 3, flexShrink: 0 }}
+                    />
+
+                    {/* Content */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {/* Patient identity */}
+                      <div style={{ fontWeight: 600, fontSize: '0.95rem', lineHeight: 1.3 }}>
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            width: 8, height: 8, borderRadius: '50%',
+                            backgroundColor: STATUS_COLORS[conn.status] || '#9ca3af',
+                            marginRight: 6, verticalAlign: 'middle',
+                          }}
+                          title={conn.status}
                         />
+                        {conn.patientDisplayName || conn.patientId}
+                        {conn.patientBirthDate && (
+                          <span style={{ fontWeight: 400, color: '#6b7280', fontSize: '0.8rem', marginLeft: 6 }}>
+                            DOB: {conn.patientBirthDate}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Provider + data info */}
+                      <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: 2 }}>
+                        {conn.providerName} · {formatSize(conn.dataSizeBytes)} · {timeAgo(conn.lastFetchedAt)}
+                      </div>
+
+                      {/* Refresh progress */}
+                      {isRefreshing && progress && (
+                        <div style={{ fontSize: '0.78rem', color: '#3b82f6', marginTop: 3 }}>
+                          {progress.phase}: {progress.completed}/{progress.total}
+                          {progress.detail ? ` — ${progress.detail}` : ''}
+                        </div>
                       )}
 
-                      {/* Content */}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        {/* Patient identity */}
-                        <div style={{ fontWeight: 600, fontSize: '1rem', marginBottom: 2 }}>
-                          <span
-                            style={{
-                              display: 'inline-block',
-                              width: 8, height: 8, borderRadius: '50%',
-                              backgroundColor: STATUS_COLORS[conn.status] || '#9ca3af',
-                              marginRight: 6, verticalAlign: 'middle',
-                            }}
-                            title={conn.status}
-                          />
-                          {conn.patientDisplayName || conn.patientId}
-                          {conn.patientBirthDate && (
-                            <span style={{ fontWeight: 400, color: '#6b7280', fontSize: '0.85rem', marginLeft: 8 }}>
-                              DOB: {conn.patientBirthDate}
-                            </span>
-                          )}
+                      {/* Errors */}
+                      {(conn.lastError || connError) && (
+                        <div className="warning-box" style={{ marginTop: 4, fontSize: '0.78rem', padding: '3px 8px' }}>
+                          {connError || conn.lastError}
                         </div>
+                      )}
 
-                        {/* Provider + data info */}
-                        <div style={{ fontSize: '0.85rem', color: '#6b7280', marginBottom: '0.4rem' }}>
-                          {conn.providerName} · {formatSize(conn.dataSizeBytes)} · {timeAgo(conn.lastFetchedAt)}
-                        </div>
-
-                        {/* Refresh progress */}
-                        {isRefreshing && progress && (
-                          <div style={{ fontSize: '0.8rem', color: '#3b82f6', marginBottom: '0.4rem' }}>
-                            {progress.phase}: {progress.completed}/{progress.total}
-                            {progress.detail ? ` — ${progress.detail}` : ''}
-                          </div>
-                        )}
-
-                        {/* Errors */}
-                        {(conn.lastError || connError) && (
-                          <div className="warning-box" style={{ marginBottom: '0.4rem', fontSize: '0.8rem', padding: '4px 8px' }}>
-                            {connError || conn.lastError}
-                          </div>
-                        )}
-
-                        {/* Actions */}
-                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                          <button
-                            className="btn btn-secondary"
-                            style={{ padding: '2px 10px', fontSize: '0.85rem' }}
-                            disabled={isRefreshing || isBusy}
-                            onClick={() => store.refreshConnection(conn.id)}
-                          >
-                            {isRefreshing ? '⏳ Refreshing…' : '🔄 Refresh'}
-                          </button>
-                          {!isSession && (
-                            <button
-                              className="btn btn-link"
-                              style={{ padding: '2px 10px', fontSize: '0.85rem', color: '#999' }}
-                              disabled={isRefreshing || isBusy}
-                              onClick={() => handleRemove(conn.id)}
-                            >
-                              🗑️ Remove
-                            </button>
-                          )}
-                        </div>
+                      {/* Actions — stop click from toggling the label's checkbox */}
+                      <div
+                        style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: 6 }}
+                        onClick={(e) => e.preventDefault()}
+                      >
+                        <button
+                          className="btn btn-secondary"
+                          style={{ padding: '2px 10px', fontSize: '0.8rem' }}
+                          disabled={isRefreshing || isBusy}
+                          onClick={(e) => { e.preventDefault(); store.refreshConnection(conn.id); }}
+                        >
+                          {isRefreshing ? '⏳ Refreshing…' : '🔄 Refresh'}
+                        </button>
+                        <button
+                          className="btn btn-link"
+                          style={{ padding: '2px 10px', fontSize: '0.8rem', color: '#999' }}
+                          disabled={isRefreshing || isBusy}
+                          onClick={(e) => { e.preventDefault(); handleRemove(conn.id); }}
+                        >
+                          🗑️ Remove
+                        </button>
                       </div>
                     </div>
-                  </div>
+                  </label>
                 );
               })}
             </div>
@@ -230,36 +264,47 @@ export default function RecordsPage() {
             </div>
 
             {/* Bottom actions */}
-            <div style={{ marginTop: '1.25rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center' }}>
-              {isSession ? (
-                <>
-                  <button
-                    className="btn"
-                    disabled={selectedCount === 0 || isBusy}
-                    onClick={store.sendToAI}
-                  >
-                    {isBusy && store.status === 'sending'
-                      ? 'Sending…'
-                      : `✅ Send ${selectedCount} connection${selectedCount !== 1 ? 's' : ''} to AI`}
-                  </button>
-                  <button
-                    className="btn btn-secondary"
-                    disabled={isBusy}
-                    onClick={store.finalizeSession}
-                  >
-                    Done — I've sent everything
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button className="btn" onClick={store.downloadJson}>
-                    📥 Download JSON
-                  </button>
-                  <a className="btn btn-secondary" href="/skill.zip" download>
-                    🤖 Download AI Skill
-                  </a>
-                </>
+            <div style={{
+              marginTop: '1.25rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.75rem',
+              alignItems: 'center',
+            }}>
+              {/* Session mode: Send to AI as primary */}
+              {isSession && (
+                <button
+                  className="btn"
+                  style={{ width: '100%' }}
+                  disabled={noneSelected || isBusy}
+                  onClick={store.sendToAI}
+                >
+                  {isBusy && store.status === 'sending'
+                    ? '⏳ Encrypting & sending…'
+                    : `✅ Send ${selectedCount} record${selectedCount !== 1 ? 's' : ''} to AI`}
+                </button>
               )}
+
+              {/* Download buttons — always available */}
+              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+                <button
+                  className="btn btn-secondary"
+                  disabled={noneSelected || isBusy}
+                  onClick={store.downloadJson}
+                >
+                  📦 Download JSON
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  disabled={noneSelected || isBusy}
+                  onClick={() => {
+                    // TODO: build skill zip with selected data baked in
+                    window.location.href = '/skill.zip';
+                  }}
+                >
+                  🤖 Download AI Skill{!noneSelected ? ` with ${selectedCount} record${selectedCount !== 1 ? 's' : ''}` : ''}
+                </button>
+              </div>
             </div>
           </>
         )}

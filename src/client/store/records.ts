@@ -161,12 +161,10 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
         connState[c.id] = { refreshing: false, refreshProgress: null, error: null };
       }
 
-      // In session mode, pre-select connections with cached data
-      const session = get().session;
-      let selected = new Set<string>();
-      if (session) {
-        selected = new Set(conns.filter(c => c.dataSizeBytes && c.dataSizeBytes > 0).map(c => c.id));
-      }
+      // Pre-select connections with cached data (both modes)
+      const selected = new Set(
+        conns.filter(c => c.dataSizeBytes && c.dataSizeBytes > 0).map(c => c.id)
+      );
 
       set({
         connections: conns,
@@ -516,15 +514,18 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
   // downloadJson — export all cached data
   // -----------------------------------------------------------------------
   downloadJson: async () => {
-    const { connections } = get();
+    const { connections, selected } = get();
+    const selectedConns = connections.filter(c => selected.has(c.id));
+    if (selectedConns.length === 0) return;
+
     const allData: any[] = [];
-    for (const conn of connections) {
+    for (const conn of selectedConns) {
       const cached = await getFhirData(conn.id);
       if (cached) {
         allData.push({
           provider: conn.providerName,
-          patientDisplayName: (conn as any).patientDisplayName || conn.patientId,
-          patientBirthDate: (conn as any).patientBirthDate || null,
+          patientDisplayName: conn.patientDisplayName || conn.patientId,
+          patientBirthDate: conn.patientBirthDate || null,
           fhir: cached.fhir,
           attachments: cached.attachments,
           fetchedAt: cached.fetchedAt,

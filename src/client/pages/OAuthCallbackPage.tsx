@@ -93,9 +93,6 @@ export default function OAuthCallbackPage() {
         setDone(true);
         setLocalStatus('Done! Redirecting…');
 
-        // Short delay so user sees success state
-        await new Promise(r => setTimeout(r, 800));
-
         const sessionId = oauth.sessionId;
         if (sessionId && !sessionId.startsWith('local_')) {
           navigate(`/connect/${sessionId}`, { replace: true });
