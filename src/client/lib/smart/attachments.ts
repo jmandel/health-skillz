@@ -3,6 +3,7 @@
 export interface ProcessedAttachment {
   resourceType: string;
   resourceId: string;
+  contentIndex: number;        // Index within resource's content array (0-based)
   contentType: string;
   contentPlaintext: string | null;
   contentBase64: string | null;
@@ -56,14 +57,14 @@ export async function extractAttachments(
   const seen = new Set<string>();
 
   // First pass: count total attachments to process
-  const toProcess: Array<{ node: any; resourceType: string; resourceId: string; contentType: string }> = [];
+  const toProcess: Array<{ node: any; resourceType: string; resourceId: string; contentIndex: number; contentType: string }> = [];
   for (const resource of resources) {
     const resourceType = resource.resourceType;
     const resourceId = resource.id;
     const nodes = findAttachmentNodes(resource);
     
-    for (const node of nodes) {
-      const url = node.url || (node.data ? `inline:${resourceId}` : null);
+    for (const { node, index } of nodes) {
+      const url = node.url || (node.data ? `inline:${resourceId}:${index}` : null);
       if (!url) continue;
       
       const key = `${resourceType}/${resourceId}/${url}`;
@@ -71,7 +72,7 @@ export async function extractAttachments(
       seen.add(key);
       
       const contentType = node.contentType || 'application/octet-stream';
-      toProcess.push({ node, resourceType, resourceId, contentType });
+      toProcess.push({ node, resourceType, resourceId, contentIndex: index, contentType });
     }
   }
 
@@ -82,7 +83,7 @@ export async function extractAttachments(
   const semaphore = new Semaphore(MAX_CONCURRENT_ATTACHMENTS);
   let completed = 0;
 
-  const promises = toProcess.map(async ({ node, resourceType, resourceId, contentType }) => {
+  const promises = toProcess.map(async ({ node, resourceType, resourceId, contentIndex, contentType }) => {
     await semaphore.acquire();
     const typeLabel = getContentTypeLabel(contentType);
     
@@ -91,6 +92,7 @@ export async function extractAttachments(
         node,
         resourceType,
         resourceId,
+        contentIndex,
         fhirBaseUrl,
         accessToken
       );
@@ -129,24 +131,31 @@ function getContentTypeLabel(contentType: string): string {
   return parts[1]?.split(';')[0] || contentType;
 }
 
+interface AttachmentNode {
+  node: any;
+  index: number;
+}
+
 /**
  * Find attachment nodes in a FHIR resource.
  */
-function findAttachmentNodes(resource: any): any[] {
-  const nodes: any[] = [];
+function findAttachmentNodes(resource: any): AttachmentNode[] {
+  const nodes: AttachmentNode[] = [];
 
   // DocumentReference.content[].attachment
   if (resource.content && Array.isArray(resource.content)) {
-    for (const content of resource.content) {
-      if (content.attachment) {
-        nodes.push(content.attachment);
+    for (let i = 0; i < resource.content.length; i++) {
+      if (resource.content[i].attachment) {
+        nodes.push({ node: resource.content[i].attachment, index: i });
       }
     }
   }
 
   // DiagnosticReport.presentedForm[]
   if (resource.presentedForm && Array.isArray(resource.presentedForm)) {
-    nodes.push(...resource.presentedForm);
+    for (let i = 0; i < resource.presentedForm.length; i++) {
+      nodes.push({ node: resource.presentedForm[i], index: i });
+    }
   }
 
   return nodes;
@@ -159,6 +168,7 @@ async function fetchAndProcessAttachment(
   attachment: any,
   resourceType: string,
   resourceId: string,
+  contentIndex: number,
   fhirBaseUrl: string,
   accessToken: string
 ): Promise<ProcessedAttachment | null> {
@@ -177,6 +187,7 @@ async function fetchAndProcessAttachment(
     return {
       resourceType,
       resourceId,
+      contentIndex,
       contentType,
       contentPlaintext: plaintext,
       contentBase64: data,
@@ -209,6 +220,7 @@ async function fetchAndProcessAttachment(
   return {
     resourceType,
     resourceId,
+    contentIndex,
     contentType,
     contentPlaintext: plaintext,
     contentBase64: base64,

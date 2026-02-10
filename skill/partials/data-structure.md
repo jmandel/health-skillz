@@ -31,7 +31,8 @@ interface ProviderData {
 
 interface Attachment {
   resourceType: string;      // Usually "DocumentReference" (rarely "DiagnosticReport")
-  resourceId: string;        // FHIR resource ID this came from — multiple attachments may share a resourceId
+  resourceId: string;        // FHIR resource ID this came from
+  contentIndex: number;      // Index in resource's content array (0-based) — a DocRef may have multiple
   contentType: string;       // "text/html", "text/rtf", "application/xml", etc.
   contentPlaintext: string | null;  // Extracted plain text (for text formats)
   contentBase64: string | null;     // Raw content, base64 encoded

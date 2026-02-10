@@ -310,6 +310,7 @@ interface ProviderData {
 interface Attachment {
   resourceType: string;       // "DocumentReference" or "DiagnosticReport"
   resourceId: string;         // FHIR resource ID
+  contentIndex: number;       // Index in content array (DocRef may have multiple)
   contentType: string;        // MIME type
   contentPlaintext: string | null;  // Extracted text (for text formats)
   contentBase64: string | null;     // Raw content, base64 encoded
