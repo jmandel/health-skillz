@@ -19,7 +19,7 @@ import { mkdirSync, renameSync } from 'fs';
 import { open, rm } from 'fs/promises';
 import { join } from 'path';
 
-const BASE_URL = process.env.BASE_URL || 'https://health-skillz.joshuamandel.com';
+const BASE_URL = '{{BASE_URL}}';
 
 const DEFAULT_PREFETCH_CHUNKS = 8;
 const DEFAULT_MAX_ATTEMPTS = 60;

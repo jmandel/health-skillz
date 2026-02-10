@@ -127,8 +127,12 @@ if (import.meta.main) {
   const [variant, arg] = process.argv.slice(2);
   
   if (variant === 'agent') {
-    const baseUrl = arg || 'https://health-skillz.joshuamandel.com';
-    console.log(buildAgentSkill(baseUrl));
+    if (!arg) {
+      console.error('Error: baseUrl is required for agent variant');
+      console.error('Usage: bun build-skill.ts agent <baseUrl>');
+      process.exit(1);
+    }
+    console.log(buildAgentSkill(arg));
   } else if (variant === 'local') {
     console.log(buildLocalSkill());
   } else {
