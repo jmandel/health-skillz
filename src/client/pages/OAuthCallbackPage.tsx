@@ -41,12 +41,12 @@ export default function OAuthCallbackPage() {
 
     const oauth = loadOAuthState(state);
     if (!oauth) {
-      setErrorMsg('OAuth session not found. Please start over.');
+      // OAuth state already consumed — we likely already processed this.
+      // Redirect to records (the connection should already be saved).
+      console.warn('[OAuthCallback] No OAuth state for this nonce — already processed?');
+      navigate('/records', { replace: true });
       return;
     }
-
-    // Clear OAuth state immediately to prevent reuse
-    clearOAuthState(state);
 
     const process = async () => {
       try {
@@ -80,17 +80,19 @@ export default function OAuthCallbackPage() {
           });
         }
 
-        // 3. Redirect back
-        // If there's a session context in the OAuth state, go to session page
-        // Otherwise go to standalone records page
+        // 3. Clear OAuth state AFTER success (not before)
+        clearOAuthState(state);
+
+        // 4. Redirect back
         const sessionId = oauth.sessionId;
         if (sessionId && !sessionId.startsWith('local_')) {
-          navigate(`/connect/${sessionId}?provider_added=true`);
+          navigate(`/connect/${sessionId}?provider_added=true`, { replace: true });
         } else {
-          navigate('/records?provider_added=true');
+          navigate('/records?provider_added=true', { replace: true });
         }
       } catch (err) {
         console.error('OAuth processing error:', err);
+        // Don't clear OAuth state on error — allows retry on reload
         setErrorMsg(err instanceof Error ? err.message : String(err));
       }
     };
