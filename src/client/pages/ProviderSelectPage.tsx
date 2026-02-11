@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { loadBrandFile, searchBrands, collapseBrands } from '../lib/brands/loader';
 import type { BrandItem, LoadProgress, VendorConfig } from '../lib/brands/types';
-import { loadSession, saveOAuthState } from '../lib/storage';
+import { saveOAuthState } from '../lib/storage';
+import { useRecordsStore } from '../store/records';
 import { getVendorConfigs } from '../lib/api';
 import { buildAuthorizationUrl, generatePKCE } from '../lib/smart/oauth';
 import ProviderSearch from '../components/ProviderSearch';
@@ -152,10 +153,10 @@ export default function ProviderSelectPage() {
       });
 
       // Save OAuth state keyed by state nonce (survives cross-origin redirect)
-      const session = loadSession();
+      const storeSession = useRecordsStore.getState().session;
       saveOAuthState(state, {
         sessionId: effectiveSessionId,
-        publicKeyJwk: session?.publicKeyJwk || null,
+        publicKeyJwk: storeSession?.publicKeyJwk || null,
         codeVerifier: pkce.codeVerifier,
         tokenEndpoint,
         fhirBaseUrl: endpoint.url,

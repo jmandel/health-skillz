@@ -22,27 +22,44 @@ function fmtSize(b: number | null): string {
 
 export default function RecordsPage() {
   const nav = useNavigate();
-  const s = useRecordsStore();
-  const isSession = Boolean(s.session);
-  const isFinalized = s.session?.sessionStatus === 'finalized';
-  const busy = s.status === 'sending' || s.status === 'finalizing';
-  const selCount = s.selected.size;
-  const total = s.connections.length;
+  const session = useRecordsStore((s) => s.session);
+  const status = useRecordsStore((s) => s.status);
+  const statusMessage = useRecordsStore((s) => s.statusMessage);
+  const error = useRecordsStore((s) => s.error);
+  const connections = useRecordsStore((s) => s.connections);
+  const connectionState = useRecordsStore((s) => s.connectionState);
+  const selected = useRecordsStore((s) => s.selected);
+  const loaded = useRecordsStore((s) => s.loaded);
+  const loadConnections = useRecordsStore((s) => s.loadConnections);
+  const selectAll = useRecordsStore((s) => s.selectAll);
+  const selectNone = useRecordsStore((s) => s.selectNone);
+  const toggleSelected = useRecordsStore((s) => s.toggleSelected);
+  const refreshConnection = useRecordsStore((s) => s.refreshConnection);
+  const removeConnection = useRecordsStore((s) => s.removeConnection);
+  const clearError = useRecordsStore((s) => s.clearError);
+  const sendToAI = useRecordsStore((s) => s.sendToAI);
+  const downloadJson = useRecordsStore((s) => s.downloadJson);
+
+  const isSession = Boolean(session);
+  const isFinalized = session?.sessionStatus === 'finalized';
+  const busy = status === 'sending' || status === 'finalizing';
+  const selCount = selected.size;
+  const total = connections.length;
   const allSel = total > 0 && selCount === total;
   const noneSel = selCount === 0;
 
-  useEffect(() => { if (!s.loaded) s.loadConnections(); }, []);
+  useEffect(() => { if (!loaded) loadConnections(); }, []);
 
   const handleAdd = useCallback(() => {
-    nav(s.session ? `/records/add?session=${s.session.sessionId}` : '/records/add');
-  }, [nav, s.session]);
+    nav(session ? `/records/add?session=${session.sessionId}` : '/records/add');
+  }, [nav, session]);
 
   const handleRemove = useCallback(async (id: string) => {
     if (!confirm('Remove this connection? You\u2019ll need to re-authorize.')) return;
-    await s.removeConnection(id);
-  }, []);
+    await removeConnection(id);
+  }, [removeConnection]);
 
-  if (!s.loaded) {
+  if (!loaded) {
     return (
       <div className="page-top">
         <div className="panel">
@@ -70,16 +87,16 @@ export default function RecordsPage() {
         )}
 
         {/* Global messages */}
-        {s.status === 'error' && s.error && (
+        {status === 'error' && error && (
           <div className="alert alert-error" style={{ marginBottom: 12 }}>
-            {s.error}
-            <button className="link" onClick={s.clearError} style={{ marginLeft: 8 }}>Dismiss</button>
+            {error}
+            <button className="link" onClick={clearError} style={{ marginLeft: 8 }}>Dismiss</button>
           </div>
         )}
-        {s.statusMessage && s.status !== 'error' && s.status !== 'idle' && (
+        {statusMessage && status !== 'error' && status !== 'idle' && (
           <StatusMessage
-            status={s.status === 'done' ? 'success' : 'loading'}
-            message={s.statusMessage}
+            status={status === 'done' ? 'success' : 'loading'}
+            message={statusMessage}
           />
         )}
 
@@ -96,19 +113,19 @@ export default function RecordsPage() {
             {/* Toolbar */}
             {total > 1 && (
               <div className="toolbar">
-                <button className="link" disabled={busy || allSel} onClick={s.selectAll}>Select all</button>
+                <button className="link" disabled={busy || allSel} onClick={selectAll}>Select all</button>
                 <span className="sep">·</span>
-                <button className="link" disabled={busy || noneSel} onClick={s.selectNone}>None</button>
+                <button className="link" disabled={busy || noneSel} onClick={selectNone}>None</button>
               </div>
             )}
 
             {/* List */}
             <div className="conn-list">
-              {s.connections.map((c) => {
-                const cs = s.connectionState[c.id];
+              {connections.map((c) => {
+                const cs = connectionState[c.id];
                 const refreshing = cs?.refreshing ?? false;
                 const err = cs?.error ?? null;
-                const checked = s.selected.has(c.id);
+                const checked = selected.has(c.id);
                 const prog = cs?.refreshProgress;
 
                 return (
@@ -117,7 +134,7 @@ export default function RecordsPage() {
                       type="checkbox"
                       checked={checked}
                       disabled={busy}
-                      onChange={() => s.toggleSelected(c.id)}
+                      onChange={() => toggleSelected(c.id)}
                     />
                     <div className="conn-body">
                       <div className="conn-name">
@@ -143,7 +160,7 @@ export default function RecordsPage() {
                         <button
                           className="btn btn-secondary btn-sm"
                           disabled={refreshing || busy}
-                          onClick={e => { e.preventDefault(); s.refreshConnection(c.id); }}
+                          onClick={e => { e.preventDefault(); refreshConnection(c.id); }}
                         >
                           {refreshing ? 'Refreshing…' : 'Refresh'}
                         </button>
@@ -175,9 +192,9 @@ export default function RecordsPage() {
                 <button
                   className="btn btn-primary btn-full"
                   disabled={noneSel || busy}
-                  onClick={s.sendToAI}
+                  onClick={sendToAI}
                 >
-                  {busy && s.status === 'sending'
+                  {busy && status === 'sending'
                     ? 'Encrypting & sending…'
                     : `Send ${selCount} record${selCount !== 1 ? 's' : ''} to AI`}
                 </button>
@@ -192,7 +209,7 @@ export default function RecordsPage() {
                   <button
                     className="btn btn-secondary"
                     disabled={noneSel || busy}
-                    onClick={s.downloadJson}
+                    onClick={downloadJson}
                   >
                     Download JSON
                   </button>

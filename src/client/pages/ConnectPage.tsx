@@ -18,16 +18,10 @@ export default function ConnectPage() {
   useEffect(() => {
     if (!sessionId) return;
     // Only init if not already set (avoids re-init after OAuth redirect back)
-    if (!store.session || store.session.sessionId !== sessionId) {
-      store.initSession(sessionId).then(() => {
-        // After session is loaded, load connections
-        store.loadConnections();
-      });
+    const current = useRecordsStore.getState().session;
+    if (!current || current.sessionId !== sessionId) {
+      store.initSession(sessionId);
     }
-    // Cleanup: clear session context when leaving
-    return () => {
-      // Don't clear if navigating to add-provider (we'll come back)
-    };
   }, [sessionId]);
 
   // Show a provider_added success flash

@@ -198,6 +198,8 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
           sessionStatus: info.status,
         },
       });
+      // Load connections atomically after session init
+      await get().loadConnections();
     } catch (err) {
       set({
         status: 'error',
