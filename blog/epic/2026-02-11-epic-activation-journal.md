@@ -288,7 +288,7 @@ The Brands bundle is large (~85MB) and contains two resource types:
 - **90,066 Organization resources** — sub-organizations (clinics, departments) grouped under parent orgs via `brand-identifier` values
 - **575 Endpoint resources** — FHIR base URLs with `managingOrganization` references
 
-Note that counts across sources won't align perfectly because Epic forces you to choose exactly one data set at app registration time: USCDI v1, USCDI v3, or CMS Payer APIs. Our app registered for USCDI v3, so payer organizations that only offer access through the CMS Payer APIs won't appear on our management page.
+Note that counts across sources won't align perfectly. Our app registered for USCDI v3, so auto-sync delivered the ~500 organizations that offer USCDI v3 APIs. The Brands bundle is a separate publication channel — the two don't necessarily list the same organizations.
 
 ### Two Cross-Reference Paths
 
@@ -348,11 +348,29 @@ We resolved all 60 management-only OrgIds to org names and categorized them:
 
 ### The Discoverability Gap
 
-This breakdown reveals an important finding: **our app is registered (or registerable) at organizations that patients cannot discover through the Brands bundle.** The 31 US health systems in the list above are real providers where the app is activated and patients could technically connect — but because these orgs have no Endpoint entry in the Brands bundle, they won't appear in any patient-facing provider directory built from the public endpoint data.
+All 500 orgs on our management page are there because they offer USCDI v3 APIs — that's what our app registered for, and that's what auto-sync matched on. So every one of the 60 management-only orgs offers USCDI v3 but has no Endpoint entry in the Brands bundle. **Our app is registered at organizations that patients cannot discover through the public directory.**
 
-A patient at, say, Children's National Hospital or Indiana University Health would have no way to find their provider through an app that uses the Brands bundle for provider discovery. The app is registered there, Epic's auto-sync delivered the org to our management page, but the public directory doesn't list it. The registration and the directory are out of sync.
+This affects all categories, not just the 31 US health systems:
 
-The 17 payers are a different case — they likely publish endpoints only for the CMS Payer API category, which is a separate registration universe from our USCDI v3 app. The international orgs and diagnostics companies are expected mismatches. But the 31 US health systems represent a genuine gap: these organizations participate in auto-sync but are invisible in the public directory.
+- The **17 payers** (Humana, Elevance, Blue Shield of California, etc.) DO offer USCDI v3 clinical APIs — that's why auto-sync delivered them. But they have no Brands Endpoint, so patients can't find them in any directory built from the public data. A patient wanting to pull their clinical records from Humana via a USCDI v3 app has no public way to discover the FHIR endpoint.
+- The **5 diagnostics/genomics labs** (Guardant, Tempus, Myriad, etc.) — same situation. Patients with data at these labs can't find them.
+- The **7 international orgs** (Children's Health Ireland, NSW Health, Santé Québec, etc.) — may not be expected to publish in a US-focused Brands bundle, but the gap still exists.
+- The **31 US health systems** (Children's National Hospital, Indiana University Health, ChristianaCare, UAB Medicine, Penn State Health, etc.) — the clearest gap. These are straightforward US providers where the app is activated and patients could connect, but the public directory doesn't list them.
+
+In total, roughly 53 organizations (all but the 7 international) represent a genuine discoverability gap: Epic's auto-sync knows about them, the app is registered there, but the public endpoint directory that patients and apps rely on doesn't include them.
+
+### Brands-Only: 4 Orgs in the Directory but Not on the Management Page
+
+The reverse gap is smaller. Four organizations have Endpoint entries in the Brands bundle but did NOT appear on our USCDI v3 management page:
+
+| OrgId | Name | FHIR Endpoint |
+|---|---|---|
+| 392 | Lifespan | `lsepprdsoap.lifespan.org` |
+| 856 | Sansum | `wavesurescripts.sansumclinic.org` |
+| 1823 | Loyola Medicine | `rxhub.luhs.org` |
+| 10147 | Memorial Hospital and Healthcare Center | `arrprd.mhhcc.org` |
+
+These are established health systems (low OrgIds, active FHIR endpoints) that publish in the public directory but didn't get delivered to our app via auto-sync. Possible explanations: they may not yet support USCDI v3 (only v1), they may have opted out of auto-sync for newer app registrations, or their Epic configuration may have changed since the Brands bundle was last updated. Note these are distinct from the "four stragglers" (Dickson Medical Associates, Foothill Family Clinic, OakLeaf, Reno Orthopaedic Clinic) which ARE on the management page but fail with a server-side error during activation.
 
 ### Brand Identifier Format
 
