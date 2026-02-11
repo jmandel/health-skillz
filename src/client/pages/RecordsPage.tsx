@@ -125,122 +125,118 @@ export default function RecordsPage() {
           />
         )}
 
-        {/* Empty */}
-        {total === 0 ? (
-          <div style={{ textAlign: 'center', padding: '32px 0' }}>
-            <p style={{ color: 'var(--text-secondary)', marginBottom: 16, fontSize: '0.9rem' }}>
-              No connections yet.
-            </p>
-            <button className="btn btn-primary" onClick={handleAdd}>Add connection</button>
+        {/* Toolbar */}
+        {total > 1 && (
+          <div className="toolbar">
+            <button className="link" disabled={busy || allSel} onClick={selectAll}>Select all</button>
+            <span className="sep">·</span>
+            <button className="link" disabled={busy || noneSel} onClick={selectNone}>None</button>
           </div>
-        ) : (
-          <>
-            {/* Toolbar */}
-            {total > 1 && (
-              <div className="toolbar">
-                <button className="link" disabled={busy || allSel} onClick={selectAll}>Select all</button>
-                <span className="sep">·</span>
-                <button className="link" disabled={busy || noneSel} onClick={selectNone}>None</button>
-              </div>
-            )}
-
-            {/* List */}
-            <div className="conn-list">
-              {connections.map((c) => {
-                const cs = connectionState[c.id];
-                const refreshing = cs?.refreshing ?? false;
-                const err = cs?.error ?? null;
-                const checked = selected.has(c.id);
-                const prog = cs?.refreshProgress;
-
-                return (
-                  <label key={c.id} className={`conn-card${checked ? ' selected' : ''}`}>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      disabled={busy}
-                      onChange={() => toggleSelected(c.id)}
-                    />
-                    <div className="conn-body">
-                      <div className="conn-name">
-                        <span className={`status-dot status-dot-${c.status}`} />
-                        {c.patientDisplayName || c.patientId}
-                        {c.patientBirthDate && (
-                          <span className="conn-dob">DOB {c.patientBirthDate}</span>
-                        )}
-                      </div>
-                      <div className="conn-meta">
-                        {c.providerName} · {fmtSize(c.dataSizeBytes)} · {timeAgo(c.lastFetchedAt)}
-                      </div>
-                      {refreshing && prog && (
-                        <FetchProgressWidget progress={prog} />
-                      )}
-                      {(c.lastError || err) && (
-                        <div className="conn-error">{err || c.lastError}</div>
-                      )}
-                      <div className="conn-actions">
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          disabled={refreshing || busy}
-                          onClick={e => { e.preventDefault(); e.stopPropagation(); refreshConnection(c.id); }}
-                        >
-                          {refreshing ? 'Refreshing…' : 'Refresh'}
-                        </button>
-                        <button
-                          className="btn btn-ghost btn-sm"
-                          disabled={refreshing || busy}
-                          onClick={e => { e.preventDefault(); e.stopPropagation(); handleRemove(c.id); }}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-                  </label>
-                );
-              })}
-            </div>
-
-            <div style={{ textAlign: 'center', marginTop: 12 }}>
-              <button className="btn btn-secondary" onClick={handleAdd} disabled={busy}>
-                Add connection
-              </button>
-            </div>
-
-            <hr className="divider" />
-
-            {/* Actions */}
-            <div className="action-bar">
-              {isSession && !isFinalized && (
-                <button
-                  className="btn btn-primary btn-full"
-                  disabled={noneSel || busy}
-                  onClick={sendToAI}
-                >
-                  {busy && status === 'sending'
-                    ? 'Encrypting & sending…'
-                    : `Send ${selCount} record${selCount !== 1 ? 's' : ''} to AI`}
-                </button>
-              )}
-              {isSession && isFinalized && (
-                <p className="text-success" style={{ textAlign: 'center', padding: '8px 0' }}>
-                  ✓ Records sent to AI — you can close this page.
-                </p>
-              )}
-              <div className="action-stack">
-                <div className="action-line">
-                  <button
-                    className="btn btn-secondary"
-                    disabled={noneSel || busy}
-                    onClick={() => { window.location.href = '/skill.zip'; }}
-                  >
-                    {noneSel ? 'Download AI Skill' : `Download AI Skill with ${selCount} record${selCount !== 1 ? 's' : ''}`}
-                  </button>
-                  <InfoTip text="Downloads a zip with AI agent scripts plus your selected health records. Give this to any AI to analyze your data without web access." />
-                </div>
-              </div>
-            </div>
-          </>
         )}
+
+        {/* List */}
+        {total > 0 && (
+          <div className="conn-list">
+            {connections.map((c) => {
+              const cs = connectionState[c.id];
+              const refreshing = cs?.refreshing ?? false;
+              const err = cs?.error ?? null;
+              const checked = selected.has(c.id);
+              const prog = cs?.refreshProgress;
+
+              return (
+                <label key={c.id} className={`conn-card${checked ? ' selected' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={busy}
+                    onChange={() => toggleSelected(c.id)}
+                  />
+                  <div className="conn-body">
+                    <div className="conn-name">
+                      <span className={`status-dot status-dot-${c.status}`} />
+                      {c.patientDisplayName || c.patientId}
+                      {c.patientBirthDate && (
+                        <span className="conn-dob">DOB {c.patientBirthDate}</span>
+                      )}
+                    </div>
+                    <div className="conn-meta">
+                      {c.providerName} · {fmtSize(c.dataSizeBytes)} · {timeAgo(c.lastFetchedAt)}
+                    </div>
+                    {refreshing && prog && (
+                      <FetchProgressWidget progress={prog} />
+                    )}
+                    {(c.lastError || err) && (
+                      <div className="conn-error">{err || c.lastError}</div>
+                    )}
+                    <div className="conn-actions">
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        disabled={refreshing || busy}
+                        onClick={e => { e.preventDefault(); e.stopPropagation(); refreshConnection(c.id); }}
+                      >
+                        {refreshing ? 'Refreshing…' : 'Refresh'}
+                      </button>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        disabled={refreshing || busy}
+                        onClick={e => { e.preventDefault(); e.stopPropagation(); handleRemove(c.id); }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        )}
+
+        {total === 0 && (
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+            No connections yet.
+          </p>
+        )}
+
+        <div style={{ marginTop: 12 }}>
+          <button className={`btn ${total === 0 ? 'btn-primary' : 'btn-secondary'}`} onClick={handleAdd} disabled={busy}>
+            Add connection
+          </button>
+        </div>
+
+        <hr className="divider" />
+
+        {/* Actions */}
+        <div className="action-bar">
+          {isSession && !isFinalized && (
+            <button
+              className="btn btn-primary btn-full"
+              disabled={noneSel || busy}
+              onClick={sendToAI}
+            >
+              {busy && status === 'sending'
+                ? 'Encrypting & sending…'
+                : `Send ${selCount} record${selCount !== 1 ? 's' : ''} to AI`}
+            </button>
+          )}
+          {isSession && isFinalized && (
+            <p className="text-success" style={{ textAlign: 'center', padding: '8px 0' }}>
+              ✓ Records sent to AI — you can close this page.
+            </p>
+          )}
+          <div className="action-stack">
+            <div className="action-line">
+              <button
+                className="btn btn-secondary"
+                disabled={noneSel || busy}
+                onClick={() => { window.location.href = '/skill.zip'; }}
+              >
+                {noneSel ? 'Download AI Skill' : `Download AI Skill with ${selCount} record${selCount !== 1 ? 's' : ''}`}
+              </button>
+              <InfoTip text="Downloads a zip with AI agent scripts plus your selected health records. Give this to any AI to analyze your data without web access." />
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
