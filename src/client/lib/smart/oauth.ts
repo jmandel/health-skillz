@@ -189,6 +189,7 @@ export async function exchangeCodeForToken(
     grant_type: 'authorization_code',
     code,
     redirect_uri: redirectUri,
+    client_id: clientId,
     code_verifier: codeVerifier,
     client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
   });
@@ -230,6 +231,7 @@ export async function refreshAccessToken(
   const body = new URLSearchParams({
     grant_type: 'refresh_token',
     refresh_token: refreshToken,
+    client_id: clientId,
     client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
     client_assertion: assertion,
   });
