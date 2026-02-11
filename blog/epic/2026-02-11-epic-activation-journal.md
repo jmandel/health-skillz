@@ -280,134 +280,71 @@ Response: { Success: true, Data: { Downloads: [...500 items...] } }
 
 ---
 
-## Cross-Referencing the Endpoint Bundles
+## Cross-Referencing with the Brands Bundle
 
-After the activation work, we tried to cross-reference the 500 management page organizations against Epic's public FHIR endpoint bundles to understand the full landscape.
+After the activation work, we tried to cross-reference the 500 management page organizations against Epic's public [Brands bundle](https://open.epic.com/Endpoints/Brands) — Epic's recommended source for FHIR endpoint information.
 
-### Three Sources of Truth (That Don't Agree)
+The Brands bundle is large (~85MB) and contains two resource types:
+- **90,066 Organization resources** — sub-organizations (clinics, departments) grouped under parent orgs via `brand-identifier` values
+- **575 Endpoint resources** — FHIR base URLs with `managingOrganization` references
 
-| Source | URL | Count | What it contains |
+Note that counts across sources won't align perfectly because Epic forces you to choose exactly one data set at app registration time: USCDI v1, USCDI v3, or CMS Payer APIs. Our app registered for USCDI v3, so payer organizations that only offer access through the CMS Payer APIs won't appear on our management page.
+
+### Two Cross-Reference Paths
+
+It turns out the Brands bundle contains **both** identifiers from the management page — but on different resource types:
+
+**Path 1: OrgId → Endpoint resources.** The 575 Endpoint resources in the Brands bundle each have a `managingOrganization.identifier` with system `https://fhir.epic.com/Developer/Management/OrganizationId` — this is the same OrgId shown in the management UI. For example, Access Community Health Network's Endpoint entry:
+
+```json
+{
+  "resourceType": "Endpoint",
+  "name": "Access Community Health Network",
+  "managingOrganization": {
+    "identifier": {
+      "system": "https://fhir.epic.com/Developer/Management/OrganizationId",
+      "value": "1696"
+    }
+  },
+  "address": "https://eprescribing.accesscommunityhealth.net/FHIR/ACCESS/api/FHIR/R4"
+}
+```
+
+This directly maps the visible management OrgId to the FHIR base URL — the mapping developers actually need.
+
+**Path 2: ECMId → Organization resources.** The `LoadDownloads` API response includes a hidden `ECMId` field on each download that maps to the `brand-identifier` on parent Organization resources. For example, Access Community Health Network has ECMId `762` in the API and brand-identifier `"762"` in the Brands bundle.
+
+| Org | OrgId (visible in UI) | ECMId (hidden in API) | Brands bundle has... |
 |---|---|---|---|
-| R4 Endpoints | `https://open.epic.com/Endpoints/R4` | 482 Endpoint resources | Top-level FHIR endpoints with opaque hashed org references |
-| Brands | `https://open.epic.com/Endpoints/Brands` | 90,641 Organization resources | Sub-organizations (clinics, departments) with `brand-identifier` values |
-| Management page | `/Developer/Management?id=50741` | 500 download entries | Orgs requesting our app, with OrgId and hidden ECMId |
+| Access Community Health Network | 1696 | 762 | Endpoint with OrgId `1696` + Organization with brand-id `762` |
+| Acumen Physician Solutions | 525 | 1041 | Endpoint with OrgId `525` + Organization with brand-id `1041` |
+| AdvantageCare Physicians | 1108 | 901 | Endpoint with OrgId `1108` + Organization with brand-id `901` |
 
-The 500 management orgs matches the auto-sync USCDIv3 community member count exactly. Note that these counts won't align perfectly because Epic forces you to choose exactly one data set at app registration time: USCDI v1, USCDI v3, or CMS Payer APIs. Our app registered for USCDI v3, so payer organizations that only offer access through the CMS Payer APIs won't appear on our management page — they'd only auto-sync to apps registered for that data set.
+We initially missed the OrgId mapping entirely because we were only searching the Organization resources (which use brand-identifiers). The Endpoint resources — which carry the management OrgId — are a separate resource type in the same bundle.
 
-### The OrgId Correlation Problem
+### OrgId Cross-Reference: Management vs. Brands Endpoints
 
-A natural question: can you correlate the organizations on the Manage Downloads page with Epic's public FHIR endpoint bundles? The management UI shows an "Organization Id" column with numeric values like `16770` (Adaptive Biotech), `1696` (Access Community Health Network), `525` (Acumen Physician Solutions). **These OrgId values do NOT appear anywhere in either the R4 Endpoints or Brands bundles.** The R4 bundle uses opaque hashed IDs. The Brands bundle uses a `https://open.epic.com/brand-identifier` system with its own numbering.
-
-One misleading coincidence: brand-identifier `"525"` exists in the Brands bundle, but it maps to **Nationwide Children's Hospital** — not Acumen Physician Solutions (OrgId=525 in management). Different numbering systems, same number, different org. There is no documented way to correlate the visible OrgId with any public identifier.
-
-### The Hidden ECMId Field (The Actual Cross-Reference Key)
-
-While reverse-engineering the `LoadDownloads` API response, we noticed each download object includes an `ECMId` field that is **never shown in the management UI**. For example:
-
-| OrgName | OrgId (shown in UI) | ECMId (hidden in API response) |
-|---|---|---|
-| Access Community Health Network | 1696 | 762 |
-| Acumen Physician Solutions | 525 | 1041 |
-| Adaptive Biotech | 16770 | 1328 |
-| AdvantageCare Physicians | 1108 | 901 |
-| AdventHealth | 9392 | 1194 |
-
-We checked: does the hidden ECMId match the `brand-identifier` in the public Brands bundle?
-
-| ECMId | Management org | Brand with same identifier |
-|---|---|---|
-| 762 | Access Community Health Network | Access Community Health Network |
-| 1041 | Acumen Physician Solutions | Acumen Physician Solutions |
-| 1328 | Adaptive Biotech | *(not in Brands bundle)* |
-| 901 | AdvantageCare Physicians | AdvantageCare Physicians |
-| 1194 | AdventHealth | AdventHealth |
-
-**ECMId = brand-identifier.** This is the actual cross-reference key between the management console and the public Brands bundle. But it's hidden — you can't see it in the UI, only in the raw API response. The field that IS shown in the UI ("Organization Id" / OrgId) is a *different* internal Epic identifier that doesn't appear in any public bundle.
-
-The visible "Organization Id" column in the UI is a completely different internal identifier that doesn't appear in any public bundle. The only way to correlate management orgs with public endpoints is through this hidden ECMId, which requires calling the undocumented `LoadDownloads` API.
-
-### Brand Identifier Format
-
-The Brands bundle contains 1,168 top-level organizations with `brand-identifier` values in two formats:
-- **441 purely numeric** (e.g., `"762"`) — these are the top-level organizations that map to management ECMIds
-- **727 with a dash format** (e.g., `"432-112"`) — these appear to be sub-organizations under a parent (the number before the dash is the parent's ECMId)
-
-### Name Matching Analysis
-
-Since the numeric IDs don't cross-reference through the UI, we tried matching by organization name between the 500 management orgs and the 482 R4 endpoint entries:
-
-- **252 exact name matches** — just over half
-- **248 management orgs with no exact R4 match** — but many are near-misses:
-  - "Allina Health" (management) vs "Allina Health System" (R4)
-  - "Baptist Health (AR)" vs "Baptist Health (Arkansas)"
-  - "BJC HealthCare & Washington University" vs "BJC & Washington University"
-- **~90 management orgs with no fuzzy match at all** — these fall into categories:
-  - **Payers/insurers:** Blue Cross, Blue Shield, Centene, Elevance, Humana, Highmark
-  - **Diagnostics/labs:** Adaptive Biotech, Caris Life Sciences, Exact Sciences, Guardant, Myriad, Tempus
-  - **Tribal health:** Chickasaw Nation, Choctaw Nation, Muscogee (Creek) Nation
-  - **International:** Children's Health Ireland, NSW Health, NL Health Services
-  - **Health IT/other:** CVS Health, DaVita, InnovAge, KeyCare
-
-These are organizations that run Epic but aren't traditional US health system FHIR endpoints — they may not appear in the public endpoint directory at all.
-
-### ECMId Cross-Reference: The Full Picture
-
-With the ECMId → brand-identifier mapping confirmed, we did the definitive set-diff analysis between the 500 management ECMIds (from `static/ecmids.json`) and the 441 purely-numeric brand-identifiers in the Brands bundle.
-
-**The numbers:**
+Comparing all 500 management page OrgIds against the 444 unique OrgIds on the 575 Brands bundle Endpoints:
 
 | Set | Count |
 |---|---|
-| Management ECMIds (orgs on our Manage Downloads page) | 500 |
-| Brands bundle numeric brand-identifiers | 441 |
-| **Overlap** (in both) | **428** |
-| **Management-only** (ECMId not in Brands) | **72** |
-| **Brands-only** (brand-id not in Management) | **13** |
+| Management page OrgIds | 500 |
+| Brands bundle Endpoint OrgIds | 444 |
+| **Overlap** | **440** |
+| **Management-only** (no Brands Endpoint) | **60** |
+| **Brands-only** (not on management page) | **4** |
 
-### The 72 Management Orgs Missing from Brands
+The 60 management orgs missing from the Brands bundle Endpoints are the same categories we'd expect: payers/health plans, diagnostics labs, international organizations, and newer US health systems that haven't propagated to the public directory yet.
 
-These organizations are on our Manage Downloads page (auto-synced for our app) but have no corresponding entry in the public Brands endpoint bundle. They fall into clear categories:
+### Brand Identifier Format
 
-**Payers & Health Plans (~18):**
-Blue Cross Blue Shield of Minnesota, Blue Cross and Blue Shield of Louisiana, Blue Shield of California, CareOregon, Centene, Delta Dental of California, Elevance Health, Health Care Service Corporation, Highmark, Humana, Independence Blue Cross, Johns Hopkins Health Plans, Kaiser Membership Admin, OptumInsight, PacificSource, Priority Health, Sharp Health Plan, Valley Health Plan – County of Santa Clara
-
-**Diagnostics & Genomics Labs (~6):**
-Adaptive Biotech, Caris Life Sciences, Guardant Health, Myriad Genetics, Tempus AI, Wisconsin State Laboratory of Hygiene
-
-**International (~7):**
-Children's Health Ireland, MUMC+ (Netherlands), NL Health Services (Newfoundland/Labrador, Canada), NSW Health (Australia), Santé Québec (Canada), Unity Health (Canada), University Health Network (Canada)
-
-**US Health Systems — Newer ECMIds (~37):**
-These mostly have high ECMIds (1400s-1500s), suggesting they were recently onboarded to Epic but haven't propagated to the public Brands bundle yet. Includes: Adventist Health System, Ardent, Avera Health, Baptist Health South Florida, Blessing Health System, Children's Mercy Kansas City, Children's Minnesota, Children's National Hospital, ChristianaCare, CommonSpirit Health National, CoxHealth, Corewell Health East, Corewell Health South, Dickson Medical Associates, Endeavor Health, Foothill Family Clinic, Freeman Health System, Great River Health, HCA, Health Choice Network, Indiana University Health, Inspira Health, Kaleida Health, Mercy, Mount Nittany Health System, NewYork Presbyterian Hospital, NorthBay Health, Novant Health New Hanover Regional Medical Center, OakLeaf, Penn State Health, Providence St. Joseph Health, Reno Orthopaedic Clinic, Sarasota Memorial Health Care System, Trinity Health (ND), UAB Medicine, UMC Health System, Valley Health Systems, Cape Fear Valley Health, Community Technology Cooperative
-
-**Test/Sandbox (2):**
-Garden Plot Primary Care (ECMId 4001), Garden Plot Orthopedics (ECMId 4006) — these are Epic's test organizations, identifiable by their 4000-series ECMIds.
-
-### The 13 Brands Orgs Missing from Management
-
-These are in the public Brands bundle but *not* on our Manage Downloads page:
-
-| Brand ID | Organization | Likely Explanation |
-|---|---|---|
-| 461 | Loyola Medicine | |
-| 758 | Providence Health & Services | Sub-org of Providence St. Joseph Health (ECMId 812, which IS in management) |
-| 785 | Sansum | |
-| 802 | Providence Health & Services | Another Providence sub-org |
-| 808 | Providence Health & Services | Another Providence sub-org |
-| 845 | CommonSpirit - AR/GA/KY/TN/TX | Sub-org of CommonSpirit National (ECMId 896) |
-| 846 | Memorial Health | |
-| 858 | HCA | But HCA IS in management as ECMId 850 |
-| 866 | CHI Franciscan Health | CommonSpirit/CHI subsidiary |
-| 870 | CHI Health | CommonSpirit/CHI subsidiary |
-| 895 | Lifespan | |
-| 906 | St. David's | HCA subsidiary |
-| 1204 | Memorial Hospital and Healthcare Center | |
-
-**Pattern:** Most of these (7 of 13) are sub-organizations of larger health systems that ARE in the management console under a parent ECMId. Providence has 3 brand entries (758, 802, 808) but appears once in management (812). CommonSpirit has sub-brands (845, 866, 870) but appears once in management (896). HCA has a sub-brand (858, 906) but appears once in management (850). This makes sense — the Manage Downloads page groups sub-organizations under their parent, while the Brands bundle lists them separately for endpoint routing.
+The Brands bundle contains 1,168 parent Organization resources with `brand-identifier` values in two formats:
+- **441 purely numeric** (e.g., `"762"`) — parent organizations, mappable to management ECMIds
+- **727 with a dash format** (e.g., `"432-112"`) — sub-organizations under a parent (the number before the dash is the parent's brand-identifier/ECMId)
 
 ### Key Takeaway
 
-The ECMId field — hidden in the API response and never shown in the UI — is the Rosetta Stone between Epic's internal management systems and their public FHIR endpoint directories. Without reverse-engineering the `LoadDownloads` API, you'd never discover this mapping. The visible "Organization Id" column is a different, completely opaque internal identifier that doesn't appear in any public bundle.
+The Brands bundle is the authoritative cross-reference source. The visible management OrgId maps to Endpoint resources (giving you the FHIR base URL), and the hidden ECMId maps to parent Organization resources (giving you the brand hierarchy). Both mappings exist in the same bundle but on different resource types — which is why we initially thought the OrgId mapped to nothing.
 
 ---
 
