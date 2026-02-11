@@ -6,17 +6,59 @@
  *   https://fhir.epic.com/Developer/Management?id=<YOUR_APP_ID>
  *
  * What it does:
- *   1. Fetches ALL orgs via POST /Developer/LoadDownloads?PageSize=500
+ *   1. Fetches ALL orgs via POST /Developer/LoadDownloads?PageSize=2000
  *   2. For each org with Approved === 0 ("Not responded"):
  *      - POST to activate Non-Production
  *      - POST to activate Production
  *   3. For each org with Approved === 3 ("Non-Production only"):
  *      - POST to activate Production only
- *   4. Logs progress to the console
+ *   4. Logs progress to the console AND to sessionStorage (survives page reloads)
+ *
+ * After a reload, paste this script again to see the previous run's results.
  */
 (async function activateAllOrgs() {
   const APP_ID = '50741'; // Health Skillz app ID
   const DELAY_MS = 500;   // Delay between API calls to avoid rate limiting
+  const LOG_KEY = 'epicActivatorLog';
+
+  // --- Persistent logging ---
+  const logLines = [];
+
+  function log(msg, style) {
+    logLines.push({ time: new Date().toISOString(), msg });
+    sessionStorage.setItem(LOG_KEY, JSON.stringify(logLines));
+    if (style) {
+      console.log(`%c${msg}`, style);
+    } else {
+      console.log(msg);
+    }
+  }
+
+  function logError(msg) {
+    logLines.push({ time: new Date().toISOString(), msg, error: true });
+    sessionStorage.setItem(LOG_KEY, JSON.stringify(logLines));
+    console.error(msg);
+  }
+
+  // --- Check for previous run results ---
+  const prev = sessionStorage.getItem(LOG_KEY);
+  if (prev) {
+    try {
+      const prevLines = JSON.parse(prev);
+      console.log('%c[Epic Activator] Previous run log found (' + prevLines.length + ' entries):', 'color: purple; font-weight: bold');
+      for (const line of prevLines) {
+        const prefix = line.time.split('T')[1].split('.')[0];
+        if (line.error) {
+          console.error(`  [${prefix}] ${line.msg}`);
+        } else {
+          console.log(`  [${prefix}] ${line.msg}`);
+        }
+      }
+      console.log('%c[Epic Activator] End of previous run log. Starting new run...', 'color: purple; font-weight: bold');
+    } catch (e) { /* ignore parse errors */ }
+  }
+
+  sessionStorage.removeItem(LOG_KEY);
 
   // --- Helpers ---
   function sleep(ms) {
@@ -45,7 +87,7 @@
   }
 
   async function approveDownload(orgId, { nonProdOnly, prodOnly }) {
-    return postAPI('/Developer/ApproveDownload', new URLSearchParams({
+    const data = await postAPI('/Developer/ApproveDownload', new URLSearchParams({
       OrgId: orgId,
       AppId: APP_ID,
       Testhash: '',
@@ -60,10 +102,12 @@
       TestJWKS: '',
       ProdJWKS: ''
     }).toString());
+    if (!data.Data.Success) throw new Error(data.Data.Message || 'Inner Success=false');
+    return data;
   }
 
   // --- Fetch ALL orgs (paginated to handle any count) ---
-  console.log('%c[Epic Activator] Fetching all orgs...', 'color: blue; font-weight: bold');
+  log('[Epic Activator] Fetching all orgs...', 'color: blue; font-weight: bold');
   const PAGE_SIZE = 2000;
   const allOrgs = [];
   let page = 0;
@@ -73,7 +117,7 @@
     for (const d of downloads) {
       allOrgs.push({ orgId: d.Id.split('_')[0], orgName: d.OrgName, approved: d.Approved });
     }
-    console.log(`[Epic Activator] Fetched page ${page + 1}: ${downloads.length} orgs (${allOrgs.length} total)`);
+    log(`[Epic Activator] Fetched page ${page + 1}: ${downloads.length} orgs (${allOrgs.length} total)`);
     if (downloads.length < PAGE_SIZE) break; // Last page
     page++;
   }
@@ -83,15 +127,15 @@
   const needsProd = allOrgs.filter(o => o.approved === 3);   // Non-Production only
   const alreadyDone = allOrgs.filter(o => o.approved === 1); // Keys enabled
 
-  console.log(`%c[Epic Activator] Summary:`, 'color: blue; font-weight: bold');
-  console.log(`  Total orgs: ${allOrgs.length}`);
-  console.log(`  Already enabled: ${alreadyDone.length}`);
-  console.log(`  Need Non-Prod + Prod: ${needsBoth.length}`);
-  console.log(`  Need Prod only: ${needsProd.length}`);
-  console.log(`  Total API calls needed: ${needsBoth.length * 2 + needsProd.length}`);
+  log('[Epic Activator] Summary:', 'color: blue; font-weight: bold');
+  log(`  Total orgs: ${allOrgs.length}`);
+  log(`  Already enabled: ${alreadyDone.length}`);
+  log(`  Need Non-Prod + Prod: ${needsBoth.length}`);
+  log(`  Need Prod only: ${needsProd.length}`);
+  log(`  Total API calls needed: ${needsBoth.length * 2 + needsProd.length}`);
 
   if (needsBoth.length === 0 && needsProd.length === 0) {
-    console.log('%c[Epic Activator] Nothing to do!', 'color: green; font-weight: bold');
+    log('[Epic Activator] Nothing to do!', 'color: green; font-weight: bold');
     return;
   }
 
@@ -105,7 +149,7 @@
   );
 
   if (!proceed) {
-    console.log('%c[Epic Activator] Aborted by user.', 'color: red; font-weight: bold');
+    log('[Epic Activator] Aborted by user.', 'color: red; font-weight: bold');
     return;
   }
 
@@ -119,12 +163,12 @@
   for (const org of needsBoth) {
     try {
       callIndex++;
-      console.log(`[${callIndex}/${total}] ${org.orgName} (${org.orgId}) — Non-Production...`);
+      log(`[${callIndex}/${total}] ${org.orgName} (${org.orgId}) — Non-Production...`);
       await approveDownload(org.orgId, { nonProdOnly: true, prodOnly: false });
       successCount++;
       await sleep(DELAY_MS);
     } catch (e) {
-      console.error(`  FAILED: ${e.message}`);
+      logError(`  FAILED: ${org.orgName} (${org.orgId}) non-prod: ${e.message}`);
       errors.push({ org: org.orgName, orgId: org.orgId, step: 'non-prod', error: e.message });
       errorCount++;
       continue;
@@ -132,12 +176,12 @@
 
     try {
       callIndex++;
-      console.log(`[${callIndex}/${total}] ${org.orgName} (${org.orgId}) — Production...`);
+      log(`[${callIndex}/${total}] ${org.orgName} (${org.orgId}) — Production...`);
       await approveDownload(org.orgId, { nonProdOnly: false, prodOnly: true });
       successCount++;
       await sleep(DELAY_MS);
     } catch (e) {
-      console.error(`  FAILED: ${e.message}`);
+      logError(`  FAILED: ${org.orgName} (${org.orgId}) prod: ${e.message}`);
       errors.push({ org: org.orgName, orgId: org.orgId, step: 'prod', error: e.message });
       errorCount++;
     }
@@ -146,27 +190,27 @@
   for (const org of needsProd) {
     try {
       callIndex++;
-      console.log(`[${callIndex}/${total}] ${org.orgName} (${org.orgId}) — Production...`);
+      log(`[${callIndex}/${total}] ${org.orgName} (${org.orgId}) — Production...`);
       await approveDownload(org.orgId, { nonProdOnly: false, prodOnly: true });
       successCount++;
       await sleep(DELAY_MS);
     } catch (e) {
-      console.error(`  FAILED: ${e.message}`);
+      logError(`  FAILED: ${org.orgName} (${org.orgId}) prod: ${e.message}`);
       errors.push({ org: org.orgName, orgId: org.orgId, step: 'prod', error: e.message });
       errorCount++;
     }
   }
 
   // --- Report ---
-  console.log(`%c[Epic Activator] Done!`, 'color: green; font-weight: bold');
-  console.log(`  Successful calls: ${successCount}`);
-  console.log(`  Failed calls: ${errorCount}`);
+  log(`[Epic Activator] Done!`, 'color: green; font-weight: bold');
+  log(`  Successful calls: ${successCount}`);
+  log(`  Failed calls: ${errorCount}`);
   if (errors.length > 0) {
-    console.log(`  Errors:`);
+    log(`  Failed orgs: ${errors.map(e => `${e.org} (${e.step})`).join(', ')}`);
     console.table(errors);
   }
 
-  // Refresh the page
-  console.log('[Epic Activator] Reloading page...');
+  log('[Epic Activator] Reloading page in 3s... (paste script again after reload to see this log)');
+  await sleep(3000);
   location.reload();
 })();
