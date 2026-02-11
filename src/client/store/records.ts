@@ -13,7 +13,7 @@ import {
   type CachedFhirData,
 } from '../lib/connections';
 import { refreshAccessToken } from '../lib/smart/oauth';
-import { fetchPatientData, type ProgressInfo } from '../lib/smart/client';
+import { fetchPatientData, type FetchProgress } from '../lib/smart/client';
 import {
   encryptData,
   encryptAndUploadStreaming,
@@ -43,7 +43,7 @@ export type GlobalStatus =
 export interface ConnectionState {
   /** Per-connection transient UI state */
   refreshing: boolean;
-  refreshProgress: ProgressInfo | null;
+  refreshProgress: FetchProgress | null;
   error: string | null;
 }
 
@@ -258,11 +258,11 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
         conn.fhirBaseUrl,
         result.access_token,
         patientId,
-        (info: ProgressInfo) => {
+        (progress: FetchProgress) => {
           set({
             connectionState: {
               ...get().connectionState,
-              [id]: { refreshing: true, refreshProgress: info, error: null },
+              [id]: { refreshing: true, refreshProgress: progress, error: null },
             },
           });
         },
@@ -350,12 +350,18 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
       fhirBaseUrl,
       accessToken,
       patientId,
-      (info: ProgressInfo) => {
+      (progress: FetchProgress) => {
+        // Derive a status message from rich progress
+        const activeLabels = progress.queries
+          .filter(q => q.state.status === 'active')
+          .slice(0, 3)
+          .map(q => q.label);
+        const detail = activeLabels.length > 0 ? activeLabels.join(', ') : progress.phase;
         set({
-          statusMessage: `Fetching: ${info.detail || info.phase} (${info.completed}/${info.total})`,
+          statusMessage: `Fetching: ${detail} (${progress.settledCount}/${progress.queries.length})`,
           connectionState: {
             ...get().connectionState,
-            [connId]: { refreshing: true, refreshProgress: info, error: null },
+            [connId]: { refreshing: true, refreshProgress: progress, error: null },
           },
         });
       },

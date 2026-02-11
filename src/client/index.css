@@ -716,3 +716,177 @@ code {
   .panel { padding: 20px 16px; }
   .provider-grid { grid-template-columns: 1fr; }
 }
+
+/* -- Fetch Progress Widget -- */
+.fp-widget {
+  text-align: center;
+  padding: 10px 20px 8px;
+}
+
+.fp-counter-hero {
+  margin-bottom: 4px;
+}
+
+.fp-counter-num {
+  font-size: 32px;
+  font-weight: 600;
+  color: #263238;
+  line-height: 1.1;
+  letter-spacing: -0.5px;
+}
+
+.fp-counter-num.fp-complete {
+  color: #2e7d32;
+}
+
+.fp-counter-check {
+  font-size: 20px;
+  margin-left: 4px;
+  color: #2e7d32;
+}
+
+.fp-counter-label {
+  font-size: 12px;
+  color: #999;
+  margin-top: 1px;
+}
+
+.fp-dot-strip {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1px;
+  margin-bottom: 5px;
+  height: 10px;
+}
+
+.fp-dot-group {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.fp-dot-group + .fp-dot-group {
+  margin-left: 3px;
+}
+
+.fp-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.fp-pending {
+  background: #e0e0e0;
+}
+
+.fp-active {
+  background: #26a69a;
+  animation: fp-pulse 1.2s ease-in-out infinite;
+}
+
+.fp-empty {
+  background: #ececec;
+}
+
+.fp-error {
+  background: #ef5350;
+}
+
+.fp-done-1 {
+  background: #c8e6c9;
+}
+
+.fp-done-2 {
+  background: #81c784;
+}
+
+.fp-done-3 {
+  background: #4caf50;
+}
+
+.fp-done-4 {
+  background: #2e7d32;
+}
+
+@keyframes fp-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1.0; }
+}
+
+.fp-status-zone {
+  min-height: 28px;
+}
+
+.fp-status-active {
+  font-size: 12px;
+  color: #999;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.fp-status-settled {
+  font-size: 11px;
+  color: #b0b0b0;
+  margin-top: 1px;
+}
+
+.fp-status-summary {
+  font-size: 12px;
+  color: #555;
+  line-height: 1.5;
+}
+
+.fp-ref-bars {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.fp-ref-bar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.fp-ref-bar-label {
+  font-size: 10px;
+  color: #aaa;
+  width: 72px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.fp-ref-bar-track {
+  flex: 1;
+  height: 3px;
+  background: #f0f0f0;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.fp-ref-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: #66bb6a;
+  transition: width 0.3s ease;
+}
+
+.fp-ref-bar-count {
+  font-size: 10px;
+  color: #999;
+  width: 30px;
+  flex-shrink: 0;
+}
+
+.fp-ref-bar-check {
+  font-size: 10px;
+  color: #66bb6a;
+}
+
+.fp-ref-bar-count.fp-inactive {
+  color: #ccc;
+}

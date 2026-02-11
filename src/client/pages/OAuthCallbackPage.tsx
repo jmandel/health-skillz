@@ -4,6 +4,7 @@ import { useRecordsStore } from '../store/records';
 import { loadOAuthState, clearOAuthState } from '../lib/storage';
 import { exchangeCodeForToken } from '../lib/smart/oauth';
 import StatusMessage from '../components/StatusMessage';
+import FetchProgressWidget from '../components/FetchProgressWidget';
 
 /**
  * Module-level set of state nonces we've already started processing.
@@ -24,6 +25,7 @@ export default function OAuthCallbackPage() {
   const statusMessage = useRecordsStore((s) => s.statusMessage);
   const storeStatus = useRecordsStore((s) => s.status);
   const saveNewConnection = useRecordsStore((s) => s.saveNewConnection);
+  const connectionState = useRecordsStore((s) => s.connectionState);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [phase, setPhase] = useState<'exchanging' | 'fetching' | 'done'>('exchanging');
   const startedRef = useRef(false);
@@ -112,6 +114,11 @@ export default function OAuthCallbackPage() {
     process();
   }, []); // empty deps — run once on mount
 
+  // Find active fetch progress from any connection being refreshed
+  const activeFetchProgress = Object.values(connectionState).find(
+    cs => cs.refreshing && cs.refreshProgress
+  )?.refreshProgress ?? null;
+
   // Derive display message from phase + store
   const displayStatus = phase === 'exchanging'
     ? 'Completing authorization…'
@@ -130,6 +137,13 @@ export default function OAuthCallbackPage() {
             <button className="btn btn-secondary" onClick={() => navigate('/records')}>
               Back to records
             </button>
+          </>
+        ) : activeFetchProgress ? (
+          <>
+            <FetchProgressWidget progress={activeFetchProgress} />
+            {phase !== 'done' && (
+              <p className="security-info">This may take up to a minute.</p>
+            )}
           </>
         ) : (
           <>

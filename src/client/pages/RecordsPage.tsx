@@ -2,6 +2,7 @@ import { useEffect, useCallback, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useRecordsStore } from '../store/records';
 import StatusMessage from '../components/StatusMessage';
+import FetchProgressWidget from '../components/FetchProgressWidget';
 
 function InfoTip({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
@@ -172,10 +173,7 @@ export default function RecordsPage() {
                         {c.providerName} · {fmtSize(c.dataSizeBytes)} · {timeAgo(c.lastFetchedAt)}
                       </div>
                       {refreshing && prog && (
-                        <div className="conn-progress">
-                          {prog.phase}: {prog.completed}/{prog.total}
-                          {prog.detail ? ` — ${prog.detail}` : ''}
-                        </div>
+                        <FetchProgressWidget progress={prog} />
                       )}
                       {(c.lastError || err) && (
                         <div className="conn-error">{err || c.lastError}</div>
