@@ -425,6 +425,19 @@ code {
   margin: 16px 0;
 }
 
+.actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+.actions-row-tip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 /* --- Provider Search (select page) --- */
 .provider-search {
   max-width: 540px;

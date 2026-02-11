@@ -198,19 +198,14 @@ export default function RecordsPage() {
           </p>
         )}
 
-        <div style={{ marginTop: 12 }}>
+        {/* Actions */}
+        <div className="actions-row">
           <button className={`btn ${total === 0 ? 'btn-primary' : 'btn-secondary'}`} onClick={handleAdd} disabled={busy}>
             Add connection
           </button>
-        </div>
-
-        <hr className="divider" />
-
-        {/* Actions */}
-        <div className="action-bar">
           {isSession && !isFinalized && (
             <button
-              className="btn btn-primary btn-full"
+              className="btn btn-primary"
               disabled={noneSel || busy}
               onClick={sendToAI}
             >
@@ -219,24 +214,22 @@ export default function RecordsPage() {
                 : `Send ${selCount} record${selCount !== 1 ? 's' : ''} to AI`}
             </button>
           )}
-          {isSession && isFinalized && (
-            <p className="text-success" style={{ textAlign: 'center', padding: '8px 0' }}>
-              ✓ Records sent to AI — you can close this page.
-            </p>
-          )}
-          <div className="action-stack">
-            <div className="action-line">
-              <button
-                className="btn btn-secondary"
-                disabled={noneSel || busy}
-                onClick={() => { window.location.href = '/skill.zip'; }}
-              >
-                {noneSel ? 'Download AI Skill' : `Download AI Skill with ${selCount} record${selCount !== 1 ? 's' : ''}`}
-              </button>
-              <InfoTip text="Downloads a zip with AI agent scripts plus your selected health records. Give this to any AI to analyze your data without web access." />
-            </div>
-          </div>
+          <span className="actions-row-tip">
+            <button
+              className="btn btn-ghost"
+              disabled={noneSel || busy}
+              onClick={() => { window.location.href = '/skill.zip'; }}
+            >
+              {noneSel ? 'Download AI Skill' : `Download AI Skill with ${selCount} record${selCount !== 1 ? 's' : ''}`}
+            </button>
+            <InfoTip text="Downloads a zip with AI agent scripts plus your selected health records. Give this to any AI to analyze your data without web access." />
+          </span>
         </div>
+        {isSession && isFinalized && (
+          <p className="text-success" style={{ padding: '8px 0' }}>
+            ✓ Records sent to AI — you can close this page.
+          </p>
+        )}
       </div>
     </div>
   );
