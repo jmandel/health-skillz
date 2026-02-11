@@ -1,0 +1,27 @@
+{
+  "keys": [
+    {
+      "kty": "RSA",
+      "n": "5xJ1OVVxUVnDnNDuzGCtg5mVG16YQul-Zd6txvSGGZspkUcXTuGB-nmFSvfUNE3F74JOe9sR05HY-K5yjbW8fPlO9M4qUFSZlUX8eudQ-kHbkF61fjQwD1rjjyjHxah6B1FwvCWEMwVN6ZVUyaAIYK0Ko0KkXT8bREHEWLIemlQt0aSXnT71SRVazhlALSUrycqzBQ3iCRNqimn7Q5rAhO9qCMo5wbbXHdzQjawzmyM3QjSgFA2jS-2-evJFhmWFac3vPqYoln-xi4-QUXoF_Uov3lZZvk9J-OjzQKQGebcQkTIuvU7RT2sH74MPwSTipbzCLJKmt1vBdObw4nb1YQ",
+      "e": "AQAB",
+      "kid": "f729197c-7176-4c56-8305-e15125f99be1",
+      "alg": "RS256",
+      "use": "sig",
+      "key_ops": [
+        "verify"
+      ]
+    },
+    {
+      "kty": "EC",
+      "x": "R5N0O_-D4dBnrVq2dMElRdp_MNAOB5nRZ7PP3WmEX5twogLG8-QXaqC6EIYd2e-q",
+      "y": "5LZwjYAc1wJCbWHsf-jHRlCmPehTj35tH9kZS8LjgUJOQODhhoS96g7i8PII3FMx",
+      "crv": "P-384",
+      "kid": "ac257589-1c43-4ea5-98a5-0daa91def35d",
+      "alg": "ES384",
+      "use": "sig",
+      "key_ops": [
+        "verify"
+      ]
+    }
+  ]
+}
