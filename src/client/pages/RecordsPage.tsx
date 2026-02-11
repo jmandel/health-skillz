@@ -187,21 +187,27 @@ export default function RecordsPage() {
                   ✓ Records sent to AI — you can close this page.
                 </p>
               )}
-              <div className="action-row">
-                <button
-                  className="btn btn-secondary"
-                  disabled={noneSel || busy}
-                  onClick={s.downloadJson}
-                >
-                  Download JSON
-                </button>
-                <button
-                  className="btn btn-secondary"
-                  disabled={noneSel || busy}
-                  onClick={() => { window.location.href = '/skill.zip'; }}
-                >
-                  {noneSel ? 'Download AI Skill' : `AI Skill with ${selCount} record${selCount !== 1 ? 's' : ''}`}
-                </button>
+              <div className="action-stack">
+                <div className="action-line">
+                  <button
+                    className="btn btn-secondary"
+                    disabled={noneSel || busy}
+                    onClick={s.downloadJson}
+                  >
+                    Download JSON
+                  </button>
+                  <span className="info-tip" title="Download your selected health records as a plain JSON file. You can upload this directly to any AI that doesn't have web access.">?</span>
+                </div>
+                <div className="action-line">
+                  <button
+                    className="btn btn-secondary"
+                    disabled={noneSel || busy}
+                    onClick={() => { window.location.href = '/skill.zip'; }}
+                  >
+                    {noneSel ? 'Download AI Skill' : `Download AI Skill with ${selCount} record${selCount !== 1 ? 's' : ''}`}
+                  </button>
+                  <span className="info-tip" title="A zip with AI agent scripts plus your selected records baked in. Give this to an AI so it can analyze your data without web access.">?</span>
+                </div>
               </div>
             </div>
           </>

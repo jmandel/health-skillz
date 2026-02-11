@@ -356,6 +356,39 @@ code {
   gap: 8px;
   justify-content: center;
 }
+.action-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.action-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.action-line .btn {
+  flex: 1;
+  min-width: 0;
+}
+.info-tip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: help;
+  flex-shrink: 0;
+  transition: border-color 0.15s, color 0.15s;
+}
+.info-tip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
 
 /* --- Divider --- */
 .divider {

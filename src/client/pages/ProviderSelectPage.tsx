@@ -22,8 +22,9 @@ export default function ProviderSelectPage() {
   const sessionId = searchParams.get('session') || undefined;
   const backUrl = sessionId ? `/connect/${sessionId}` : '/records';
 
-  // Loading state
-  const [loadProgress, setLoadProgress] = useState<LoadProgress | null>(null);
+  // Loading state — start with a synthetic 'loading' progress so we
+  // never render the error branch or the main content before init completes.
+  const [loadProgress, setLoadProgress] = useState<LoadProgress>({ phase: 'fetching', bytesLoaded: 0 });
   const [error, setError] = useState<string | null>(null);
   
   // Pagination
@@ -173,7 +174,6 @@ export default function ProviderSelectPage() {
 
   // Format progress message
   const getProgressMessage = () => {
-    if (!loadProgress) return 'Initializing...';
     if (loadProgress.phase === 'fetching') {
       const mb = (loadProgress.bytesLoaded / 1024 / 1024).toFixed(1);
       // Don't show percentage - content-length is compressed size but we read decompressed
@@ -185,19 +185,27 @@ export default function ProviderSelectPage() {
     return '';
   };
 
-  // Loading state
-  if (loadProgress?.phase !== 'ready' && !error) {
+  // Loading / error states
+  if (loadProgress.phase !== 'ready') {
     return (
       <div className="page-centered">
         <div className="panel">
           <h1 className="page-title">Select a provider</h1>
-          <StatusMessage status="loading" message={getProgressMessage()} />
+          {error
+            ? <StatusMessage status="error" message={error} />
+            : <StatusMessage status="loading" message={getProgressMessage()} />
+          }
+          {error && (
+            <button className="btn btn-secondary" onClick={() => navigate(backUrl)}>
+              Back
+            </button>
+          )}
         </div>
       </div>
     );
   }
 
-  // Error state
+  // Standalone error after load (e.g. OAuth setup failure)
   if (error) {
     return (
       <div className="page-centered">
