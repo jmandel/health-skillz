@@ -294,7 +294,9 @@ Note that counts across sources won't align perfectly because Epic forces you to
 
 It turns out the Brands bundle contains **both** identifiers from the management page — but on different resource types:
 
-**Path 1: OrgId → Endpoint resources.** The 575 Endpoint resources in the Brands bundle each have a `managingOrganization.identifier` with system `https://fhir.epic.com/Developer/Management/OrganizationId` — this is the same OrgId shown in the management UI. For example, Access Community Health Network's Endpoint entry:
+**Path 1: OrgId → Endpoint resources (logical reference).** The 575 Endpoint resources in the Brands bundle each carry the management OrgId — but not on any `Organization.identifier`. Instead, it appears as a **logical reference** on `Endpoint.managingOrganization.identifier` with system `https://fhir.epic.com/Developer/Management/OrganizationId`. This is a FHIR logical reference: there's no actual Organization resource in the bundle with this identifier. The Endpoint simply asserts "I'm managed by the org with this ID" without linking to a resolvable Organization resource.
+
+For example, Access Community Health Network's Endpoint entry:
 
 ```json
 {
@@ -310,7 +312,7 @@ It turns out the Brands bundle contains **both** identifiers from the management
 }
 ```
 
-This directly maps the visible management OrgId to the FHIR base URL — the mapping developers actually need.
+No Organization resource in the Brands bundle carries this system/value pair — we checked all 90,066 of them. The OrgId exists *only* on the Endpoint's logical reference. But this is actually the most useful mapping for developers: it directly connects the management OrgId to the FHIR base URL (`address`).
 
 **Path 2: ECMId → Organization resources.** The `LoadDownloads` API response includes a hidden `ECMId` field on each download that maps to the `brand-identifier` on parent Organization resources. For example, Access Community Health Network has ECMId `762` in the API and brand-identifier `"762"` in the Brands bundle.
 
@@ -320,7 +322,7 @@ This directly maps the visible management OrgId to the FHIR base URL — the map
 | Acumen Physician Solutions | 525 | 1041 | Endpoint with OrgId `525` + Organization with brand-id `1041` |
 | AdvantageCare Physicians | 1108 | 901 | Endpoint with OrgId `1108` + Organization with brand-id `901` |
 
-We initially missed the OrgId mapping entirely because we were only searching the Organization resources (which use brand-identifiers). The Endpoint resources — which carry the management OrgId — are a separate resource type in the same bundle.
+We initially missed the OrgId mapping entirely because we were searching `Organization.identifier` — where it doesn't appear. The OrgId lives on a completely different resource type (Endpoint) in a completely different FHIR structure (logical reference on `managingOrganization`), which is not where most developers would think to look.
 
 ### OrgId Cross-Reference: Management vs. Brands Endpoints
 
@@ -344,7 +346,7 @@ The Brands bundle contains 1,168 parent Organization resources with `brand-ident
 
 ### Key Takeaway
 
-The Brands bundle is the authoritative cross-reference source. The visible management OrgId maps to Endpoint resources (giving you the FHIR base URL), and the hidden ECMId maps to parent Organization resources (giving you the brand hierarchy). Both mappings exist in the same bundle but on different resource types — which is why we initially thought the OrgId mapped to nothing.
+The Brands bundle is the authoritative cross-reference source — but the identifier topology is surprising. The visible management OrgId appears only as a **logical reference** on Endpoint resources (`managingOrganization.identifier`), not as an `Organization.identifier` on any of the 90,066 Organization resources. The hidden ECMId maps to parent Organization resources via `brand-identifier`. Both mappings exist in the same bundle but on different resource types and different FHIR structures — which is why we initially thought the OrgId mapped to nothing.
 
 ---
 
