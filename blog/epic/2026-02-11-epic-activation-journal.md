@@ -336,7 +336,23 @@ Comparing all 500 management page OrgIds against the 444 unique OrgIds on the 57
 | **Management-only** (no Brands Endpoint) | **60** |
 | **Brands-only** (not on management page) | **4** |
 
-The 60 management orgs missing from the Brands bundle Endpoints are the same categories we'd expect: payers/health plans, diagnostics labs, international organizations, and newer US health systems that haven't propagated to the public directory yet.
+We resolved all 60 management-only OrgIds to org names and categorized them:
+
+**Payers / Health Plans (17):** Blue Cross Blue Shield of Minnesota, Blue Cross and Blue Shield of Louisiana, Blue Shield of California, CareOregon, Centene, Elevance Health, Health Care Service Corporation, Highmark, Humana, Independence Blue Cross, Johns Hopkins Health Plans, Kaiser Membership Admin, OptumInsight, PacificSource, Priority Health, Sharp Health Plan, Valley Health Plan – County of Santa Clara
+
+**Diagnostics / Genomics / Lab (5):** Caris Life Sciences, Guardant Health, Myriad Genetics, Tempus AI, Wisconsin State Laboratory of Hygiene
+
+**International (7):** Children's Health Ireland, MUMC+ (Netherlands), NL Health Services, NSW Health (Australia), Santé Québec, Unity Health (Canada), University Health Network (Canada)
+
+**US Health Systems (31):** Adaptive Biotech, Adventist Health System, Avera Health, Baptist Health South Florida, Blessing Health System, Cape Fear Valley Health, Children's Mercy Kansas City, Children's Minnesota, Children's National Hospital, ChristianaCare, Corewell Health East, Corewell Health South, CoxHealth, Dickson Medical Associates, Foothill Family Clinic, Freeman Health System, Great River Health, Indiana University Health, Inspira Health, Kaleida Health, Mount Nittany Health System, NorthBay Health, Novant Health New Hanover Regional Medical Center, OakLeaf, Penn State Health, Reno Orthopaedic Clinic, Sarasota Memorial Health Care System, Trinity Health (ND), UAB Medicine, UMC Health System, Valley Health Systems
+
+### The Discoverability Gap
+
+This breakdown reveals an important finding: **our app is registered (or registerable) at organizations that patients cannot discover through the Brands bundle.** The 31 US health systems in the list above are real providers where the app is activated and patients could technically connect — but because these orgs have no Endpoint entry in the Brands bundle, they won't appear in any patient-facing provider directory built from the public endpoint data.
+
+A patient at, say, Children's National Hospital or Indiana University Health would have no way to find their provider through an app that uses the Brands bundle for provider discovery. The app is registered there, Epic's auto-sync delivered the org to our management page, but the public directory doesn't list it. The registration and the directory are out of sync.
+
+The 17 payers are a different case — they likely publish endpoints only for the CMS Payer API category, which is a separate registration universe from our USCDI v3 app. The international orgs and diagnostics companies are expected mismatches. But the 31 US health systems represent a genuine gap: these organizations participate in auto-sync but are invisible in the public directory.
 
 ### Brand Identifier Format
 
