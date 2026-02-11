@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viz 5-D: Counter Hero + Dot Strip</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #f5f5f5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 0;
+    gap: 20px;
+  }
+
+  /* -- Snapshot container -- */
+  .snapshot {
+    width: 340px;
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    padding: 10px 20px 8px;
+    text-align: center;
+  }
+  .snapshot-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: #b0b0b0;
+    margin-bottom: 4px;
+  }
+
+  /* -- Zone 1: Counter hero -- */
+  .counter-hero {
+    margin-bottom: 4px;
+  }
+  .counter-num {
+    font-size: 32px;
+    font-weight: 600;
+    color: #263238;
+    line-height: 1.1;
+    letter-spacing: -0.5px;
+  }
+  .counter-num.complete {
+    color: #2e7d32;
+  }
+  .counter-check {
+    display: none;
+    font-size: 20px;
+    margin-left: 4px;
+    color: #2e7d32;
+    vertical-align: middle;
+  }
+  .complete .counter-check {
+    display: inline;
+  }
+  .counter-label {
+    font-size: 12px;
+    color: #999;
+    margin-top: 1px;
+  }
+
+  /* -- Zone 2: Dot strip -- */
+  .dot-strip {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 1px;
+    margin-bottom: 5px;
+    height: 10px;
+  }
+  .dot-group {
+    display: flex;
+    align-items: center;
+    gap: 1px;
+  }
+  .dot-group + .dot-group {
+    margin-left: 3px;
+  }
+  .dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* Dot states */
+  .dot.pending  { background: #e0e0e0; }
+  .dot.active   { background: #26a69a; animation: pulse 1.0s ease-in-out infinite; }
+  .dot.empty    { background: #ececec; }
+  .dot.error    { background: #ef5350; }
+  .dot.done-1   { background: #c8e6c9; } /* 1-5 */
+  .dot.done-2   { background: #81c784; } /* 6-20 */
+  .dot.done-3   { background: #4caf50; } /* 21-100 */
+  .dot.done-4   { background: #2e7d32; } /* 101+ */
+
+  @keyframes pulse {
+    0%, 100% { opacity: 0.4; }
+    50%      { opacity: 1.0; }
+  }
+
+  /* -- Zone 3: Status text -- */
+  .status-zone {
+    min-height: 28px;
+  }
+  .status-active {
+    font-size: 12px;
+    color: #999;
+    font-style: italic;
+    line-height: 1.5;
+  }
+  .status-settled {
+    font-size: 11px;
+    color: #b0b0b0;
+    margin-top: 1px;
+  }
+  .status-summary {
+    font-size: 12px;
+    color: #555;
+    line-height: 1.5;
+  }
+
+  /* -- Reference / Attachment bars (completion only) -- */
+  .ref-bars {
+    margin-top: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .ref-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .ref-bar-label {
+    font-size: 10px;
+    color: #aaa;
+    width: 72px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+  .ref-bar-track {
+    flex: 1;
+    height: 3px;
+    background: #f0f0f0;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .ref-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: #66bb6a;
+  }
+  .ref-bar-count {
+    font-size: 10px;
+    color: #999;
+    width: 30px;
+    flex-shrink: 0;
+  }
+  .ref-bar-check {
+    font-size: 10px;
+    color: #66bb6a;
+  }
+  .ref-bar-fill.inactive {
+    width: 0% !important;
+  }
+  .ref-bar-count.inactive {
+    color: #ccc;
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ SNAPSHOT 1: EARLY ============ -->
+<div class="snapshot">
+  <div class="snapshot-label">Early · 8 of 44 settled</div>
+
+  <!-- Zone 1: Counter -->
+  <div class="counter-hero">
+    <div class="counter-num">210</div>
+    <div class="counter-label">resources found</div>
+  </div>
+
+  <!-- Zone 2: Dot strip -->
+  <div class="dot-strip">
+    <!-- G1: Lab & Vitals (19) -->
+    <div class="dot-group">
+      <span class="dot active"></span>
+      <span class="dot active"></span>
+      <span class="dot pending"></span>
+      <span class="dot pending"></span>
+      <span class="dot empty"></span>
+      <span class="dot empty"></span>
+      <span class="dot pending"></span>
+      <span class="dot empty"></span>
+      <span class="dot pending"></span>
+      <span class="dot pending"></span>
+      <span class="dot pending"></span>
+      <span class="dot pending"></span>
+      <span class="dot pending"></span>
+      <span class="dot pending"></span>
+      <span class="dot pending"></span>
+      <span class="dot pending"></span>
+      <span class="dot pending"></span>
+      <span class="dot pending"></span>
+      <span class="dot pending"></span>
+    </div>
+    <!-- G2: Conditions (3) -->
+    <div class="dot-group">
+      <span class="dot active"></span>
+      <span class="dot pending"></span>
+      <span class="dot pending"></span>
+    </div>
+    <!-- G3: Documents (2) -->
+    <div class="dot-group">
+      <span class="dot pending"></span>
+      <span class="dot pending"></span>
+    </div>
+    <!-- G4: Services (4) -->
+    <div class="dot-group">
+      <span class="dot pending"></span>
+      <span class="dot pending"></span>
+      <span class="dot pending"></span>
+      <span class="dot pending"></span>
+    </div>
+    <!-- G5: Medications (3) -->
+    <div class="dot-group">
+      <span class="dot pending"></span>
+      <span class="dot pending"></span>
+      <span class="dot pending"></span>
+    </div>
+    <!-- G6: Clinical (4) -->
+    <div class="dot-group">
+      <span class="dot done-1"></span>
+      <span class="dot pending"></span>
+      <span class="dot pending"></span>
+      <span class="dot active"></span>
+    </div>
+    <!-- G7: Admin (9) -->
+    <div class="dot-group">
+      <span class="dot done-1"></span>
+      <span class="dot pending"></span>
+      <span class="dot pending"></span>
+      <span class="dot active"></span>
+      <span class="dot done-1"></span>
+      <span class="dot pending"></span>
+      <span class="dot error"></span>
+      <span class="dot pending"></span>
+      <span class="dot empty"></span>
+    </div>
+  </div>
+
+  <!-- Zone 3: Status -->
+  <div class="status-zone">
+    <div class="status-active">Loading: Labs, Vitals, Conditions, Care Team, Goals</div>
+    <div class="status-settled">8 of 44 settled</div>
+
+    <!-- Reference / Attachment bars (pre-allocated, inactive) -->
+    <div class="ref-bars">
+      <div class="ref-bar">
+        <span class="ref-bar-label">References</span>
+        <div class="ref-bar-track"><div class="ref-bar-fill inactive" style="width: 0%"></div></div>
+        <span class="ref-bar-count inactive">&mdash;</span>
+      </div>
+      <div class="ref-bar">
+        <span class="ref-bar-label">Attachments</span>
+        <div class="ref-bar-track"><div class="ref-bar-fill inactive" style="width: 0%"></div></div>
+        <span class="ref-bar-count inactive">&mdash;</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SNAPSHOT 2: MID ============ -->
+<div class="snapshot">
+  <div class="snapshot-label">Mid · 32 of 44 settled</div>
+
+  <!-- Zone 1: Counter -->
+  <div class="counter-hero">
+    <div class="counter-num">1,490</div>
+    <div class="counter-label">resources found</div>
+  </div>
+
+  <!-- Zone 2: Dot strip -->
+  <div class="dot-strip">
+    <!-- G1: Lab & Vitals (19) -->
+    <div class="dot-group">
+      <span class="dot done-4"></span><!-- 342 -->
+      <span class="dot done-4"></span><!-- 127 -->
+      <span class="dot done-2"></span><!-- 8 -->
+      <span class="dot done-2"></span><!-- 14 -->
+      <span class="dot empty"></span>
+      <span class="dot empty"></span>
+      <span class="dot empty"></span>
+      <span class="dot empty"></span>
+      <span class="dot empty"></span>
+      <span class="dot done-2"></span><!-- 6 -->
+      <span class="dot empty"></span>
+      <span class="dot empty"></span>
+      <span class="dot empty"></span>
+      <span class="dot done-1"></span><!-- 2 -->
+      <span class="dot empty"></span>
+      <span class="dot empty"></span>
+      <span class="dot done-1"></span><!-- 1 -->
+      <span class="dot done-3"></span><!-- 23 -->
+      <span class="dot active"></span>
+    </div>
+    <!-- G2: Conditions (3) -->
+    <div class="dot-group">
+      <span class="dot done-3"></span><!-- 22 -->
+      <span class="dot done-1"></span><!-- 5 -->
+      <span class="dot done-2"></span><!-- 8 -->
+    </div>
+    <!-- G3: Documents (2) -->
+    <div class="dot-group">
+      <span class="dot active"></span>
+      <span class="dot active"></span>
+    </div>
+    <!-- G4: Services (4) -->
+    <div class="dot-group">
+      <span class="dot pending"></span>
+      <span class="dot pending"></span>
+      <span class="dot pending"></span>
+      <span class="dot active"></span>
+    </div>
+    <!-- G5: Medications (3) -->
+    <div class="dot-group">
+      <span class="dot done-2"></span><!-- 18 -->
+      <span class="dot pending"></span>
+      <span class="dot pending"></span>
+    </div>
+    <!-- G6: Clinical (4) -->
+    <div class="dot-group">
+      <span class="dot done-1"></span><!-- 4 -->
+      <span class="dot done-2"></span><!-- 12 -->
+      <span class="dot done-1"></span><!-- 2 -->
+      <span class="dot done-1"></span><!-- 3 -->
+    </div>
+    <!-- G7: Admin (9) -->
+    <div class="dot-group">
+      <span class="dot done-1"></span><!-- 1 -->
+      <span class="dot active"></span>
+      <span class="dot done-3"></span><!-- 34 -->
+      <span class="dot done-2"></span><!-- 7 -->
+      <span class="dot done-1"></span><!-- 2 -->
+      <span class="dot pending"></span>
+      <span class="dot error"></span>
+      <span class="dot done-1"></span><!-- 5 -->
+      <span class="dot empty"></span>
+    </div>
+  </div>
+
+  <!-- Zone 3: Status -->
+  <div class="status-zone">
+    <div class="status-active">Loading: Radiology, Notes, Documents, Services, Encounters</div>
+    <div class="status-settled">32 of 44 settled</div>
+
+    <!-- Reference / Attachment bars (pre-allocated, inactive) -->
+    <div class="ref-bars">
+      <div class="ref-bar">
+        <span class="ref-bar-label">References</span>
+        <div class="ref-bar-track"><div class="ref-bar-fill inactive" style="width: 0%"></div></div>
+        <span class="ref-bar-count inactive">&mdash;</span>
+      </div>
+      <div class="ref-bar">
+        <span class="ref-bar-label">Attachments</span>
+        <div class="ref-bar-track"><div class="ref-bar-fill inactive" style="width: 0%"></div></div>
+        <span class="ref-bar-count inactive">&mdash;</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SNAPSHOT 3: COMPLETE ============ -->
+<div class="snapshot">
+  <div class="snapshot-label">Complete · 44 of 44 settled</div>
+
+  <!-- Zone 1: Counter -->
+  <div class="counter-hero">
+    <div class="counter-num complete">1,847<span class="counter-check">✓</span></div>
+    <div class="counter-label">resources found</div>
+  </div>
+
+  <!-- Zone 2: Dot strip -->
+  <div class="dot-strip">
+    <!-- G1: Lab & Vitals (19) -->
+    <div class="dot-group">
+      <span class="dot done-4"></span><!-- 342 -->
+      <span class="dot done-4"></span><!-- 127 -->
+      <span class="dot done-2"></span><!-- 8 -->
+      <span class="dot done-2"></span><!-- 14 -->
+      <span class="dot empty"></span>
+      <span class="dot empty"></span>
+      <span class="dot empty"></span>
+      <span class="dot empty"></span>
+      <span class="dot empty"></span>
+      <span class="dot done-2"></span><!-- 6 -->
+      <span class="dot empty"></span>
+      <span class="dot empty"></span>
+      <span class="dot empty"></span>
+      <span class="dot done-1"></span><!-- 2 -->
+      <span class="dot empty"></span>
+      <span class="dot empty"></span>
+      <span class="dot done-1"></span><!-- 1 -->
+      <span class="dot done-3"></span><!-- 23 -->
+      <span class="dot done-2"></span><!-- 17 -->
+    </div>
+    <!-- G2: Conditions (3) -->
+    <div class="dot-group">
+      <span class="dot done-3"></span><!-- 22 -->
+      <span class="dot done-1"></span><!-- 5 -->
+      <span class="dot done-2"></span><!-- 8 -->
+    </div>
+    <!-- G3: Documents (2) -->
+    <div class="dot-group">
+      <span class="dot done-4"></span><!-- 215 -->
+      <span class="dot done-4"></span><!-- 108 -->
+    </div>
+    <!-- G4: Services (4) -->
+    <div class="dot-group">
+      <span class="dot empty"></span>
+      <span class="dot empty"></span>
+      <span class="dot empty"></span>
+      <span class="dot done-1"></span><!-- 5 -->
+    </div>
+    <!-- G5: Medications (3) -->
+    <div class="dot-group">
+      <span class="dot done-2"></span><!-- 18 -->
+      <span class="dot done-2"></span><!-- 6 -->
+      <span class="dot empty"></span>
+    </div>
+    <!-- G6: Clinical (4) -->
+    <div class="dot-group">
+      <span class="dot done-1"></span><!-- 4 -->
+      <span class="dot done-2"></span><!-- 12 -->
+      <span class="dot done-1"></span><!-- 2 -->
+      <span class="dot done-1"></span><!-- 3 -->
+    </div>
+    <!-- G7: Admin (9) -->
+    <div class="dot-group">
+      <span class="dot done-1"></span><!-- 1 -->
+      <span class="dot done-4"></span><!-- 512 -->
+      <span class="dot done-3"></span><!-- 34 -->
+      <span class="dot done-2"></span><!-- 7 -->
+      <span class="dot empty"></span>
+      <span class="dot error"></span>
+      <span class="dot error"></span>
+      <span class="dot done-1"></span><!-- 5 -->
+      <span class="dot empty"></span>
+    </div>
+  </div>
+
+  <!-- Zone 3: Status -->
+  <div class="status-zone">
+    <div class="status-summary">25 types found · 17 empty · 2 failed</div>
+
+    <!-- Reference / Attachment bars -->
+    <div class="ref-bars">
+      <div class="ref-bar">
+        <span class="ref-bar-label">References</span>
+        <div class="ref-bar-track"><div class="ref-bar-fill" style="width: 100%"></div></div>
+        <span class="ref-bar-count">148 <span class="ref-bar-check">✓</span></span>
+      </div>
+      <div class="ref-bar">
+        <span class="ref-bar-label">Attachments</span>
+        <div class="ref-bar-track"><div class="ref-bar-fill" style="width: 100%"></div></div>
+        <span class="ref-bar-count">31 <span class="ref-bar-check">✓</span></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
