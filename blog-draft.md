@@ -1,120 +1,65 @@
-# Your Health Records, Your Browser, Your Choice
+# Your records should outlast the conversation
 
-*How we rebuilt Health Skillz around a simple idea: patients should own their health data, not rent access to it.*
+Health Skillz started as a way to get your health records to an AI. You'd click a link from Claude, sign into your patient portal, and data would flow through — fetched, encrypted, uploaded — in one shot. It worked, but every time a new conversation wanted your records, you'd start from scratch. New OAuth login, new FHIR fetch, new upload. Your data existed only in transit.
 
----
+This week we redesigned the whole thing around a different idea: your health records should live in your browser, under your control, for as long as you want them there. Sharing with an AI becomes something you do *with* data you already have — not a reason to go fetch it.
 
-Every major US hospital now has a live FHIR API. 90,000+ endpoints, mandated by the 21st Century Cures Act. The infrastructure for patient-controlled health data is built. Almost nobody has bothered to use it.
+## What actually changed
 
-Health Skillz is a web app that does. You connect to your patient portal, pull your records into your browser, and share them — with an AI, as a download, however you want. The server never sees your health data.
+The app used to have three separate flows: one for sharing with an AI, one for downloading records yourself, and one for managing saved connections. Three pages, three code paths, overlapping but subtly different. If you'd collected records through the "download" flow, they wouldn't show up when an AI asked for them. The mental model was fragmented.
 
-We recently rebuilt the entire user experience around a core insight: **connections are the product, sessions are envelopes.** This post is about what changed and why it matters.
+Now there's one page. `/records` is your health records hub. Every connection you've made is there — patient name, provider, how much data you have, how fresh it is. When you visit on your own, you see "My Health Records" with a download button. When an AI sends you a link, you see the exact same page with an additional "Send to AI" button. Same data, same connections, different action.
 
----
+The AI session didn't go away — it's still how Claude requests your records and how end-to-end encryption works. But the session is now an envelope you put your data into, not the thing that organizes your data.
 
-## The Old Model: Data as a One-Shot Pipe
+## Save once, share many times
 
-The original design treated the app as a conduit. An AI creates a session, gives you a link. You sign into your portal, data flows through, gets encrypted, gets uploaded. Done. The pipe closes.
+The biggest practical difference: you authorize with your health system once, and then your data is available for however many AI conversations you want.
 
-This worked, but it had a problem: your data was ephemeral. Each session was a one-shot transfer. Want to share with a different AI conversation tomorrow? Log in again. Wait for the fetch again. Hope the upload works again.
+The old flow did everything during the OAuth redirect. You'd come back from your patient portal login and the callback page would exchange the token, fetch your FHIR data, encrypt it, and upload it — all while you stared at a spinner. If the upload failed partway through, you might need to start over.
 
-The app had separate code paths for "share with AI" and "download for yourself" — two implementations of the same action (connect to a health system). Seven page components. 616 lines in ConnectPage alone, handling session init, provider display, encrypted upload, error recovery, and cleanup all in one monster component.
+Now the callback page just saves. It exchanges the token, fetches your records, and writes them to your browser's local database. That's it. No encryption, no upload, no server calls. Your data has a home before it goes anywhere.
 
-## The New Model: A Personal Health Data Wallet
+When you're ready to share — maybe right away, maybe next week — you pick which connections to include, click send, and the app encrypts and uploads from the local cache. If you want to share with a different AI tool tomorrow, the data's still there. No re-authorization, no waiting.
 
-The rebuild flipped the mental model. Your browser's IndexedDB is now a **health data wallet**. You connect to a health system once. The app fetches your FHIR resources — labs, meds, conditions, clinical notes, everything — and saves them locally. That connection persists.
+## Keeping things fresh
 
-Now you have options:
+Connections aren't snapshots. Each one stores a refresh token from your health system, so when you want updated records — new lab results, a recent visit note — you tap Refresh. The app silently gets a new access token and re-pulls everything. No portal login, no re-authorization.
 
-- **Share with an AI** — When Claude (or any AI with the Health Record Assistant skill) creates a session and sends you a link, your connections are already there. Select which ones to share, click send. Data is encrypted in your browser with ECDH + AES-256-GCM, uploaded, decrypted only by the AI. Takes seconds instead of minutes.
-- **Share again later** — Different AI conversation next week? Same data, already cached. Click send.
-- **Keep it fresh** — Hit "Refresh" on any connection to pull the latest records using your stored refresh token. New labs? Updated in seconds, no re-authorization.
-- **Download it** — Export as an AI skill zip with your records bundled in. Give it to any AI tool, no network needed.
-- **Delete it** — Remove a connection and all its data is immediately purged from IndexedDB. No server-side backup to worry about.
+Each connection card shows you what you need to know at a glance: the patient's name and date of birth (important if you're managing records for family members), which provider it's from, how much data is cached, and when it was last updated. A green dot means the connection is healthy. If the refresh token has expired after months of inactivity, the dot goes amber and you'll need to sign in again — but the cached data is still there.
 
-One store, one page, two modes. `RecordsPage` renders the same UI whether you're managing records solo or sharing with an AI. The session context just adds a "Send N records to AI" button. ConnectPage shrunk from 616 lines to 60.
+This is the shift from treating a health record as a one-time export to treating it as a living link. Your records accumulate and stay current.
 
-## What Gets Pulled
+## Design details
 
-The FHIR fetch is comprehensive. The client fires 40+ parallel search queries across 20+ resource types:
+Some smaller things that shipped alongside the redesign:
 
-- **Conditions** — active problems, encounter diagnoses, health concerns
-- **Observations** — labs (with LOINC codes and reference ranges), vitals, social history, screenings
-- **Medications** — active prescriptions with dosage
-- **Encounters** — visit history with dates and reasons
-- **Clinical notes** — the real gold. Visit notes, discharge summaries, operative reports, consultation notes. Full text, extracted from DocumentReference attachments.
-- **Plus**: procedures, immunizations, allergies, care teams, insurance, goals, family history, devices, and more
+**Cards as checkboxes.** Each connection is a tappable card — touch anywhere to select or deselect it. The old tiny checkboxes were fine on desktop but miserable on a phone. Selected cards get a blue tint so the state is obvious.
 
-After fetching patient resources, the client walks every reference and resolves linked Practitioners, Organizations, Locations, and Medications — so the data is self-contained. Then it extracts and processes clinical document attachments, converting HTML to plaintext and handling various content types.
+**Buttons that tell you what they'll do.** "Send 2 records to AI" instead of just "Send." "Download AI Skill with 3 records" instead of just "Download." When nothing is selected, the buttons are greyed out. You never have to wonder what's going to happen.
 
-The result: a comprehensive, structured health record with the clinical narrative intact. Exactly what an AI needs to provide useful analysis.
+**Info tips that work on mobile.** We had `title` attributes on some buttons to explain what they do — totally invisible on phones since there's no hover. Replaced them with little ⓘ buttons that show a tooltip bubble when you tap.
 
-## Multi-Provider, One View
+**Instant provider search on return visits.** The provider directory is about 90,000 endpoints. It used to re-download and re-parse that list every time you visited the "add connection" page. Now it's cached in memory across navigations — first visit loads the file, subsequent visits render instantly.
 
-Patients don't get care from one place. You see a PCP at one system, a specialist at another, get labs at a third.
+## Cleaning house
 
-Each connection in Health Skillz is independent — its own FHIR server, patient ID, refresh token, and cached data. Connect Epic at one hospital, Epic at another, eventually Cerner too. See them all on one page with patient name, DOB, data size, and freshness. Select any subset to share.
+The UX redesign surfaced a lot of state management debt. We ran a formal audit of every piece of state in the app — which store owns it, where it's persisted, what can get out of sync.
 
-The data stays separate per provider — no lossy merging. When sent to an AI, each provider becomes its own JSON file. The AI can reason across all of them while knowing exactly where each piece of data came from.
+The headline: we deleted an entire Zustand store that had zero imports (dead code from an earlier architecture), gutted the persistence layer from 215 lines down to 35, and ended up with a clean picture: health data in IndexedDB, transient OAuth state in sessionStorage, and nothing at all in localStorage. The app went from -409 lines net across the sprint despite adding significant functionality.
 
-## The Security Model: Server Can't Read Your Data
+We also set up proper deployment infrastructure — a systemd service with the right config, ETag support for the provider directory so browsers can do conditional cache validation.
 
-This is non-negotiable for health data. The server is a blind relay.
+## What's next
 
-1. **AI generates an ECDH key pair**, publishes the public key in the session
-2. **Your browser generates an ephemeral key pair** for each encryption
-3. **Shared secret derived via ECDH** — browser's ephemeral private key + AI's public key
-4. **Data compressed (gzip) and encrypted (AES-256-GCM)** entirely in the browser
-5. **Ciphertext uploaded** — the server stores an opaque blob it cannot decrypt
-6. **AI decrypts** using its private key + the ephemeral public key from the upload
+The connection model opens up ideas that didn't make sense when data was ephemeral:
 
-For large records (>5MB), the system uses streaming encryption — JSON → gzip → 5MB chunks → each chunk gets its own ephemeral key → uploaded separately. Memory stays bounded regardless of dataset size.
+- A unified timeline across providers — medications, labs, conditions from multiple health systems in one view
+- Smarter refresh — only pull resource types that are likely to have changed
+- Portable connections — some way to move your saved connections between devices
 
-The FHIR data itself is fetched directly from the EHR to your browser. SMART on FHIR is a client-side protocol. The server never touches unencrypted health data at any point in the flow.
-
-## The State Management Story
-
-The UX improvements required getting the state management right. We ran a formal audit of every page, component, store, and lib — tracking which state lived where, what was duplicated, and what could flicker.
-
-The findings:
-
-- **A dead Zustand store** (`session.ts`) with zero runtime imports — pure zombie code from an earlier architecture
-- **Split-brain status** in the OAuth callback page — local `useState` duplicated the store's status, merged with `||`, causing stale text to flash between state transitions
-- **Double-load race** — two components independently calling `loadConnections()`, potentially thrashing IndexedDB
-- **Wrong source of truth** — one page reading a public key from `localStorage` instead of the Zustand store
-- **215 lines of persistence code** touching localStorage, sessionStorage, and IndexedDB — most of it dead
-
-After cleanup:
-
-- **localStorage**: nothing
-- **sessionStorage**: only transient OAuth state (written before redirect, deleted after callback)
-- **IndexedDB**: health data wallet (connections + cached FHIR data)
-- **Zustand**: two in-memory stores — `records` (source of truth for connections and session) and `brands` (cached provider directory)
-
-The persistence layer went from 215 lines to 35. The dead store was deleted. The split-brain was eliminated. Net result: -503 lines across the state management changes.
-
-## What This Enables for Patients
-
-The practical difference is significant:
-
-**Before**: Each AI conversation required a full re-authorization with your health system. OAuth login, wait for FHIR fetch, wait for encrypted upload. If something failed on the upload, you might have to start over.
-
-**After**: Authorize once, share many times. Your data is cached locally, ready to encrypt-and-send in seconds. Refresh when you need updated records. Download when you want a local copy. Delete when you're done.
-
-The connection cards show real information: patient name and DOB (not opaque IDs), provider name, data size ("2.3 MB"), freshness ("12m ago"), and a status dot (green = active, red = token expired). You know whose data this is, how much there is, and whether it's current.
-
-When an AI asks for your records, you're not starting from scratch. You're choosing what to share from data you already own.
-
-## The Broader Picture
-
-The 21st Century Cures Act created a capability: standardized patient access to health data via FHIR APIs. The infrastructure is live — 90,000+ endpoints, working OAuth, rich clinical data including full notes.
-
-But the patient experience hasn't changed much. You still log into MyChart, look at your data in the vendor's UI, maybe download a PDF. The vision of patients controlling their data and sharing it with tools of their choice hasn't materialized.
-
-Health Skillz is a proof of concept that it *can*. No accounts, no server-side storage of health data, no vendor lock-in. Just the mandated public APIs that every health system is required to support, a browser that acts as your data wallet, and end-to-end encryption when you choose to share.
-
-The hardest part isn't the technology. The FHIR APIs work. The OAuth flows work. The data is there. The hardest part is that almost nobody has bothered to build consumer tools that use them.
+But the core shift already happened. Your browser is the home for your health data, and sharing is something you do from a position of already having it. That feels like the right foundation.
 
 ---
 
-*Health Skillz is open source at [github.com/jmandel/health-skillz](https://github.com/jmandel/health-skillz). Try it at [health-skillz.joshuamandel.com](https://health-skillz.joshuamandel.com).*
+*Health Skillz is open source. Try it at [health-skillz.joshuamandel.com](https://health-skillz.joshuamandel.com) or grab the code at [github.com/jmandel/health-skillz](https://github.com/jmandel/health-skillz).*
