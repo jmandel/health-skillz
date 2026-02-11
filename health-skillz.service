@@ -1,15 +1,16 @@
 [Unit]
-Description=Health Skillz Server
+Description=Health Skillz web app
 After=network.target
 
 [Service]
 Type=simple
 User=exedev
 WorkingDirectory=/home/exedev/health-skillz
+Environment=PATH=/home/exedev/.bun/bin:/usr/local/bin:/usr/bin:/bin
+Environment=CONFIG_PATH=./config.vnext.json
 ExecStart=/home/exedev/.bun/bin/bun run src/server.ts
-Restart=always
-RestartSec=5
-Environment=NODE_ENV=production
+Restart=on-failure
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target

@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { loadBrandFile, searchBrands, collapseBrands } from '../lib/brands/loader';
-import type { BrandItem, LoadProgress, VendorConfig } from '../lib/brands/types';
+import { searchBrands, collapseBrands } from '../lib/brands/loader';
+import type { BrandItem } from '../lib/brands/types';
 import { saveOAuthState } from '../lib/storage';
 import { useRecordsStore } from '../store/records';
-import { getVendorConfigs } from '../lib/api';
+import { useBrandsStore } from '../store/brands';
 import { buildAuthorizationUrl, generatePKCE } from '../lib/smart/oauth';
 import ProviderSearch from '../components/ProviderSearch';
 import ProviderCard from '../components/ProviderCard';
@@ -23,19 +23,18 @@ export default function ProviderSelectPage() {
   const sessionId = searchParams.get('session') || undefined;
   const backUrl = sessionId ? `/connect/${sessionId}` : '/records';
 
-  // Loading state — start with a synthetic 'loading' progress so we
-  // never render the error branch or the main content before init completes.
-  const [loadProgress, setLoadProgress] = useState<LoadProgress>({ phase: 'fetching', bytesLoaded: 0 });
+  // Brand data from store (cached in memory across navigations)
+  const brands = useBrandsStore();
+
   const [error, setError] = useState<string | null>(null);
   
   // Pagination
   const [page, setPage] = useState(1);
 
-  // Data
-  const [allItems, setAllItems] = useState<BrandItem[]>([]);
-  const [vendors, setVendors] = useState<Record<string, VendorConfig>>({});
+  // Local search state (ephemeral UI)
   const [searchResults, setSearchResults] = useState<BrandItem[]>([]);
   const [query, setQuery] = useState('');
+  const [searchInitialized, setSearchInitialized] = useState(false);
   
   // Paginated view
   const totalPages = Math.ceil(searchResults.length / PAGE_SIZE);
@@ -45,51 +44,18 @@ export default function ProviderSelectPage() {
   const [selectedItem, setSelectedItem] = useState<BrandItem | null>(null);
   const [connecting, setConnecting] = useState(false);
 
-  // Load session and brand data
+  // Load brands (no-op if already cached in memory)
   useEffect(() => {
-    const init = async () => {
-      try {
-        // Get vendor configs (separate from session info)
-        const vendorConfigs = await getVendorConfigs();
-        if (!vendorConfigs || Object.keys(vendorConfigs).length === 0) {
-          setError('No healthcare providers configured');
-          return;
-        }
-        setVendors(vendorConfigs);
+    brands.loadBrands();
+  }, []);
 
-        // Load brand files from all configured vendors
-        const allBrandItems: BrandItem[] = [];
-        for (const [vendorName, config] of Object.entries(vendorConfigs)) {
-          // Load all brand files for this vendor
-          for (const brandFile of config.brandFiles) {
-            try {
-              const items = await loadBrandFile(brandFile, setLoadProgress);
-              // Tag items with vendor info
-              for (const item of items) {
-                (item as any)._vendor = vendorName;
-              }
-              allBrandItems.push(...items);
-            } catch (err) {
-              console.warn(`Failed to load brand file ${brandFile} for ${vendorName}:`, err);
-            }
-          }
-        }
-
-        if (allBrandItems.length === 0) {
-          setError('Failed to load provider directory');
-          return;
-        }
-
-        setAllItems(allBrandItems);
-        setSearchResults(allBrandItems);
-        setLoadProgress({ phase: 'ready', bytesLoaded: 0 });
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to initialize');
-      }
-    };
-
-    init();
-  }, [sessionId]);
+  // Initialize search results when brands finish loading
+  useEffect(() => {
+    if (brands.loaded && brands.allItems.length > 0 && !searchInitialized) {
+      setSearchResults(brands.allItems);
+      setSearchInitialized(true);
+    }
+  }, [brands.loaded, brands.allItems, searchInitialized]);
 
   // Handle search
   const handleSearch = useCallback(
@@ -97,15 +63,15 @@ export default function ProviderSelectPage() {
       setQuery(q);
       setPage(1); // Reset to first page on new search
       if (!q.trim()) {
-        setSearchResults(allItems);
+        setSearchResults(brands.allItems);
         return;
       }
 
-      const matches = searchBrands(allItems, q);
-      const collapsed = collapseBrands(allItems, matches, q);
+      const matches = searchBrands(brands.allItems, q);
+      const collapsed = collapseBrands(brands.allItems, matches, q);
       setSearchResults(collapsed);
     },
-    [allItems]
+    [brands.allItems]
   );
 
   // Handle provider selection
@@ -120,7 +86,7 @@ export default function ProviderSelectPage() {
     const effectiveSessionId = sessionId || 'local_' + crypto.randomUUID();
 
     const vendorName = (selectedItem as any)._vendor as string;
-    const vendorConfig = vendors[vendorName];
+    const vendorConfig = brands.vendors[vendorName];
     if (!vendorConfig) {
       setError('Vendor configuration not found');
       return;
@@ -175,28 +141,29 @@ export default function ProviderSelectPage() {
 
   // Format progress message
   const getProgressMessage = () => {
-    if (loadProgress.phase === 'fetching') {
-      const mb = (loadProgress.bytesLoaded / 1024 / 1024).toFixed(1);
-      // Don't show percentage - content-length is compressed size but we read decompressed
+    if (brands.loadProgress.phase === 'fetching') {
+      const mb = (brands.loadProgress.bytesLoaded / 1024 / 1024).toFixed(1);
       return `Loading providers... ${mb} MB`;
     }
-    if (loadProgress.phase === 'parsing') {
+    if (brands.loadProgress.phase === 'parsing') {
       return 'Processing provider directory...';
     }
     return '';
   };
 
+  const displayError = error || brands.error;
+
   // Loading / error states
-  if (loadProgress.phase !== 'ready') {
+  if (!brands.loaded || !searchInitialized) {
     return (
       <div className="page-centered">
         <div className="panel">
           <h1 className="page-title">Select a provider</h1>
-          {error
-            ? <StatusMessage status="error" message={error} />
+          {displayError
+            ? <StatusMessage status="error" message={displayError} />
             : <StatusMessage status="loading" message={getProgressMessage()} />
           }
-          {error && (
+          {displayError && (
             <button className="btn btn-secondary" onClick={() => navigate(backUrl)}>
               Back
             </button>
@@ -207,12 +174,12 @@ export default function ProviderSelectPage() {
   }
 
   // Standalone error after load (e.g. OAuth setup failure)
-  if (error) {
+  if (displayError) {
     return (
       <div className="page-centered">
         <div className="panel">
           <h1 className="page-title">Select a provider</h1>
-          <StatusMessage status="error" message={error} />
+          <StatusMessage status="error" message={displayError} />
           <button className="btn btn-secondary" onClick={() => navigate(backUrl)}>
             Back
           </button>
@@ -233,7 +200,7 @@ export default function ProviderSelectPage() {
         <h1>Select Your Healthcare Provider</h1>
         <p>
           Search for your hospital, clinic, or healthcare system.
-          {allItems.length > 0 && ` ${allItems.length.toLocaleString()} providers available.`}
+          {brands.allItems.length > 0 && ` ${brands.allItems.length.toLocaleString()} providers available.`}
         </p>
       </div>
 
@@ -247,7 +214,7 @@ export default function ProviderSelectPage() {
             <p className="results-count">
               {query
                 ? `Showing ${displayedItems.length} of ${searchResults.length} result${searchResults.length !== 1 ? 's' : ''}`
-                : `Showing ${displayedItems.length} of ${allItems.length.toLocaleString()} providers`}
+                : `Showing ${displayedItems.length} of ${brands.allItems.length.toLocaleString()} providers`}
             </p>
             <div className="provider-grid">
               {displayedItems.map((item) => (
@@ -278,7 +245,7 @@ export default function ProviderSelectPage() {
             {selectedItem.brandName !== selectedItem.displayName && (
               <p className="modal-brand">Part of: {selectedItem.brandName}</p>
             )}
-            {error && <StatusMessage status="error" message={error} />}
+            {displayError && <StatusMessage status="error" message={displayError} />}
             <div className="modal-buttons">
               <button
                 className="btn btn-secondary"

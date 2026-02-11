@@ -12,7 +12,10 @@ import StatusMessage from '../components/StatusMessage';
 export default function ConnectPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const [searchParams] = useSearchParams();
-  const store = useRecordsStore();
+  const session = useRecordsStore((s) => s.session);
+  const status = useRecordsStore((s) => s.status);
+  const error = useRecordsStore((s) => s.error);
+  const initSession = useRecordsStore((s) => s.initSession);
 
   // Initialize session context on mount
   useEffect(() => {
@@ -20,7 +23,7 @@ export default function ConnectPage() {
     // Only init if not already set (avoids re-init after OAuth redirect back)
     const current = useRecordsStore.getState().session;
     if (!current || current.sessionId !== sessionId) {
-      store.initSession(sessionId);
+      initSession(sessionId);
     }
   }, [sessionId]);
 
@@ -38,13 +41,13 @@ export default function ConnectPage() {
     );
   }
 
-  if (!store.session) {
-    if (store.status === 'error') {
+  if (!session) {
+    if (status === 'error') {
       return (
         <div className="page-centered">
           <div className="panel">
             <div className="page-title">Session error</div>
-            <StatusMessage status="error" message={store.error || 'Session not found or expired'} />
+            <StatusMessage status="error" message={error || 'Session not found or expired'} />
           </div>
         </div>
       );

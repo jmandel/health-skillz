@@ -750,11 +750,20 @@ const server = Bun.serve({
       });
     }
 
-    // Static files with cache headers and gzip compression
+    // Static files with cache headers, ETag, and gzip compression
     if (path.startsWith("/static/")) {
       const filePath = "." + path;
       if (existsSync(filePath)) {
         const file = Bun.file(filePath);
+        const mtime = file.lastModified;
+        const etag = `"${mtime}-${file.size}"`;
+
+        // Conditional request: return 304 if ETag matches
+        const ifNoneMatch = req.headers.get("If-None-Match");
+        if (ifNoneMatch === etag) {
+          return new Response(null, { status: 304, headers: { "ETag": etag } });
+        }
+
         const acceptEncoding = req.headers.get("Accept-Encoding") || "";
         
         // Compress JSON files if client supports gzip
@@ -766,6 +775,7 @@ const server = Bun.serve({
               "Cache-Control": "public, max-age=86400",
               "Content-Encoding": "gzip",
               "Content-Type": "application/json",
+              "ETag": etag,
             },
           });
         }
@@ -773,6 +783,7 @@ const server = Bun.serve({
         return new Response(file, {
           headers: {
             "Cache-Control": "public, max-age=86400",
+            "ETag": etag,
           },
         });
       }

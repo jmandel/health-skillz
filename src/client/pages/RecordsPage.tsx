@@ -1,7 +1,32 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useRecordsStore } from '../store/records';
 import StatusMessage from '../components/StatusMessage';
+
+function InfoTip({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent | TouchEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('touchstart', close);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('touchstart', close);
+    };
+  }, [open]);
+
+  return (
+    <span ref={ref} className={`info-tip${open ? ' info-tip-open' : ''}`} onClick={() => setOpen(o => !o)}>
+      ?
+      {open && <span className="info-tip-bubble">{text}</span>}
+    </span>
+  );
+}
 
 function timeAgo(d: string | null): string {
   if (!d) return 'never';
@@ -38,7 +63,6 @@ export default function RecordsPage() {
   const removeConnection = useRecordsStore((s) => s.removeConnection);
   const clearError = useRecordsStore((s) => s.clearError);
   const sendToAI = useRecordsStore((s) => s.sendToAI);
-  const downloadJson = useRecordsStore((s) => s.downloadJson);
 
   const isSession = Boolean(session);
   const isFinalized = session?.sessionStatus === 'finalized';
@@ -156,18 +180,18 @@ export default function RecordsPage() {
                       {(c.lastError || err) && (
                         <div className="conn-error">{err || c.lastError}</div>
                       )}
-                      <div className="conn-actions" onClick={e => e.preventDefault()}>
+                      <div className="conn-actions">
                         <button
                           className="btn btn-secondary btn-sm"
                           disabled={refreshing || busy}
-                          onClick={e => { e.preventDefault(); refreshConnection(c.id); }}
+                          onClick={e => { e.preventDefault(); e.stopPropagation(); refreshConnection(c.id); }}
                         >
                           {refreshing ? 'Refreshing…' : 'Refresh'}
                         </button>
                         <button
                           className="btn btn-ghost btn-sm"
                           disabled={refreshing || busy}
-                          onClick={e => { e.preventDefault(); handleRemove(c.id); }}
+                          onClick={e => { e.preventDefault(); e.stopPropagation(); handleRemove(c.id); }}
                         >
                           Remove
                         </button>
@@ -209,21 +233,11 @@ export default function RecordsPage() {
                   <button
                     className="btn btn-secondary"
                     disabled={noneSel || busy}
-                    onClick={downloadJson}
-                  >
-                    Download JSON
-                  </button>
-                  <span className="info-tip" title="Download your selected health records as a plain JSON file. You can upload this directly to any AI that doesn't have web access.">?</span>
-                </div>
-                <div className="action-line">
-                  <button
-                    className="btn btn-secondary"
-                    disabled={noneSel || busy}
                     onClick={() => { window.location.href = '/skill.zip'; }}
                   >
                     {noneSel ? 'Download AI Skill' : `Download AI Skill with ${selCount} record${selCount !== 1 ? 's' : ''}`}
                   </button>
-                  <span className="info-tip" title="A zip with AI agent scripts plus your selected records baked in. Give this to an AI so it can analyze your data without web access.">?</span>
+                  <InfoTip text="Downloads a zip with AI agent scripts plus your selected health records. Give this to any AI to analyze your data without web access." />
                 </div>
               </div>
             </div>
