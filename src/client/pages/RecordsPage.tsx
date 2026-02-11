@@ -24,6 +24,7 @@ export default function RecordsPage() {
   const nav = useNavigate();
   const s = useRecordsStore();
   const isSession = Boolean(s.session);
+  const isFinalized = s.session?.sessionStatus === 'finalized';
   const busy = s.status === 'sending' || s.status === 'finalizing';
   const selCount = s.selected.size;
   const total = s.connections.length;
@@ -170,7 +171,7 @@ export default function RecordsPage() {
 
             {/* Actions */}
             <div className="action-bar">
-              {isSession && (
+              {isSession && !isFinalized && (
                 <button
                   className="btn btn-primary btn-full"
                   disabled={noneSel || busy}
@@ -180,6 +181,11 @@ export default function RecordsPage() {
                     ? 'Encrypting & sending…'
                     : `Send ${selCount} record${selCount !== 1 ? 's' : ''} to AI`}
                 </button>
+              )}
+              {isSession && isFinalized && (
+                <p className="text-success" style={{ textAlign: 'center', padding: '8px 0' }}>
+                  ✓ Records sent to AI — you can close this page.
+                </p>
               )}
               <div className="action-row">
                 <button

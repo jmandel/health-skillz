@@ -411,8 +411,10 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
   // sendToAI — encrypt + upload selected connections' cached data
   // -----------------------------------------------------------------------
   sendToAI: async () => {
-    const { session, connections, selected } = get();
+    const { session, connections, selected, status } = get();
     if (!session) throw new Error('No active session');
+    if (session.sessionStatus === 'finalized') return;  // already done
+    if (status === 'sending') return;  // already in progress
 
     const selectedConns = connections.filter(c => selected.has(c.id));
     if (selectedConns.length === 0) return;
