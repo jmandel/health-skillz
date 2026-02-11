@@ -480,9 +480,14 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
         sentCount++;
       }
 
+      // Finalize the session so the AI can retrieve the data
+      set({ statusMessage: 'Finalizing session…' });
+      await finalizeSess(session.sessionId, session.finalizeToken);
+
       set({
         status: 'done',
-        statusMessage: `Sent ${sentCount} connection${sentCount !== 1 ? 's' : ''} successfully!`,
+        statusMessage: `Sent ${sentCount} connection${sentCount !== 1 ? 's' : ''} — session finalized.`,
+        session: { ...session, sessionStatus: 'finalized' },
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -490,25 +495,9 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
     }
   },
 
-  // -----------------------------------------------------------------------
-  // finalizeSession — tell server we're done
-  // -----------------------------------------------------------------------
-  finalizeSession: async () => {
-    const { session } = get();
-    if (!session) return;
-    set({ status: 'finalizing', statusMessage: 'Finalizing session…' });
-    try {
-      await finalizeSess(session.sessionId, session.finalizeToken);
-      set({
-        status: 'done',
-        statusMessage: 'Session finalized — you can close this page.',
-        session: { ...session, sessionStatus: 'finalized' },
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      set({ status: 'error', error: msg });
-    }
-  },
+  // finalizeSession is now integrated into sendToAI above.
+  // Keep as a no-op for any callers.
+  finalizeSession: async () => {},
 
   // -----------------------------------------------------------------------
   // downloadJson — export all cached data
