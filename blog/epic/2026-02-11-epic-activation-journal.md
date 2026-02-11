@@ -413,6 +413,30 @@ The ECMId field — hidden in the API response and never shown in the UI — is 
 
 ## Files Produced
 
-- `static/epic-activate-all.js` — The automation script (paste into browser console)
-- `static/ecmids.json` — JSON array of 500 ECMId values extracted from the management API
-- `static/epic-activation-journal.md` — This journal
+- `blog/epic/epic-activate-all.js` — The automation script (paste into browser console)
+- `blog/epic/ecmids.json` — JSON array of 500 ECMId values extracted from the management API
+- `blog/epic/2026-02-11-epic-activation-journal.md` — This journal
+
+---
+
+## Coda: The Four Stragglers
+
+After running the automation script, we ended up at **496 out of 500** organizations activated. Four remained stuck at "Not responded." At first this looked like a script bug — maybe an edge case in the API calls, a timeout, or a malformed request.
+
+We investigated by calling the `ApproveDownload` API directly for each of the four:
+
+| Org | OrgId | ECMId | Result |
+|---|---|---|---|
+| Dickson Medical Associates | 30875 | 1441 | `"Failed to register client for download."` |
+| Foothill Family Clinic | 30901 | 1352 | `"Failed to register client for download."` |
+| OakLeaf | 31769 | 1459 | `"Failed to register client for download."` |
+| Reno Orthopaedic Clinic | 31291 | 1486 | `"Failed to register client for download."` |
+
+All four return the same server-side error. To confirm it wasn't a script issue, we tried activating Dickson Medical Associates through the actual UI — clicked "Activate for Non-Production," selected the JWK Set URL radio, clicked submit. The modal showed:
+
+> **Error**
+> An error occurred. Keys were not enabled. Failed to register client for download.
+
+Same error through the UI. These four organizations simply won't accept the registration — it's a server-side issue on Epic's end, not a script bug. All four are newer organizations (OrgIds in the 30,000s, ECMIds in the 1300s–1400s), suggesting their Epic environments may not be fully provisioned to accept client registrations yet.
+
+The script will pick them up on a future re-run since they still show `Approved === 0`.
