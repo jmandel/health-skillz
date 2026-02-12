@@ -48,6 +48,13 @@ export default function ConnectPage() {
           <div className="panel">
             <div className="page-title">Session error</div>
             <StatusMessage status="error" message={error || 'Session not found or expired'} />
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: 16 }}>
+              This session link may have expired or been used already.
+              Ask your AI assistant to create a new one, or manage your records directly.
+            </p>
+            <div style={{ marginTop: 12 }}>
+              <a href="/records" className="btn btn-primary">Go to My Health Records</a>
+            </div>
           </div>
         </div>
       );
