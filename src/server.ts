@@ -1038,6 +1038,8 @@ const server = Bun.serve({
         "jwks-intentionally-publishing-private-keys-which-are-not-sensitive-in-this-architecture.json",
       ];
       if (allowed.includes(filename)) {
+        const sourceIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+        console.log(`[JWKS] ${new Date().toISOString()} | ${sourceIp} | ${path}`);
         const jwksPath = `./data/${filename}`;
         if (existsSync(jwksPath)) {
           return new Response(readFileSync(jwksPath, "utf-8"), {
