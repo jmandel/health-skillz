@@ -12,6 +12,7 @@
  * Keys generated:
  *   - EC P-384  (alg: ES384)
  *   - RSA 2048  (alg: RS256)
+ *   - RSA 2048  (alg: RS384)
  */
 import { generateKeyPairSync, randomUUID } from "crypto";
 import { mkdirSync, writeFileSync, existsSync } from "fs";
@@ -63,14 +64,33 @@ for (const k of ["d", "p", "q", "dp", "dq", "qi"]) {
 }
 rsaPubJwk.key_ops = ["verify"];
 
+// --- RSA 2048 key (RS384) ---
+const rsa384 = generateKeyPairSync("rsa", { modulusLength: 2048 });
+const rsa384Kid = randomUUID();
+
+const rsa384PrivJwk = {
+  ...rsa384.privateKey.export({ format: "jwk" }),
+  kid: rsa384Kid,
+  alg: "RS384",
+  use: "sig",
+  key_ops: ["sign"],
+};
+
+const rsa384PubJwk = { ...rsa384PrivJwk };
+for (const k of ["d", "p", "q", "dp", "dq", "qi"]) {
+  delete (rsa384PubJwk as any)[k];
+}
+rsa384PubJwk.key_ops = ["verify"];
+
 // --- Write JWKS ---
-const fullJwks = { keys: [ecPrivJwk, rsaPrivJwk] };
-const pubJwks = { keys: [ecPubJwk, rsaPubJwk] };
+const fullJwks = { keys: [ecPrivJwk, rsaPrivJwk, rsa384PrivJwk] };
+const pubJwks = { keys: [ecPubJwk, rsaPubJwk, rsa384PubJwk] };
 
 writeFileSync(pubPath, JSON.stringify(pubJwks, null, 2) + "\n");
 writeFileSync(fullPath, JSON.stringify(fullJwks, null, 2) + "\n");
 
-console.log(`Generated EC P-384 key pair  (kid: ${ecKid})`);
-console.log(`Generated RSA 2048 key pair  (kid: ${rsaKid})`);
+console.log(`Generated EC P-384 key pair   (kid: ${ecKid})`);
+console.log(`Generated RSA 2048 RS256 key  (kid: ${rsaKid})`);
+console.log(`Generated RSA 2048 RS384 key  (kid: ${rsa384Kid})`);
 console.log(`  Full (with private keys): ${fullPath}`);
 console.log(`  Public only:              ${pubPath}`);
