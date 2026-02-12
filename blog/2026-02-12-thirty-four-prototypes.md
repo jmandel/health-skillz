@@ -36,6 +36,8 @@ In round three, looking at prototypes where finished-but-empty slots looked iden
 
 Each round, the brief got tighter. Not because I sat down to write a spec, but because each batch of prototypes surfaced assumptions I hadn't examined. By round five, I had a brief that was genuinely precise — 44 query slots in 7 named groups, five visual states with specific color tiers for data volume, three sequential phases, pre-allocated progress bars for all of them. That brief didn't exist in my head at the start. The prototypes drew it out.
 
+If you want to see exactly how this worked — the actual prompts, the shared spec documents that evolved round over round, how "there should be a clear way to visualize empty vs. errored" turned into a five-state model with exact hex codes — I wrote up a [detailed development journal](progress-widget-design/journal.md). The most interesting thing in there isn't the designs, it's watching the sub-agent briefs get tighter. Each round of feedback about the prototypes was really feedback about the prompt.
+
 ---
 
 ### Picking one
