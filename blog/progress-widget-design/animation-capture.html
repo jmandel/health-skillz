@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Loading Widget Animation - Capture</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #f5f5f5;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 480px; height: 270px;
+  }
+  .widget {
+    width: 340px;
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    padding: 10px 20px 8px;
+    text-align: center;
+  }
+  .counter-hero { margin-bottom: 4px; }
+  .counter-num {
+    font-size: 32px; font-weight: 600; color: #263238;
+    line-height: 1.1; letter-spacing: -0.5px;
+  }
+  .counter-num.complete { color: #2e7d32; }
+  .counter-check { font-size: 20px; margin-left: 4px; color: #2e7d32; vertical-align: middle; }
+  .counter-label { font-size: 12px; color: #999; margin-top: 1px; }
+  .dot-strip {
+    display: flex; justify-content: center; align-items: center;
+    gap: 1px; margin-bottom: 5px; height: 10px;
+  }
+  .dot-group { display: flex; align-items: center; gap: 1px; }
+  .dot-group + .dot-group { margin-left: 3px; }
+  .dot {
+    width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
+  }
+  .dot.pending  { background: #e0e0e0; }
+  .dot.active   { background: #26a69a; }
+  .dot.active.bright { background: #26a69a; opacity: 1; }
+  .dot.active.dim { opacity: 0.4; }
+  .dot.empty    { background: #ececec; }
+  .dot.error    { background: #ef5350; }
+  .dot.done-1   { background: #c8e6c9; }
+  .dot.done-2   { background: #81c784; }
+  .dot.done-3   { background: #4caf50; }
+  .dot.done-4   { background: #2e7d32; }
+  .status-zone { min-height: 50px; }
+  .status-active { font-size: 12px; color: #999; font-style: italic; line-height: 1.5; }
+  .status-settled { font-size: 11px; color: #b0b0b0; margin-top: 1px; }
+  .status-summary { font-size: 12px; color: #555; line-height: 1.5; }
+  .ref-bars { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; }
+  .ref-bar { display: flex; align-items: center; gap: 6px; }
+  .ref-bar-label { font-size: 10px; color: #aaa; width: 72px; text-align: right; flex-shrink: 0; }
+  .ref-bar-track { flex: 1; height: 3px; background: #f0f0f0; border-radius: 2px; overflow: hidden; }
+  .ref-bar-fill { height: 100%; border-radius: 2px; background: #66bb6a; }
+  .ref-bar-count { font-size: 10px; color: #999; width: 40px; flex-shrink: 0; }
+  .ref-bar-check { font-size: 10px; color: #66bb6a; }
+</style>
+</head>
+<body>
+<div class="widget" id="widget">
+  <div class="counter-hero">
+    <div class="counter-num" id="counter">0</div>
+    <div class="counter-label">resources found</div>
+  </div>
+  <div class="dot-strip" id="dots"></div>
+  <div class="status-zone" id="status"></div>
+</div>
+
+<script>
+// Matches PATIENT_SEARCH_QUERIES in src/client/lib/smart/client.ts exactly
+const GROUPS = [
+  { name: 'Lab & Vitals', queries: [
+    { label: 'Labs', count: 342, pages: 8 },
+    { label: 'Vitals', count: 127, pages: 4 },
+    { label: 'Social History', count: 8, pages: 1 },
+    { label: 'Surveys', count: 14, pages: 1 },
+    { label: 'Exams', count: 0, pages: 1 },
+    { label: 'Therapy', count: 0, pages: 1 },
+    { label: 'Activity', count: 0, pages: 1 },
+    { label: 'Imaging', count: 0, pages: 1 },
+    { label: 'Procedures', count: 0, pages: 1 },
+    { label: 'SDOH', count: 6, pages: 1 },
+    { label: 'Functional', count: 0, pages: 1 },
+    { label: 'Disability', count: 0, pages: 1 },
+    { label: 'Cognitive', count: 0, pages: 1 },
+    { label: 'Clinical Tests', count: 2, pages: 1 },
+    { label: 'ADI', count: 0, pages: 1 },
+    { label: 'Care Experience', count: 0, pages: 1 },
+    { label: 'Treatment Prefs', count: 1, pages: 1 },
+    { label: 'Lab Reports', count: 23, pages: 1 },
+    { label: 'Radiology', count: 17, pages: 1 },
+  ]},
+  { name: 'Conditions', queries: [
+    { label: 'Problems', count: 22, pages: 1 },
+    { label: 'Health Concerns', count: 5, pages: 1 },
+    { label: 'Diagnoses', count: 8, pages: 1 },
+  ]},
+  { name: 'Documents', queries: [
+    { label: 'Clinical Notes', count: 215, pages: 5 },
+    { label: 'Documents', count: 108, pages: 3 },
+  ]},
+  { name: 'Services', queries: [
+    { label: 'Evaluations', count: 0, pages: 1 },
+    { label: 'Social Services', count: 0, pages: 1 },
+    { label: 'SDOH Services', count: 0, pages: 1 },
+    { label: 'Services', count: 5, pages: 1 },
+  ]},
+  { name: 'Medications', queries: [
+    { label: 'Dispensing', count: 6, pages: 1 },
+    { label: 'Medications', count: 18, pages: 1 },
+    { label: 'Med History', count: 0, pages: 1 },
+  ]},
+  { name: 'Clinical', queries: [
+    { label: 'Allergies', count: 4, pages: 1 },
+    { label: 'Care Plan', count: 2, pages: 1 },
+    { label: 'Care Team', count: 3, pages: 1 },
+    { label: 'Immunizations', count: 12, pages: 1 },
+  ]},
+  { name: 'Admin', queries: [
+    { label: 'Patient', count: 1, pages: 1 },
+    { label: 'Coverage', count: -1, pages: 1 },
+    { label: 'Devices', count: 7, pages: 1 },
+    { label: 'Encounters', count: 512, pages: 12 },
+    { label: 'Family History', count: 34, pages: 1 },
+    { label: 'Goals', count: 5, pages: 1 },
+    { label: 'Procedures', count: -1, pages: 1 },
+    { label: 'Questionnaires', count: 0, pages: 1 },
+    { label: 'Related Persons', count: 0, pages: 1 },
+  ]},
+];
+
+const allQueries = [];
+GROUPS.forEach((g, gi) => g.queries.forEach(q => allQueries.push({...q, groupIdx: gi})));
+
+// Deterministic timeline (seeded)
+function buildTimeline() {
+  const timeline = [];
+  let clock = 0.5;
+  const concurrency = 4;
+  const endTimes = [];
+  
+  const priorityOrder = [
+    31, 32, 33, 34, 35, 28, 29, 30, 19, 20, 21,
+    0, 1, 37, 2, 3, 9, 13, 16, 17, 18,
+    22, 23, 24, 25, 26, 27,
+    4, 5, 6, 7, 8, 10, 11, 12, 14, 15,
+    36, 38, 39, 40, 41, 42, 43,
+  ];
+  
+  const seen = new Set();
+  const finalOrder = [];
+  priorityOrder.forEach(i => { if (!seen.has(i) && i < allQueries.length) { seen.add(i); finalOrder.push(i); }});
+  for (let i = 0; i < allQueries.length; i++) { if (!seen.has(i)) { seen.add(i); finalOrder.push(i); }}
+  
+  // Deterministic pseudo-random
+  let seed = 42;
+  function rand() { seed = (seed * 16807 + 0) % 2147483647; return seed / 2147483647; }
+  
+  finalOrder.forEach(queryIdx => {
+    const q = allQueries[queryIdx];
+    while (endTimes.length >= concurrency) {
+      endTimes.sort((a, b) => a - b);
+      clock = Math.max(clock, endTimes.shift());
+    }
+    const startTime = clock + rand() * 0.3;
+    let duration;
+    if (q.count === -1) duration = 0.5 + rand() * 0.5;
+    else if (q.count === 0) duration = 0.3 + rand() * 0.4;
+    else if (q.pages > 3) duration = 1.5 + q.pages * 0.6 + rand() * 1.0;
+    else duration = 0.5 + rand() * 1.0;
+    timeline.push({ queryIdx, startTime, endTime: startTime + duration, q });
+    endTimes.push(startTime + duration);
+    clock = startTime + 0.1;
+  });
+  
+  const maxEnd = Math.max(...timeline.map(t => t.endTime));
+  const scale = 14.0 / maxEnd;
+  timeline.forEach(t => { t.startTime *= scale; t.endTime *= scale; });
+  return timeline;
+}
+
+const dotsContainer = document.getElementById('dots');
+const counterEl = document.getElementById('counter');
+const statusEl = document.getElementById('status');
+
+const dotEls = [];
+GROUPS.forEach((g) => {
+  const groupDiv = document.createElement('div');
+  groupDiv.className = 'dot-group';
+  g.queries.forEach(() => {
+    const dot = document.createElement('span');
+    dot.className = 'dot pending';
+    groupDiv.appendChild(dot);
+    dotEls.push(dot);
+  });
+  dotsContainer.appendChild(groupDiv);
+});
+
+function getDotClass(count) {
+  if (count === -1) return 'error';
+  if (count === 0) return 'empty';
+  if (count <= 5) return 'done-1';
+  if (count <= 20) return 'done-2';
+  if (count <= 100) return 'done-3';
+  return 'done-4';
+}
+
+const timeline = buildTimeline();
+
+const PHASE2_START = 14.2, PHASE2_END = 17;
+const PHASE3_START = 17.2, PHASE3_END = 19;
+const HOLD_AT = 19.5;
+
+window.renderFrame = function(elapsed) {
+  // Simulate pulse: active dots alternate bright/dim based on time
+  const pulsePhase = (elapsed % 1.0) / 1.0;
+  const pulseOpacity = 0.4 + 0.6 * (0.5 + 0.5 * Math.cos(pulsePhase * Math.PI * 2));
+  
+  let totalResources = 0, settledCount = 0;
+  let activeNames = [], doneTypes = 0, emptyTypes = 0, errorTypes = 0;
+  
+  timeline.forEach(({queryIdx, startTime, endTime, q}) => {
+    const dot = dotEls[queryIdx];
+    if (elapsed < startTime) {
+      dot.className = 'dot pending';
+      dot.style.opacity = '';
+    } else if (elapsed < endTime) {
+      dot.className = 'dot active';
+      dot.style.opacity = pulseOpacity;
+      activeNames.push(q.label);
+      if (q.count > 0) {
+        const progress = (elapsed - startTime) / (endTime - startTime);
+        totalResources += Math.round(q.count * progress);
+      }
+    } else {
+      dot.className = 'dot ' + getDotClass(q.count);
+      dot.style.opacity = '';
+      settledCount++;
+      if (q.count > 0) { totalResources += q.count; doneTypes++; }
+      else if (q.count === 0) emptyTypes++;
+      else if (q.count === -1) errorTypes++;
+    }
+  });
+  
+  let phase = 'fetching', refProgress = 0, attProgress = 0;
+  if (elapsed >= HOLD_AT) {
+    phase = 'complete';
+    counterEl.innerHTML = '1,507<span class="counter-check">\u2713</span>';
+    counterEl.className = 'counter-num complete';
+  } else if (elapsed >= PHASE3_START) {
+    phase = 'attachments';
+    attProgress = Math.min(100, ((elapsed - PHASE3_START) / (PHASE3_END - PHASE3_START)) * 100);
+    counterEl.textContent = totalResources.toLocaleString();
+    counterEl.className = 'counter-num';
+  } else if (elapsed >= PHASE2_START) {
+    phase = 'references';
+    refProgress = Math.min(100, ((elapsed - PHASE2_START) / (PHASE2_END - PHASE2_START)) * 100);
+    counterEl.textContent = totalResources.toLocaleString();
+    counterEl.className = 'counter-num';
+  } else {
+    counterEl.textContent = totalResources.toLocaleString();
+    counterEl.className = 'counter-num';
+  }
+  
+  let html = '';
+  if (phase === 'fetching') {
+    if (activeNames.length > 0)
+      html += '<div class="status-active">Loading: ' + activeNames.slice(0,5).join(', ') + (activeNames.length > 5 ? '\u2026' : '') + '</div>';
+    html += '<div class="status-settled">' + settledCount + ' of 44 settled</div>';
+    html += '<div class="ref-bars"><div class="ref-bar"><span class="ref-bar-label">References</span><div class="ref-bar-track"><div class="ref-bar-fill" style="width:0%"></div></div><span class="ref-bar-count" style="color:#ccc">&mdash;</span></div>';
+    html += '<div class="ref-bar"><span class="ref-bar-label">Attachments</span><div class="ref-bar-track"><div class="ref-bar-fill" style="width:0%"></div></div><span class="ref-bar-count" style="color:#ccc">&mdash;</span></div></div>';
+  } else if (phase === 'references') {
+    html += '<div class="status-active">Processing references\u2026</div>';
+    html += '<div class="ref-bars"><div class="ref-bar"><span class="ref-bar-label">References</span><div class="ref-bar-track"><div class="ref-bar-fill" style="width:'+refProgress+'%"></div></div><span class="ref-bar-count">'+Math.round(refProgress*1.48)+'</span></div>';
+    html += '<div class="ref-bar"><span class="ref-bar-label">Attachments</span><div class="ref-bar-track"><div class="ref-bar-fill" style="width:0%"></div></div><span class="ref-bar-count" style="color:#ccc">&mdash;</span></div></div>';
+  } else if (phase === 'attachments') {
+    html += '<div class="status-active">Processing attachments\u2026</div>';
+    html += '<div class="ref-bars"><div class="ref-bar"><span class="ref-bar-label">References</span><div class="ref-bar-track"><div class="ref-bar-fill" style="width:100%"></div></div><span class="ref-bar-count">148 <span class="ref-bar-check">\u2713</span></span></div>';
+    html += '<div class="ref-bar"><span class="ref-bar-label">Attachments</span><div class="ref-bar-track"><div class="ref-bar-fill" style="width:'+attProgress+'%"></div></div><span class="ref-bar-count">'+Math.round(attProgress*0.31)+'</span></div></div>';
+  } else {
+    html += '<div class="status-summary">'+doneTypes+' types found \u00b7 '+emptyTypes+' empty \u00b7 '+errorTypes+' failed</div>';
+    html += '<div class="ref-bars"><div class="ref-bar"><span class="ref-bar-label">References</span><div class="ref-bar-track"><div class="ref-bar-fill" style="width:100%"></div></div><span class="ref-bar-count">148 <span class="ref-bar-check">\u2713</span></span></div>';
+    html += '<div class="ref-bar"><span class="ref-bar-label">Attachments</span><div class="ref-bar-track"><div class="ref-bar-fill" style="width:100%"></div></div><span class="ref-bar-count">31 <span class="ref-bar-check">\u2713</span></span></div></div>';
+  }
+  statusEl.innerHTML = html;
+};
+
+// Render initial frame
+window.renderFrame(0);
+</script>
+</body>
+</html>

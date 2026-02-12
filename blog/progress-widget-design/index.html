@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Loading Widget Design Journey</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0a; color: #e0e0e0; line-height: 1.6; }
+  .hero { padding: 80px 40px 60px; max-width: 1200px; margin: 0 auto; text-align: center; }
+  .hero h1 { font-size: 48px; font-weight: 300; letter-spacing: -1px; color: #fff; margin-bottom: 16px; }
+  .hero p { font-size: 18px; color: #888; max-width: 700px; margin: 0 auto; }
+  .hero .stats { margin-top: 32px; display: flex; gap: 48px; justify-content: center; }
+  .hero .stat { text-align: center; }
+  .hero .stat-num { font-size: 36px; font-weight: 600; color: #26a69a; }
+  .hero .stat-label { font-size: 13px; color: #666; text-transform: uppercase; letter-spacing: 1px; }
+  .round { max-width: 1200px; margin: 0 auto; padding: 60px 40px; border-top: 1px solid #1a1a1a; }
+  .round-header { margin-bottom: 40px; }
+  .round-num { font-size: 12px; text-transform: uppercase; letter-spacing: 3px; color: #26a69a; margin-bottom: 8px; }
+  .round-title { font-size: 32px; font-weight: 400; color: #fff; margin-bottom: 12px; }
+  .round-desc { font-size: 15px; color: #888; max-width: 800px; }
+  .round-feedback { margin-top: 16px; padding: 16px 20px; background: #141414; border-left: 3px solid #26a69a; border-radius: 0 8px 8px 0; font-size: 14px; color: #aaa; font-style: italic; }
+  .round-feedback strong { color: #26a69a; font-style: normal; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 24px; }
+  .card { background: #111; border-radius: 12px; overflow: hidden; transition: transform 0.2s, box-shadow 0.2s; }
+  .card:hover { transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.4); }
+  .card.chosen { box-shadow: 0 0 0 2px #26a69a, 0 12px 40px rgba(38,166,154,0.15); }
+  .card.chosen .card-badge { display: inline-block; }
+  .card img { width: 100%; display: block; background: #1a1a1a; }
+  .card-body { padding: 16px 20px; }
+  .card-label { font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #666; margin-bottom: 4px; }
+  .card-name { font-size: 18px; font-weight: 500; color: #fff; margin-bottom: 8px; }
+  .card-badge { display: none; font-size: 10px; background: #26a69a; color: #fff; padding: 2px 8px; border-radius: 10px; margin-left: 8px; vertical-align: middle; }
+  .card-desc { font-size: 13px; color: #888; line-height: 1.5; }
+  .finale { max-width: 1200px; margin: 0 auto; padding: 60px 40px 80px; border-top: 1px solid #1a1a1a; text-align: center; }
+  .finale h2 { font-size: 32px; font-weight: 400; color: #fff; margin-bottom: 16px; }
+  .finale p { font-size: 15px; color: #888; max-width: 600px; margin: 0 auto 32px; }
+  .finale img { max-width: 700px; width: 100%; border-radius: 12px; box-shadow: 0 0 0 2px #26a69a, 0 20px 60px rgba(0,0,0,0.5); }
+  @media (max-width: 768px) {
+    .hero h1 { font-size: 32px; }
+    .hero .stats { flex-direction: column; gap: 16px; }
+    .grid { grid-template-columns: 1fr; }
+    .round, .hero, .finale { padding: 40px 20px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>Loading Widget Design Journey</h1>
+  <p>How we designed a progress visualization for fetching health records via SMART on FHIR — 44 parallel queries across 7 categories, through 6 rounds of iteration.</p>
+  <div class="stats">
+    <div class="stat"><div class="stat-num">34</div><div class="stat-label">Prototypes</div></div>
+    <div class="stat"><div class="stat-num">6</div><div class="stat-label">Rounds</div></div>
+    <div class="stat"><div class="stat-num">1</div><div class="stat-label">Winner</div></div>
+  </div>
+</div>
+
+<!-- ROUND 0 -->
+<div class="round">
+  <div class="round-header">
+    <div class="round-num">Round 0</div>
+    <div class="round-title">Starting Point</div>
+    <div class="round-desc">The initial progress widget — a basic prototype showing fetch progress for FHIR resources. Functional but not visually refined. This kicked off the exploration.</div>
+  </div>
+  <div class="grid">
+    <div class="card">
+      <img src="screenshots/00-initial-prototype.png" alt="Initial prototype">
+      <div class="card-body">
+        <div class="card-label">Prototype</div>
+        <div class="card-name">Initial Progress Widget</div>
+        <div class="card-desc">Basic progress display. Showed page numbers and FHIR resource type names directly — functional for developers but not patient-friendly.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ROUND 1 -->
+<div class="round">
+  <div class="round-header">
+    <div class="round-num">Round 1</div>
+    <div class="round-title">Divergent Exploration</div>
+    <div class="round-desc">Six wildly different approaches to visualize progress for ~20 FHIR resource types with pagination. Each showed page numbers inside active cells and used abbreviations like "Obs", "Cnd", "Med".</div>
+    <div class="round-feedback"><strong>Feedback:</strong> These all assume we know how many pages there'll be upfront — we don't! Need to pre-allocate all space and track progress without adding dots or resizing.</div>
+  </div>
+  <div class="grid">
+    <div class="card">
+      <img src="screenshots/01a-heatmap.png" alt="Heatmap grid">
+      <div class="card-body">
+        <div class="card-label">Variant A</div>
+        <div class="card-name">Heatmap Grid</div>
+        <div class="card-desc">GitHub contribution chart style — 5×4 grid of cells with 2-3 letter abbreviations. Color intensity shows data volume. Compact but abbreviations are cryptic.</div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="screenshots/01b-waterfall.png" alt="Waterfall rows">
+      <div class="card-body">
+        <div class="card-label">Variant B</div>
+        <div class="card-name">Waterfall Rows</div>
+        <div class="card-desc">Chrome DevTools network panel style — horizontal bars per resource, segmented by page. High readability but assumes known page counts.</div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="screenshots/01c-treemap.png" alt="Treemap blocks">
+      <div class="card-body">
+        <div class="card-label">Variant C</div>
+        <div class="card-name">Treemap Blocks</div>
+        <div class="card-desc">Rectangles sized by data volume, like a disk usage visualizer. Novel way to show data shape, but layout shifts as data arrives — violates the stability constraint.</div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="screenshots/01d-radial.png" alt="Radial segments">
+      <div class="card-body">
+        <div class="card-label">Variant D</div>
+        <div class="card-name">Radial Segments</div>
+        <div class="card-desc">Apple Watch activity ring style — donut with 20 arcs, thickness proportional to volume. Visually striking but hard to read individual resource status.</div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="screenshots/01e-ticker.png" alt="Minimal ticker">
+      <div class="card-body">
+        <div class="card-label">Variant E</div>
+        <div class="card-name">Minimal Ticker</div>
+        <div class="card-desc">Ultra-minimal text display — segmented progress bar with a big resource count and cycling status text. Numbers are the hero element.</div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="screenshots/01f-mosaic.png" alt="Mosaic chips">
+      <div class="card-body">
+        <div class="card-label">Variant F</div>
+        <div class="card-name">Mosaic Chips</div>
+        <div class="card-desc">Tag cloud of inline text chips with colored backgrounds. Most readable names but medium density. Flows like text with category headers.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ROUND 2 -->
+<div class="round">
+  <div class="round-header">
+    <div class="round-num">Round 2</div>
+    <div class="round-title">Refined Data Model</div>
+    <div class="round-desc">New approach: exactly 44 fixed query slots grouped into 7 categories. Each cell represents one query, and page numbers appear inside active cells. Introduced a proper data spec.</div>
+    <div class="round-feedback"><strong>Feedback:</strong> Still showing page numbers — patients don't care about "page 3". Also using FHIR jargon. Need patient-friendly labels and no technical details.</div>
+  </div>
+  <div class="grid">
+    <div class="card">
+      <img src="screenshots/02a-pixel-grid.png" alt="Pixel grid">
+      <div class="card-body">
+        <div class="card-label">Variant A</div>
+        <div class="card-name">Pixel Grid</div>
+        <div class="card-desc">Fixed 11×4 grid of 28px squares. Page numbers shown as centered digits inside active cells. Group labels sit above grid rows.</div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="screenshots/02b-grouped-bars.png" alt="Grouped bars">
+      <div class="card-body">
+        <div class="card-label">Variant B</div>
+        <div class="card-name">Grouped Mini-Bars</div>
+        <div class="card-desc">Each of 7 groups gets a horizontal row with segments for each query. Like a stacked bar chart — Observations row has 17 thin segments.</div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="screenshots/02c-waffle.png" alt="Waffle chart">
+      <div class="card-body">
+        <div class="card-label">Variant C</div>
+        <div class="card-name">Waffle Chart</div>
+        <div class="card-desc">44-cell waffle chart with rounded squares. Cells arranged by group with thin separators. Page numbers in active cells, result counts in completed ones.</div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="screenshots/02d-timeline.png" alt="Timeline feed">
+      <div class="card-body">
+        <div class="card-label">Variant D</div>
+        <div class="card-name">Timeline Feed</div>
+        <div class="card-desc">Vertical scrolling event log, like CI build output. Completed queries appear as compact lines with colored dots. Active queries pulse at top.</div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="screenshots/02e-ring-counter.png" alt="Ring counter">
+      <div class="card-body">
+        <div class="card-label">Variant E</div>
+        <div class="card-name">Ring Counter</div>
+        <div class="card-desc">iOS activity ring filling as queries complete. Large ticking number inside ("1,847 resources"). 44 arc segments, grey→green as each settles.</div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="screenshots/02f-mosaic-v2.png" alt="Dense mosaic">
+      <div class="card-body">
+        <div class="card-label">Variant F</div>
+        <div class="card-name">Dense Mosaic v2</div>
+        <div class="card-desc">Refined chip approach with group headers. Tiny inline chips (22px tall, 10px font) flow like words. Pending chips are outline-only, done chips show counts.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ROUND 3 -->
+<div class="round">
+  <div class="round-header">
+    <div class="round-num">Round 3</div>
+    <div class="round-title">Proper State Model</div>
+    <div class="round-desc">Introduced a formal 5-state machine (pending → active → done/empty/error) with exact simulation data for Early, Mid, and Complete snapshots. Tighter visual spec with 4-tier green intensity.</div>
+    <div class="round-feedback"><strong>Feedback:</strong> Getting closer. But still showing page numbers in some variants, and some use FHIR names like "Observation" instead of "Labs". Need to be completely patient-facing.</div>
+  </div>
+  <div class="grid">
+    <div class="card">
+      <img src="screenshots/03a-pixel-grid-light.png" alt="Pixel grid light">
+      <div class="card-body">
+        <div class="card-label">Variant A</div>
+        <div class="card-name">Pixel Grid — Light</div>
+        <div class="card-desc">26×26px cells in grouped rows. Tiny 9px uppercase group labels. 5 clear visual states. Clean but still technical-looking.</div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="screenshots/03b-segmented-bar.png" alt="Segmented bar">
+      <div class="card-body">
+        <div class="card-label">Variant B</div>
+        <div class="card-name">Segmented Bar + Detail</div>
+        <div class="card-desc">Single 300×16px horizontal bar divided into 44 segments with group gaps. Active detail text below. Very compact at ~190px tall.</div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="screenshots/03c-dot-matrix-rows.png" alt="Dot matrix rows">
+      <div class="card-body">
+        <div class="card-label">Variant C</div>
+        <div class="card-name">Dot Matrix Rows</div>
+        <div class="card-desc">7 rows of 10px dots. Hollow circles for pending, filled teal for active (pulsing), green intensity for done. Page numbers float above active dots.</div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="screenshots/03d-counter-hero-chips.png" alt="Counter hero">
+      <div class="card-body">
+        <div class="card-label">Variant D</div>
+        <div class="card-name">Counter Hero + Chips</div>
+        <div class="card-desc">Big "1,490" resource count dominates. Active queries shown as pulsing teal chips below. Completed queries accumulate as small green chips at bottom.</div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="screenshots/03e-grouped-inline.png" alt="Grouped inline">
+      <div class="card-body">
+        <div class="card-label">Variant E</div>
+        <div class="card-name">Grouped Inline Indicators</div>
+        <div class="card-desc">Each group is a single text line with inline status characters (█░·) — like a terminal. Active query names listed at right. Dense but abstract.</div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="screenshots/03f-phase-cards.png" alt="Phase cards">
+      <div class="card-body">
+        <div class="card-label">Variant F</div>
+        <div class="card-name">Phase Cards</div>
+        <div class="card-desc">Three stacked cards (Resources / References / Attachments). Only active phase expanded. Embedded grid of 38×20px rounded rectangles inside.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ROUND 4 -->
+<div class="round">
+  <div class="round-header">
+    <div class="round-num">Round 4</div>
+    <div class="round-title">Patient-Friendly Language</div>
+    <div class="round-desc">New brief: no page numbers, no FHIR jargon anywhere. Groups renamed to "Lab &amp; Vitals", "Conditions", "Documents", "Services", "Medications", "Clinical", "Admin". All 44 slots pre-allocated from t=0.</div>
+    <div class="round-feedback"><strong>Feedback:</strong> Much better! The "Counter Hero" concept keeps rising to the top — patients care about "1,490 resources found" more than individual query status. Need to nail the final form.</div>
+  </div>
+  <div class="grid">
+    <div class="card">
+      <img src="screenshots/04a-dot-matrix.png" alt="Dot matrix">
+      <div class="card-body">
+        <div class="card-label">Variant A</div>
+        <div class="card-name">Dot Matrix</div>
+        <div class="card-desc">7 labeled rows of 10px dots. Hollow=pending, pulsing teal=active, green fill=done (4-tier intensity), grey fill=empty, red=error. Patient-friendly group names.</div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="screenshots/04b-segmented-bar-activity.png" alt="Segmented bar + activity">
+      <div class="card-body">
+        <div class="card-label">Variant B</div>
+        <div class="card-name">Segmented Bar + Activity</div>
+        <div class="card-desc">Grouped segmented bar on top, tiny group labels below, running activity list underneath showing friendly names like "Fetching lab results…"</div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="screenshots/04c-counter-hero-accumulating.png" alt="Counter hero accumulating">
+      <div class="card-body">
+        <div class="card-label">Variant C</div>
+        <div class="card-name">Counter Hero + Accumulating Chips</div>
+        <div class="card-desc">Big number centerpiece — "1,490 resources found". Active indicator lists current downloads by friendly name. Completed groups appear as summary chips below.</div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="screenshots/04d-grouped-blocks-counts.png" alt="Grouped blocks">
+      <div class="card-body">
+        <div class="card-label">Variant D</div>
+        <div class="card-name">Grouped Blocks + Running Counts</div>
+        <div class="card-desc">7 rows with mini-blocks per query and per-group running count on the right ("523", "35"). Shows data distribution across categories.</div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="screenshots/04e-single-grid.png" alt="Single grid">
+      <div class="card-body">
+        <div class="card-label">Variant E</div>
+        <div class="card-name">Single Grid + Floating Label</div>
+        <div class="card-desc">44 squares in a continuous grid, groups separated by larger gaps. Floating label on hover/active. Abstract art quality — the data landscape emerges.</div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="screenshots/04f-compact-phase-card.png" alt="Phase card">
+      <div class="card-body">
+        <div class="card-label">Variant F</div>
+        <div class="card-name">Compact Phase Card</div>
+        <div class="card-desc">Single bordered card. Top zone: flowing grid of 44 tiny rounded rectangles with group gaps. Bottom zone: summary line with count and active names.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ROUND 5 -->
+<div class="round">
+  <div class="round-header">
+    <div class="round-num">Round 5</div>
+    <div class="round-title">Final Candidates</div>
+    <div class="round-desc">The definitive round. Strict brief: zero layout shift, zero jargon, zero page numbers. 5-state dots with 4-tier green intensity. All 44 elements fixed from t=0. Three phases (Resources → References → Attachments) with pre-allocated progress bars.</div>
+    <div class="round-feedback"><strong>Decision:</strong> Variant D — "Counter Hero + Dot Strip" — selected as the winner. Big number gives emotional feedback, tiny dot strip shows the gestalt, pre-allocated phase bars prevent layout shift. Refined with pre-allocated References/Attachments bars.</div>
+  </div>
+  <div class="grid">
+    <div class="card">
+      <img src="screenshots/05a-dot-matrix-rows.png" alt="Dot matrix rows">
+      <div class="card-body">
+        <div class="card-label">Variant A</div>
+        <div class="card-name">Dot Matrix Rows</div>
+        <div class="card-desc">7 rows, 10px dots, 4px gaps. 22px row height. Below: "1,490 resources found" + "32 of 44" + active query names in muted italic.</div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="screenshots/05b-segmented-bar-counter.png" alt="Segmented bar + counter">
+      <div class="card-body">
+        <div class="card-label">Variant B</div>
+        <div class="card-name">Thin Segmented Bar + Counter</div>
+        <div class="card-desc">Three stacked zones: 16px segmented bar with 44 segments, counter ("1,490 resources found"), and 3-line activity feed with friendly names.</div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="screenshots/05c-square-grid.png" alt="Square grid">
+      <div class="card-body">
+        <div class="card-label">Variant C</div>
+        <div class="card-name">Square Grid with Group Gaps</div>
+        <div class="card-desc">44 continuous 24px squares. Group gaps at 6px, within-group at 2px. High-count cells show number ("342"). Pulsing scale animation for active.</div>
+      </div>
+    </div>
+    <div class="card chosen">
+      <img src="screenshots/05d-counter-hero-dot-strip.png" alt="Counter hero + dot strip">
+      <div class="card-body">
+        <div class="card-label">Variant D</div>
+        <div class="card-name">Counter Hero + Dot Strip <span class="card-badge">★ CHOSEN</span></div>
+        <div class="card-desc">The winner. Large "1,490" resource count dominates. Single row of 44 tiny 7px dots below — greens accumulate, empties fade, errors pop. ~140px tall. Most minimal, most emotionally resonant.</div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="screenshots/05e-stacked-group-bars.png" alt="Stacked group bars">
+      <div class="card-body">
+        <div class="card-label">Variant E</div>
+        <div class="card-name">Stacked Group Bars</div>
+        <div class="card-desc">7 rows of segmented bars with per-group running counts on the right ("540", "35", "323"). Shows data distribution clearly but taller at ~230px.</div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="screenshots/05f-fixed-chip-grid.png" alt="Fixed chip grid">
+      <div class="card-body">
+        <div class="card-label">Variant F</div>
+        <div class="card-name">Fixed Chip Grid</div>
+        <div class="card-desc">All 44 chips with labels always visible ("Labs", "Vitals", "FamHx"). Most readable but tallest at ~350px. Active chips have teal borders, done turn green.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- REFINEMENT + FINAL -->
+<div class="finale">
+  <h2>The Winner: Counter Hero + Dot Strip</h2>
+  <p>After the initial selection, one refinement pass: pre-allocate the References and Attachments progress bars in all states so the layout never shifts. Then handed off for implementation.</p>
+  <div style="display:flex;gap:24px;justify-content:center;flex-wrap:wrap;margin-bottom:48px">
+    <div style="flex:1;min-width:300px;max-width:500px">
+      <img src="screenshots/05d-refined-preallocated.png" alt="Refined with pre-allocated bars" style="width:100%;border-radius:12px;box-shadow:0 0 0 1px #222,0 12px 40px rgba(0,0,0,0.4)">
+      <div style="margin-top:12px;font-size:13px;color:#666">Refined prototype — References &amp; Attachments bars pre-allocated</div>
+    </div>
+    <div style="flex:1;min-width:300px;max-width:500px">
+      <img src="screenshots/06-implementation.png" alt="Final implementation" style="width:100%;border-radius:12px;box-shadow:0 0 0 1px #222,0 12px 40px rgba(0,0,0,0.4)">
+      <div style="margin-top:12px;font-size:13px;color:#666">Implemented as a React component</div>
+    </div>
+  </div>
+</div>
+
+<!-- ANIMATION -->
+<div class="finale" style="border-top:1px solid #1a1a1a">
+  <h2>In Motion</h2>
+  <p>A 21-second simulation of the widget in action — fetching 1,507 resources across 44 queries, resolving references, and extracting attachments.</p>
+  <div style="margin-bottom:16px">
+    <video autoplay loop muted playsinline style="max-width:600px;width:100%;border-radius:12px;box-shadow:0 0 0 2px #26a69a,0 20px 60px rgba(0,0,0,0.5)">
+      <source src="loading-widget-animation.mp4" type="video/mp4">
+    </video>
+  </div>
+  <div style="margin-top:16px">
+    <a href="animation.html" style="color:#26a69a;font-size:14px;text-decoration:none;border:1px solid #26a69a;padding:8px 20px;border-radius:6px;display:inline-block">View live interactive animation →</a>
+  </div>
+</div>
+
+</body>
+</html>
