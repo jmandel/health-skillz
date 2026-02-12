@@ -78,17 +78,13 @@ After re-running the script to upload direct JWKS at all organizations, I reopen
 
 The stored JWKS had capitalized property names: `Kty` instead of `kty`, `N` instead of `n`, `E` instead of `e`. It also contained properties that don't belong in a JWK at all: `CryptoProviderFactory`, `HasPrivateKey`, `KeySize`, `AdditionalData`. These are internal fields from .NET's `JsonWebKey` class — they'd leaked into the stored representation. And at the bottom of the modal, a validation error: "JWKS key #1 is missing 'kty' property."
 
-The keys actually worked — UnityPoint was proof of that. But Epic's own UI couldn't display what its own backend had stored without throwing a validation error.
+I spent time chasing this as a bug in our upload script, since I was working from an incomplete understanding of the underlying APIs. It's not a script bug. It's a server-side serialization issue: all JWKS submissions — whether sent via API or pasted manually through the form — get deserialized into .NET `JsonWebKey` objects and re-serialized with PascalCase property names and internal framework fields. The UI masks this on immediate re-open by caching the client-side value, but after a page reload, the mangled server-side version shows through.
 
-I initially thought this was a formatting issue. My script was sending compact JSON, while the UI sends pretty-printed JSON with 2-space indentation. When I pasted the same JWKS manually through the UI and immediately re-opened the modal, the keys looked correct: lowercase properties, no .NET internals, no validation error. I changed the script to pretty-print and assumed the problem was solved.
-
-It wasn't. After a full page reload, the PascalCase properties and .NET internals were back — even for keys pasted manually through the form. The sequence: paste JWKS → save → immediately re-open the modal (looks fine) → reload the page → re-open the modal (mangled). The UI was caching the client-side value on immediate re-open, hiding what the server actually stored.
-
-This is a server-side bug. All JWKS submissions — compact or pretty-printed, API or form — get deserialized into .NET `JsonWebKey` objects and re-serialized with PascalCase property names and internal framework fields. The keys still validate signatures correctly, so it's cosmetic from a functionality standpoint. But Epic's own management UI can't display what its own backend stored without triggering a validation error on every single organization.
+The keys still validate signatures correctly, so it doesn't break functionality. But Epic's own management UI can't display what its own backend stored without triggering a validation error on every single organization.
 
 ## New organizations, overnight
 
-The next morning I ran the script again to re-activate everything with pretty-printed JWKS. The org count had changed: 502, up from 500.
+The next morning I ran the script again to re-activate everything with direct JWKS. The org count had changed: 502, up from 500.
 
 Two new organizations had appeared overnight:
 
