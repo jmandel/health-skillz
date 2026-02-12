@@ -496,4 +496,25 @@ This answers the lifecycle question: **the org list does update over time — it
 
 After re-activating all 502 orgs with direct JWKS upload, one of the two test sites (UnityPoint) is now working — the token exchange succeeds and we can fetch patient data. The other test site (UW Health) is still returning `invalid_client`. Epic's configuration changes can take up to 12 hours to propagate to customer sites, so this may just be a timing issue. Waiting to confirm.
 
-Interesting observation: after switching all orgs to direct JWKS upload, the server logs for `jwks.json` still show many requests hitting it. If the per-org direct keys are supposed to replace JWK Set URL fetching, Epic shouldn't need to hit the URL at all. Possible explanations: propagation lag (some orgs still on old config), Epic fetching the URL as a periodic refresh or fallback even when direct keys are stored, or the app-level JWK Set URL being polled independently of per-org settings. Worth investigating — it complicates the outbound traffic narrative if Epic hits the URL regardless.
+### JWKS Endpoint Traffic After Switching to Direct Upload
+
+After switching all orgs to direct JWKS upload, the server logs for `jwks.json` still show heavy traffic — dozens of distinct organizations hitting the endpoint within a single hour. The traffic reveals how Epic's JWKS fetching architecture actually works:
+
+**The fetch happens from each customer's own infrastructure, not from Epic centrally.** The logs show requests from individual health systems' own IP ranges:
+
+| Source | IPs | Hits (1 hr) | Notes |
+|---|---|---|---|
+| Epic Hosting | ~20 different IPs (170.133.x, 208.56.x, 45.42.x, 68.65.x) | ~25 | Orgs hosted by Epic |
+| Hennepin County Medical Center | 198.204.66.x | 9 | Self-hosted |
+| HonorHealth | 167.94.2.14 | 8 | Self-hosted |
+| Kaiser Foundation Health Plan | 162.119.x.x | 8 | Self-hosted, 4 different IPs |
+| Children's Hospital Colorado | 66.128.217.51 | 5 | Self-hosted |
+| Nationwide Children's Hospital | 69.24.144.x | 7 | Self-hosted, 4 IPs |
+| University of Washington | 205.175.124.x | 6 | Self-hosted, 3 IPs |
+| Forcepoint (web security proxy) | 208.87.x.x | 9 | Orgs routing through security appliances |
+| Comcast Cable Communications | various | 7 | Network exit points |
+| Maastricht UMC+ (Netherlands) | 145.29.254.43 | 4 | International |
+
+This perfectly explains the outbound traffic problem: each hospital's own servers make the outbound HTTPS request to fetch the JWKS. If that hospital's network policy blocks arbitrary outbound HTTPS, the fetch fails silently. It's not a central Epic service that could be whitelisted once — it's distributed across every customer's infrastructure.
+
+The traffic is also happening **after** we switched to direct JWKS upload, which means either: (a) config changes are still propagating, (b) Epic fetches the JWK Set URL regardless of whether direct keys are stored (perhaps to keep them in sync), or (c) the fetch is triggered by the configuration change itself. If (b), then direct JWKS upload provides a fallback for signature validation when the URL is unreachable, rather than fully replacing URL-based fetching.
