@@ -381,9 +381,10 @@ const server = Bun.serve({
         const existing = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
 
         // Find or create provider entry keyed by providerKey
-        const chunkGroupId = data.providerKey
-          ? `chunked_${data.providerKey}`
-          : `chunked_${data.finalizeToken.slice(0, 8)}`;
+        if (!data.providerKey) {
+          return Response.json({ success: false, error: "missing_provider_key" }, { status: 400, headers: corsHeaders });
+        }
+        const chunkGroupId = `chunked_${data.providerKey}`;
         let providerEntry = existing.find((e: any) => e._chunkGroupId === chunkGroupId);
         
         if (!providerEntry) {
