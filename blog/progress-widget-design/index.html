@@ -61,15 +61,22 @@
   <div class="round-header">
     <div class="round-num">Round 0</div>
     <div class="round-title">Starting Point</div>
-    <div class="round-desc">The initial progress widget — a basic prototype showing fetch progress for FHIR resources. Functional but not visually refined. This kicked off the exploration.</div>
+    <div class="round-desc">Before any design work, the progress display was just a spinner with a single line of text that flashed FHIR resource type names as they were fetched: <em>"Fetching: Observation:vital-signs (3/20)"</em>. Functional for debugging, but patients saw raw technical jargon cycling too fast to read. No visualization, no sense of overall progress, no indication of what was happening or how long it might take. This is what prompted the exploration.</div>
   </div>
   <div class="grid">
-    <div class="card">
-      <img src="screenshots/00-initial-prototype.png" alt="Initial prototype">
+    <div class="card" style="background:#181818">
+      <div style="padding:40px 32px;text-align:center">
+        <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:16px">
+          <div style="width:18px;height:18px;border:2px solid #26a69a;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite"></div>
+          <span style="font-size:14px;color:#999;font-family:monospace">Fetching: Observation:vital-signs (3/20)</span>
+        </div>
+        <div style="font-size:12px;color:#555;margin-top:8px">This may take up to a minute.</div>
+        <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+      </div>
       <div class="card-body">
-        <div class="card-label">Prototype</div>
-        <div class="card-name">Initial Progress Widget</div>
-        <div class="card-desc">Basic progress display. Showed page numbers and FHIR resource type names directly — functional for developers but not patient-friendly.</div>
+        <div class="card-label">Before</div>
+        <div class="card-name">Spinner + Status Text</div>
+        <div class="card-desc">The entire progress UI: a CSS spinner and one line of text cycling through raw FHIR types like <code>Observation:vital-signs</code>, <code>DiagnosticReport:LAB</code>, <code>Encounter</code>. No screenshot exists because there was nothing to screenshot — it was a single line of text that changed every few hundred milliseconds.</div>
       </div>
     </div>
   </div>
