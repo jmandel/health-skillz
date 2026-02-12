@@ -491,3 +491,7 @@ Running the updated script the next day showed **502 orgs** (up from 500). The t
 | 32586 | eleHealth | Approved=0 | Brand new org, high OrgId. |
 
 This answers the lifecycle question: **the org list does update over time — it's not a frozen snapshot.** Auto-sync continues to deliver new organizations after initial registration. Brown University Health's appearance also confirms that the Brands-only orgs weren't permanently excluded — they just hadn't been delivered yet.
+
+### Current Status
+
+After re-activating all 502 orgs with direct JWKS upload, one of the two test sites (UnityPoint) is now working — the token exchange succeeds and we can fetch patient data. The other test site (UW Health) is still returning `invalid_client`. Epic's configuration changes can take up to 12 hours to propagate to customer sites, so this may just be a timing issue. Waiting to confirm.

@@ -62,6 +62,8 @@ I also discovered that when uploading JWKS directly, you can activate both nonpr
 
 The updated script prompts for mode at startup: enter "1" to use JWK Set URL (the original behavior), or paste a JWKS URL to fetch keys and upload them directly. It defaults to the app's `.well-known/jwks.json` endpoint. When it detects that organizations are already activated, it asks whether to re-activate them — which is what you need when switching from one authentication method to the other.
 
+After re-activating all 502 organizations, one of my two test sites — UnityPoint — started working. The other, UW Health, is still returning `invalid_client`. Configuration changes can take up to 12 hours to propagate from Epic's portal to customer sites, so this may just be a matter of waiting.
+
 ## EC keys: accepted at registration, rejected at configuration
 
 One more surprise during the script update. My app's JWKS contains three keys: one ES384 (elliptic curve) and two RSA (RS256 and RS384). Epic's app registration page happily accepts all three in the app-level JWKS configuration. No errors, no warnings.
