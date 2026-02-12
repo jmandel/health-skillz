@@ -93,6 +93,7 @@ interface RecordsActions {
   // Connection CRUD
   refreshConnection: (id: string) => Promise<void>;
   reconnectConnection: (id: string) => Promise<void>;
+  dismissConnectionDone: (id: string) => void;
   removeConnection: (id: string) => Promise<void>;
   /** Save a new/updated connection + its FHIR data (called after OAuth callback) */
   saveNewConnection: (params: {
@@ -340,6 +341,18 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
   },
 
   // -----------------------------------------------------------------------
+  // dismissConnectionDone — clear done state + progress so widget collapses
+  dismissConnectionDone: (id) => {
+    const cs = get().connectionState[id];
+    if (!cs) return;
+    set({
+      connectionState: {
+        ...get().connectionState,
+        [id]: { ...cs, refreshProgress: null, doneMessage: null },
+      },
+    });
+  },
+
   // reconnectConnection — re-initiate OAuth for a failed/expired connection
   // Uses saved connection metadata so user doesn't have to search again.
   // -----------------------------------------------------------------------

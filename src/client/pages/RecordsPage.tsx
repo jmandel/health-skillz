@@ -67,22 +67,7 @@ export default function RecordsPage() {
   const sendToAI = useRecordsStore((s) => s.sendToAI);
   const downloadSkillZip = useRecordsStore((s) => s.downloadSkillZip);
 
-  // Track connections that recently finished refreshing — auto-clear after 4s
-  const [recentlyDone, setRecentlyDone] = useState<Set<string>>(new Set());
-  const prevConnectionState = useRef(connectionState);
-  useEffect(() => {
-    // Detect transitions from refreshing→done (doneMessage set, refreshing false)
-    for (const [id, cs] of Object.entries(connectionState)) {
-      const prev = prevConnectionState.current[id];
-      if (prev?.refreshing && !cs.refreshing && cs.doneMessage) {
-        setRecentlyDone(s => new Set(s).add(id));
-        setTimeout(() => {
-          setRecentlyDone(s => { const next = new Set(s); next.delete(id); return next; });
-        }, 4000);
-      }
-    }
-    prevConnectionState.current = connectionState;
-  }, [connectionState]);
+  const dismissConnectionDone = useRecordsStore((s) => s.dismissConnectionDone);
 
   const isSession = Boolean(session);
   const isFinalized = session?.sessionStatus === 'finalized';
@@ -154,7 +139,7 @@ export default function RecordsPage() {
               const cs = connectionState[c.id];
               const refreshing = cs?.refreshing ?? false;
               const err = cs?.error ?? null;
-              const justDone = recentlyDone.has(c.id);
+              const done = cs?.doneMessage ?? null;
               const checked = selected.has(c.id);
               const prog = cs?.refreshProgress;
               const isFailed = c.status === 'expired' || c.status === 'error';
@@ -178,7 +163,7 @@ export default function RecordsPage() {
                     <div className="conn-meta">
                       {c.providerName} · {fmtSize(c.dataSizeBytes)} · {timeAgo(c.lastFetchedAt)}
                     </div>
-                    {refreshing && prog && (
+                    {(refreshing || done) && prog && (
                       <FetchProgressWidget progress={prog} />
                     )}
                     {(c.lastError || err) && (
@@ -205,11 +190,11 @@ export default function RecordsPage() {
                         </button>
                       ) : (
                         <button
-                          className={`btn btn-sm${justDone ? ' btn-success' : ' btn-secondary'}`}
+                          className={`btn btn-sm${done ? ' btn-success' : ' btn-secondary'}`}
                           disabled={refreshing || busy}
-                          onClick={e => { e.preventDefault(); e.stopPropagation(); refreshConnection(c.id); }}
+                          onClick={e => { e.preventDefault(); e.stopPropagation(); done ? dismissConnectionDone(c.id) : refreshConnection(c.id); }}
                         >
-                          {refreshing ? 'Refreshing…' : justDone ? '✓ Updated' : 'Refresh'}
+                          {refreshing ? 'Refreshing…' : done ? '✓ Updated' : 'Refresh'}
                         </button>
                       )}
                       <button
