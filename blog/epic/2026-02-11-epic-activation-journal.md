@@ -453,3 +453,29 @@ Updated `epic-activate-all.js` to prompt for mode on startup:
 - **Mode 2: Direct JWKS** (new default) — fetches JWKS from the app, filters to RSA keys, uploads inline, 1 call per org
 
 In mode 2, the script fetches `https://health-skillz.joshuamandel.com/.well-known/jwks.json`, filters to RSA keys, and sends the filtered JWKS as both `TestJWKS` and `ProdJWKS` in each `ApproveDownload` call.
+
+The script also now accepts a JWKS URL directly as input (instead of just "1" or "2"), and when it detects already-activated orgs, prompts whether to re-activate them — useful for switching from JWK Set URL to direct JWKS across all orgs.
+
+### The Pretty-Print Bug
+
+After re-activating all orgs with direct JWKS via the script, we noticed that re-opening the management modal for an org showed the stored JWKS with **PascalCase property names** (`Kty` instead of `kty`, `N` instead of `n`) and leaked .NET internal properties (`CryptoProviderFactory`, `HasPrivateKey`, `KeySize`). The UI's own validator then complained: *"JWKS key #1 is missing 'kty' property"* — because it was looking for lowercase `kty` in its own PascalCase-mangled output.
+
+In contrast, when manually pasting the JWKS through the UI modal, the stored JWKS showed back with **correct lowercase properties** and no .NET internals.
+
+The difference: our script was sending compact JSON (`JSON.stringify(jwks)`) while the UI sends **pretty-printed JSON** (2-space indentation, newlines). Epic's .NET backend handles these differently:
+
+- **Compact JSON** → gets deserialized into .NET `JsonWebKey` objects, then re-serialized with PascalCase property names and leaked internal fields
+- **Pretty-printed JSON** → stored as-is, preserving the original lowercase JWK property names
+
+Fix: changed the script to use `JSON.stringify(jwks, null, 2)` to match the UI's behavior. A one-line change, but a remarkable finding: Epic's backend literally parses the same JSON differently based on whitespace formatting, and its own UI can't display the result of its own compact-JSON processing path without triggering a validation error.
+
+### New Orgs Appearing
+
+Running the updated script the next day showed **502 orgs** (up from 500). The two new additions:
+
+| OrgId | Name | Status | Notes |
+|---|---|---|---|
+| 392 | Brown University Health | Approved=1 | Previously "Lifespan" in the Brands bundle — same OrgId, renamed. Was one of our 4 "Brands-only" orgs yesterday. |
+| 32586 | eleHealth | Approved=0 | Brand new org, high OrgId. |
+
+This answers the lifecycle question: **the org list does update over time — it's not a frozen snapshot.** Auto-sync continues to deliver new organizations after initial registration. Brown University Health's appearance also confirms that the Brands-only orgs weren't permanently excluded — they just hadn't been delivered yet.
