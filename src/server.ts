@@ -401,8 +401,10 @@ const server = Bun.serve({
         if (isV3) {
           // v3 chunked upload - find or create provider entry
           // Each provider gets an entry with version:3 and chunks array
-          // We use a temporary ID based on finalizeToken to group chunks
-          const chunkGroupId = `chunked_${data.finalizeToken.slice(0, 8)}`;
+          // Key by providerKey (connection ID) so multiple providers don't collide
+          const chunkGroupId = data.providerKey
+            ? `chunked_${data.providerKey}`
+            : `chunked_${data.finalizeToken.slice(0, 8)}`;
           let providerEntry = existing.find((e: any) => e._chunkGroupId === chunkGroupId);
           
           if (!providerEntry) {
@@ -509,13 +511,16 @@ const server = Bun.serve({
 
       const encryptedData = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
       
-      // Include chunk upload progress for v3 uploads
-      let pendingChunks: { receivedChunks: number[]; totalChunks: number } | null = null;
-      const pendingProvider = encryptedData.find((e: any) => e._chunkGroupId);
-      if (pendingProvider) {
-        pendingChunks = {
-          receivedChunks: pendingProvider.chunks?.map((c: any) => c.index) || [],
-          totalChunks: pendingProvider.totalChunks || -1,
+      // Include per-provider chunk upload progress for v3 uploads
+      let pendingChunks: Record<string, { receivedChunks: number[]; totalChunks: number }> | null = null;
+      for (const entry of encryptedData) {
+        if (!entry._chunkGroupId) continue;
+        if (!pendingChunks) pendingChunks = {};
+        // Strip the "chunked_" prefix to recover the providerKey
+        const providerKey = entry._chunkGroupId.replace(/^chunked_/, '');
+        pendingChunks[providerKey] = {
+          receivedChunks: entry.chunks?.map((c: any) => c.index) || [],
+          totalChunks: entry.totalChunks || -1,
         };
       }
       

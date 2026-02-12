@@ -3,15 +3,18 @@
 import type { VendorConfig } from './brands/types';
 import type { EncryptedChunk } from './crypto';
 
+export interface PendingChunkInfo {
+  receivedChunks: number[];
+  totalChunks: number;
+}
+
 export interface SessionInfo {
   sessionId: string;
   publicKey: JsonWebKey;
   status: string;
   providerCount: number;
-  pendingChunks?: {
-    receivedChunks: number[];
-    totalChunks: number;
-  } | null;
+  /** Per-provider pending chunk state, keyed by providerKey. */
+  pendingChunks?: Record<string, PendingChunkInfo> | null;
 }
 
 export interface Provider {
@@ -185,7 +188,8 @@ export async function uploadEncryptedChunk(
   finalizeToken: string,
   chunk: EncryptedChunk,
   chunkIndex: number,
-  totalChunks: number | null // null if unknown yet
+  totalChunks: number | null, // null if unknown yet
+  providerKey?: string,
 ): Promise<any> {
   const body = JSON.stringify({
     sessionId,
@@ -193,6 +197,7 @@ export async function uploadEncryptedChunk(
     version: 3,
     totalChunks: totalChunks ?? -1, // -1 means "more coming, count unknown"
     chunk,
+    ...(providerKey ? { providerKey } : {}),
   });
   
   const maxRetries = 3;

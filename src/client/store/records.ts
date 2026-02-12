@@ -57,7 +57,7 @@ export interface SessionContext {
   publicKeyJwk: JsonWebKey;
   finalizeToken: string;
   sessionStatus: string; // from server: 'pending', 'has_data', 'finalized'
-  pendingChunks: { receivedChunks: number[]; totalChunks: number } | null;
+  pendingChunks: Record<string, { receivedChunks: number[]; totalChunks: number }> | null;
 }
 
 interface RecordsState {
@@ -125,6 +125,18 @@ interface RecordsActions {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Derive an opaque, session-scoped provider key from the session ID and
+ * connection ID.  The result is deterministic (so it survives page reload)
+ * but different for every session, preventing cross-session correlation.
+ */
+async function deriveProviderKey(sessionId: string, connectionId: string): Promise<string> {
+  const data = new TextEncoder().encode(`${sessionId}:${connectionId}`);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  // 16 hex chars (64 bits) is plenty for a grouping key
+  return Array.from(new Uint8Array(hash).slice(0, 8), b => b.toString(16).padStart(2, '0')).join('');
+}
 
 function extractPatientIdentity(fhir: Record<string, any[]>): {
   displayName: string | null;
@@ -552,10 +564,14 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
         const CHUNK_THRESHOLD = 5 * 1024 * 1024;
 
         if (jsonSize > CHUNK_THRESHOLD) {
-          // Resume: skip chunks the server already received (survives reload)
-          const skipChunks = session.pendingChunks?.receivedChunks ?? [];
+          // Derive a session-scoped provider key: deterministic (survives reload)
+          // but not correlatable across sessions since sessionId differs each time.
+          const providerKey = await deriveProviderKey(session.sessionId, conn.id);
+
+          // Resume: skip chunks the server already received for THIS provider
+          const skipChunks = session.pendingChunks?.[providerKey]?.receivedChunks ?? [];
           if (skipChunks.length > 0) {
-            console.log(`[Resume] Skipping ${skipChunks.length} already-uploaded chunks`);
+            console.log(`[Resume] Skipping ${skipChunks.length} already-uploaded chunks for ${conn.providerName}`);
           }
           await encryptAndUploadStreaming(
             providerData,
@@ -567,6 +583,7 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
                 chunk,
                 index,
                 isLast ? index + 1 : null,
+                providerKey,
               );
             },
             (progress: StreamingProgress) => {
