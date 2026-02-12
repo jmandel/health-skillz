@@ -243,16 +243,15 @@ export async function deleteConnection(id: string): Promise<void> {
   });
 }
 
-/** Delete ALL connections. Nuclear option. */
+/** Delete ALL connections and their cached FHIR data. Nuclear option. */
 export async function deleteAllConnections(): Promise<void> {
   const db = await openConnectionsDB();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(CONNECTIONS_STORE, 'readwrite');
-    const store = tx.objectStore(CONNECTIONS_STORE);
-    const request = store.clear();
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve();
-    tx.oncomplete = () => db.close();
+    const tx = db.transaction([CONNECTIONS_STORE, FHIR_DATA_STORE], 'readwrite');
+    tx.objectStore(CONNECTIONS_STORE).clear();
+    tx.objectStore(FHIR_DATA_STORE).clear();
+    tx.onerror = () => reject(tx.error);
+    tx.oncomplete = () => { db.close(); resolve(); };
   });
 }
 
