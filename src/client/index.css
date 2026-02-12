@@ -800,7 +800,7 @@ code {
 }
 
 .fp-pending {
-  background: #e0e0e0;
+  background: #e8e8e8;
 }
 
 .fp-active {
@@ -817,19 +817,19 @@ code {
 }
 
 .fp-done-1 {
-  background: #c8e6c9;
-}
-
-.fp-done-2 {
   background: #81c784;
 }
 
-.fp-done-3 {
+.fp-done-2 {
   background: #4caf50;
 }
 
-.fp-done-4 {
+.fp-done-3 {
   background: #2e7d32;
+}
+
+.fp-done-4 {
+  background: #1b5e20;
 }
 
 @keyframes fp-pulse {
