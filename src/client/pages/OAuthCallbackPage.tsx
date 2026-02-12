@@ -142,14 +142,14 @@ export default function OAuthCallbackPage() {
           <>
             <FetchProgressWidget progress={activeFetchProgress} />
             {phase !== 'done' && (
-              <p className="security-info">This may take up to a minute.</p>
+              <p className="security-info">This can take a while for large records.</p>
             )}
           </>
         ) : (
           <>
             <StatusMessage status={phase === 'done' ? 'success' : 'loading'} message={displayStatus} />
             {phase !== 'done' && (
-              <p className="security-info">This may take up to a minute.</p>
+              <p className="security-info">This can take a while for large records.</p>
             )}
           </>
         )}
