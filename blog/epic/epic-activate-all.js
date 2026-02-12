@@ -98,7 +98,7 @@
       log('[Epic Activator] No RSA keys found in JWKS! Aborting.', 'color: red; font-weight: bold');
       return;
     }
-    rsaJwks = JSON.stringify({ keys: rsaKeys });
+    rsaJwks = JSON.stringify({ keys: rsaKeys }, null, 2);
     log(`[Epic Activator] Mode: Direct JWKS (${rsaKeys.length} RSA keys, filtered from ${jwks.keys.length} total)`);
     log(`[Epic Activator] Algorithms: ${rsaKeys.map(k => k.alg || 'unspecified').join(', ')}`);
   } else {
