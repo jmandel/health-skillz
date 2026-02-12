@@ -1,38 +1,36 @@
 # Thirty-four prototypes in an afternoon
 
-Health Skillz needs a progress widget. When you connect your patient portal, the app fires off a bunch of FHIR queries in parallel — labs, vitals, conditions, encounters, medications, documents — and the user needs to see *something* while that's happening. The existing UI was a spinner with a line of status text. It worked fine. But I had a vague sense that it could be better, and I had the tools to actually explore that without derailing the rest of my day.
+When you connect your patient portal to Health Skillz, the app fires off 44 FHIR queries in parallel — different categories of labs, vitals, conditions, encounters, medications, clinical notes, and so on. The whole fetch takes maybe fifteen seconds. Up until this week, the UI for that was a spinner and a line of text that cycled through resource type names faster than you could read them. It worked. Nobody complained. But every time I watched it I thought, I should really do something with this.
 
-I'm building this on [exe.dev](https://exe.dev), using Shelley — a coding agent backed by Claude — that lives in a persistent VM with a browser, a filesystem, and the ability to spin up sub-agents in parallel. What follows is a description of what it's actually like to do iterative visual design with this kind of tool. I think the workflow is genuinely new and I'm still figuring out what it's good for.
+I never did, because "do something with this" is open-ended in a way that makes it easy to defer. I could picture a lot of different approaches, couldn't tell which would actually feel right, and didn't want to spend half a day building a progress widget when there were real features to ship. So the spinner stayed.
 
-## Round 1: "Give me six different ideas"
+This week I explored it anyway, using a workflow that didn't exist a year ago. I'm building Health Skillz on [exe.dev](https://exe.dev) with Shelley, a coding agent backed by Claude that runs in a persistent VM with browser access and the ability to spin up sub-agents in parallel. Over about forty-five minutes, working with Shelley, I went through six rounds of prototyping — thirty-four distinct visual designs for the same progress widget — and ended up with something I like a lot. What I want to write about isn't the widget. It's what the process felt like and what I think it means.
 
-I described the problem: we're fetching about 20 resource types, each might paginate, and I want some kind of visual progress indicator. Rather than go back and forth on a single approach, I asked for six completely different ones — a heatmap grid, a waterfall chart, a treemap, a radial diagram, a text ticker, and a mosaic of labeled chips. Each built as a standalone HTML file showing the widget at several stages of loading.
+## Six ideas at once
 
-Shelley spawned six sub-agents simultaneously. Each one built its prototype in isolation. A few minutes later I had six HTML files to look at.
+I started by describing the problem and asking for six completely different approaches. Not variations on a theme — six different visual metaphors for showing progress across a batch of parallel queries. A heatmap grid like GitHub's contribution chart, a waterfall like Chrome DevTools, a treemap where rectangles grow with data volume, a radial donut, a minimal text ticker, and a mosaic of labeled chips.
+
+Shelley spawned six sub-agents and they each built a standalone HTML prototype in isolation. A few minutes later I had six files to open, each showing the widget at three stages: early in the fetch, midway through, and complete.
 
 ![Heatmap grid](progress-widget-design/screenshots/01a-heatmap.png)
 ![Waterfall rows](progress-widget-design/screenshots/01b-waterfall.png)
 ![Radial segments](progress-widget-design/screenshots/01d-radial.png)
 
-The interesting thing here isn't the output quality. Some of these were genuinely good, some were kind of ugly, a couple had the wrong vibe entirely. What was interesting was what happened in my head. Before seeing these I had a fuzzy preference — something compact, something that shows progress without demanding attention. After seeing six concrete options, I had *specific* opinions. The waterfall felt too developer-tool-ish. The radial chart was visually interesting but I couldn't quickly parse which segment was which. The ticker was too minimal. The mosaic was onto something.
+Some of these were good. Some were ugly. A couple missed the mark entirely. But something useful happened as I looked through them: my vague sense that the spinner "could be better" turned into specific opinions. The waterfall was too technical. The radial chart looked cool but I couldn't parse it quickly. The ticker was too sparse. The mosaic had an interesting density to it. I couldn't have told you any of that before I saw the prototypes. I learned what I wanted by seeing things I didn't want.
 
-I didn't know any of that before I saw the prototypes. I learned it by reacting to artifacts.
+## The brief writes itself
 
-## Rounds 2–4: Tightening the constraints
+I gave quick feedback and asked for another round. And another. The conversation was informal and fast — a few sentences of reaction, sometimes voice-transcribed typos and all, then six more prototypes.
 
-Each round followed the same pattern. I'd look at the batch, say what was working and what wasn't, and Shelley would generate six more. The conversation was fast and informal — sometimes just a sentence or two of feedback, sometimes voice-transcribed and full of typos.
+The surprising thing was how the *problem definition* evolved alongside the visuals. In round two I noticed that every prototype was allocating space per page of results — as if we know upfront that labs will have eight pages and vitals will have four. We don't know that. We learn it as pages come back. I hadn't thought to specify this constraint because I hadn't really thought about it. Seeing it violated six different ways made it obvious, and from that point on the brief included "44 fixed slots, pre-allocated, no layout changes ever."
 
-What changed between rounds wasn't just the visuals. It was the *problem definition*. In round 2, I realized the prototypes were assuming knowledge we don't have at render time — how many pages of results to expect for each query. I hadn't thought to specify that constraint upfront because I hadn't thought about it. Seeing it violated in six different ways made it obvious.
+In round three, looking at prototypes where finished-but-empty slots looked identical to not-yet-started slots, I realized the state model needed to be explicit: pending, active, done, empty, error — five states, each visually distinct. That wasn't something I'd reasoned out ahead of time. It fell out of looking at a prototype and thinking "wait, I can't tell what's happening here."
 
-In round 3, the state model got formalized — five distinct states per query slot (pending, active, done, empty, error), each needing to be visually distinguishable at a glance. That came from looking at prototypes where "pending" and "empty" looked the same and realizing that was confusing.
+Each round, the brief got tighter. Not because I sat down to write a spec, but because each batch of prototypes surfaced assumptions I hadn't examined. By round five I had a brief that was genuinely precise — 44 query slots in 7 named groups, five visual states with specific color tiers for data volume, three sequential phases, pre-allocated progress bars for all of them. That brief didn't exist in my head at the start. The prototypes drew it out.
 
-In round 4, the labels shifted from technical identifiers to patient-friendly names. Not because anyone told me to, but because seeing "Observation:vital-signs" on a widget that was starting to look polished created a mismatch. The design was outgrowing the placeholder data.
+## Picking a winner
 
-Each round, the brief got more precise. Not because I sat down and wrote a spec, but because each batch of prototypes revealed assumptions I hadn't examined.
-
-## Round 5: Choosing
-
-By the fifth round I had a tight brief — 44 fixed query slots in 7 groups, five visual states, no layout shift ever, three phases (resources, references, attachments). Six final candidates:
+The sixth round produced six final candidates against that tight spec:
 
 ![Dot matrix rows](progress-widget-design/screenshots/05a-dot-matrix-rows.png)
 ![Segmented bar with counter](progress-widget-design/screenshots/05b-segmented-bar-counter.png)
@@ -41,31 +39,27 @@ By the fifth round I had a tight brief — 44 fixed query slots in 7 groups, fiv
 ![Stacked group bars](progress-widget-design/screenshots/05e-stacked-group-bars.png)
 ![Fixed chip grid](progress-widget-design/screenshots/05f-fixed-chip-grid.png)
 
-The winner was "Counter Hero + Dot Strip" — a big resource count with a row of tiny colored dots underneath. Not the most information-dense option, not the most visually novel. But the one that felt right for a loading screen that should provide comfort without demanding attention.
+I picked "Counter Hero + Dot Strip" — a big resource count front and center, with a single row of 44 tiny colored dots underneath. It's not the cleverest design in the batch. The chip grid packs more information, the stacked bars show group structure better. But for a loading screen — something that should provide reassurance without demanding attention — the big number just works. You glance at it, you see 1,200 resources found and a bunch of green dots, and you know things are going well. That's all a patient needs from this screen.
 
-One refinement pass to pre-allocate the reference and attachment progress bars so the layout never shifts, an implementation plan written to disk, and then a new agent picked it up and built the React component.
+One refinement pass to make sure the references and attachments progress bars are pre-allocated in every state, then Shelley wrote up a full implementation plan and a fresh agent picked it up and built the React component.
 
-## The animation
-
-Here's what the final widget looks like in motion — 21 seconds of simulated loading with realistic data:
+Here's the widget in motion — a 21-second simulation with realistic data volumes:
 
 <!-- TODO: Embed video -->
 
-[Full gallery of all 34 prototypes →](progress-widget-design/index.html)
+[Browse all 34 prototypes →](progress-widget-design/index.html)
 
-## What I'm actually trying to say
+## What I think about this
 
-I've been a software developer for a long time, and there are a lot of tasks like this one. Not hard, exactly, but expansive — the kind of problem where the space of reasonable solutions is large and your first idea is fine but probably not your best idea. Normally you go with the first idea because exploring alternatives takes real time and you have other things to do.
+There are a lot of tasks like this one in software development. Not hard exactly, but wide open — the kind of problem where lots of solutions are reasonable, your first idea would be fine, and the only way to know if you can do better is to try a bunch of things. Normally you don't try a bunch of things. You pick something, build it, ship it, move on. The cost of exploration is too high relative to the value of a marginally better answer.
 
-The thing that's different with agentic tools isn't the quality of any individual output. I could have built any of these prototypes myself, probably better in some cases. What's different is the *tempo*. Six alternatives in parallel, in minutes. Feedback applied instantly to the next batch. Constraints that emerge from reaction rather than speculation.
+What changed here is the cost. Six parallel prototypes, built and screenshotted in minutes. Feedback applied, six more. The elapsed time for the whole process was about forty-five minutes, most of which was me looking at things and thinking.
 
-It changes how you think. Instead of imagining what a widget might look like and trying to evaluate it in your head, you describe the space and then react to real things. There's something a little unsettling about that shift — you're trading a deliberate, reason-from-first-principles design process for something more reactive and intuitive. You're pattern-matching against options rather than constructing a solution. I'm not sure that's always better, and I suspect that over-relying on it could atrophy the kind of careful design thinking that produces truly great interfaces. But it can lead to genuinely good results, especially for problems where your first-principles reasoning would have produced one okay answer and stopped. And the tools are only getting better at this.
+There's something genuinely new about this as a way of working, and I don't think I fully understand it yet. It shifts design from a constructive process — reason about the problem, synthesize a solution — to a reactive one. You generate a bunch of options and then pattern-match against your own taste. That's a real tradeoff. It's faster and it surfaces ideas you wouldn't have had on your own, but you're exercising a different cognitive muscle than the one you use when you sit down and think carefully about a design from first principles. I suspect that if this became the *only* way you designed things, you'd lose something. The careful thinking matters and it produces things that reactive selection can't.
 
-For a solo developer, this changes the math on a lot of decisions. Not the big architectural ones — those still need deep thought and you wouldn't want to rush them. But the hundred small design questions that come up in any application: how should this transition work, what's the right layout for this card, how should errors be displayed. These are all questions with a large solution space and a historically high cost of exploration. That cost just dropped by an order of magnitude.
+But for the vast majority of design decisions on a project like this — a solo developer building an open-source tool — careful first-principles design was never the realistic alternative. The realistic alternative was ten minutes and move on. Against that baseline, forty-five minutes of reactive exploration is a massive improvement, both in the quality of the output and in what I learned along the way. And the tools keep getting better at this. The prototypes from round five were substantially more polished than round one, partly because the brief improved but partly because these models are just getting good at this kind of work.
 
-I don't think this replaces design expertise. A skilled designer looking at my 34 prototypes would probably propose a 35th that's better than all of them. But "hire a designer" was never the realistic alternative for a loading widget on an open-source side project. The realistic alternative was spending ten minutes on it and moving on. What happened instead was spending forty-five minutes — not much more — and ending up with something I'm genuinely happy with, after a process that was itself interesting and educational.
-
-The prototypes I rejected taught me more about what I wanted than the one I picked. That's the actual value — not AI-generated design, but accelerated development of your own design intuition through rapid exposure to concrete alternatives.
+The thing I keep coming back to: the prototypes I rejected taught me more than the one I picked. Each round, I understood the problem better — not because I thought harder about it, but because I saw concrete things that were wrong and could articulate why. The thirty-three rejects aren't waste. They're the process by which the thirty-fourth became the right answer.
 
 ---
 
