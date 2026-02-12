@@ -971,8 +971,38 @@ code {
   background: #4caf50;
 }
 
-.up-bar-section {
-  margin-top: 4px;
+.up-providers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.up-provider {
+  text-align: left;
+}
+
+.up-provider-pending {
+  opacity: 0.45;
+}
+
+.up-provider-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+
+.up-provider-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: #555;
+}
+
+.up-provider-check {
+  color: #4caf50;
+  font-weight: 600;
+  font-size: 13px;
 }
 
 .up-status {

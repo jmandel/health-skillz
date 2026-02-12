@@ -1,22 +1,33 @@
-import type { StreamingProgress } from '../lib/crypto';
-
-export interface UploadProgress {
-  /** Which provider we're currently uploading */
+export interface ProviderUploadState {
   providerName: string;
-  /** Index in the list of selected connections (0-based) */
-  providerIndex: number;
-  /** Total providers to upload */
-  providerCount: number;
-  /** Streaming progress from the crypto layer */
-  streaming: StreamingProgress;
-  /** Total chunks expected (estimated from data size, refined as we go) */
-  totalChunks: number | null;
-  /** Chunks already confirmed uploaded */
+  /** Pre-estimated chunk count from data size */
+  estimatedChunks: number;
+  /** Refined once upload finishes (actual count) */
+  actualChunks: number | null;
+  /** Chunks confirmed uploaded */
   chunksUploaded: number;
   /** Chunks skipped (resume) */
   chunksSkipped: number;
+  /** Bytes of input processed so far */
+  bytesIn: number;
+  /** Total input bytes */
+  totalBytesIn: number;
+  /** Phase for this provider */
+  status: 'pending' | 'active' | 'done';
+  /** Current chunk being processed (1-based) */
+  currentChunk: number;
+  /** Sub-phase of current chunk */
+  chunkPhase: 'processing' | 'uploading' | 'done';
+}
+
+export interface UploadProgress {
+  providers: ProviderUploadState[];
+  /** Index of the provider currently being uploaded */
+  activeProviderIndex: number;
+  /** Total bytes sent across all providers */
+  totalBytesOut: number;
   /** Overall phase */
-  phase: 'encrypting' | 'uploading' | 'finalizing' | 'done';
+  phase: 'uploading' | 'finalizing' | 'done';
 }
 
 function fmtBytes(b: number): string {
@@ -25,87 +36,87 @@ function fmtBytes(b: number): string {
   return `${(b / 1048576).toFixed(1)} MB`;
 }
 
-function ChunkDot({ status }: { status: 'pending' | 'skipped' | 'processing' | 'uploading' | 'done' }) {
-  const cls = {
-    pending: 'up-dot up-pending',
-    skipped: 'up-dot up-skipped',
-    processing: 'up-dot up-processing',
-    uploading: 'up-dot up-uploading',
-    done: 'up-dot up-done',
-  }[status];
-  return <div className={cls} />;
+type DotStatus = 'pending' | 'skipped' | 'processing' | 'uploading' | 'done';
+
+function ChunkDot({ status }: { status: DotStatus }) {
+  return <div className={`up-dot up-${status}`} />;
 }
 
-export default function UploadProgressWidget({ progress }: { progress: UploadProgress }) {
-  const { providerName, providerIndex, providerCount, streaming, totalChunks,
-          chunksUploaded, chunksSkipped, phase } = progress;
+function ProviderRow({ state }: { state: ProviderUploadState }) {
+  const numDots = state.actualChunks ?? state.estimatedChunks;
+  const pct = state.totalBytesIn > 0
+    ? Math.round((state.bytesIn / state.totalBytesIn) * 100)
+    : state.status === 'done' ? 100 : 0;
 
-  const isDone = phase === 'done';
-  const isFinalizing = phase === 'finalizing';
-
-  // Bytes progress
-  const pctBytes = streaming.totalBytesIn > 0
-    ? Math.round((streaming.bytesIn / streaming.totalBytesIn) * 100)
-    : 0;
-
-  // Build chunk dots
-  const numChunks = totalChunks ?? streaming.currentChunk;
-  const dots: ('pending' | 'skipped' | 'processing' | 'uploading' | 'done')[] = [];
-  for (let i = 0; i < numChunks; i++) {
-    if (i < chunksSkipped) {
+  const dots: DotStatus[] = [];
+  for (let i = 0; i < numDots; i++) {
+    if (i < state.chunksSkipped) {
       dots.push('skipped');
-    } else if (i < chunksUploaded) {
+    } else if (i < state.chunksUploaded + state.chunksSkipped) {
       dots.push('done');
-    } else if (i === chunksUploaded) {
-      dots.push(streaming.phase === 'uploading' ? 'uploading' : 'processing');
+    } else if (state.status === 'active' && i === state.chunksUploaded + state.chunksSkipped) {
+      dots.push(state.chunkPhase === 'uploading' ? 'uploading' : 'processing');
     } else {
       dots.push('pending');
     }
   }
-  if (isDone) dots.fill('done');
+  if (state.status === 'done') dots.fill('done');
 
-  // Provider label
-  const provLabel = providerCount > 1
-    ? `${providerName} (${providerIndex + 1}/${providerCount})`
-    : providerName;
+  return (
+    <div className={`up-provider${state.status === 'pending' ? ' up-provider-pending' : ''}`}>
+      <div className="up-provider-header">
+        <span className="up-provider-name">{state.providerName}</span>
+        {state.status === 'done' && <span className="up-provider-check">✓</span>}
+      </div>
+      <div className="up-dot-strip">
+        {dots.map((s, i) => <ChunkDot key={i} status={s} />)}
+      </div>
+      <div className="fp-ref-bar">
+        <div className="fp-ref-bar-track">
+          <div className="fp-ref-bar-fill" style={{ width: `${pct}%` }} />
+        </div>
+        <span className="fp-ref-bar-count">{pct}%</span>
+      </div>
+    </div>
+  );
+}
+
+export default function UploadProgressWidget({ progress }: { progress: UploadProgress }) {
+  const { providers, totalBytesOut, phase } = progress;
+  const isDone = phase === 'done';
+  const isFinalizing = phase === 'finalizing';
+
+  // Active provider status text
+  const active = providers.find(p => p.status === 'active');
+  const statusText = isDone
+    ? null
+    : isFinalizing
+    ? 'Finalizing session…'
+    : active
+    ? active.chunkPhase === 'processing'
+      ? 'Compressing & encrypting…'
+      : `Uploading chunk ${active.currentChunk}`
+    : null;
 
   return (
     <div className="up-widget">
-      {/* Hero: bytes sent */}
+      {/* Hero: total bytes sent */}
       <div className="up-hero">
         <div className={`up-hero-num${isDone ? ' up-complete' : ''}`}>
-          {fmtBytes(streaming.bytesOut)}
+          {fmtBytes(totalBytesOut)}
         </div>
         <div className="up-hero-label">
-          {isDone ? 'encrypted & sent' : isFinalizing ? 'finalizing session…' : 'encrypted & uploading'}
+          {isDone ? 'encrypted & sent' : isFinalizing ? 'finalizing…' : 'encrypted & uploading'}
         </div>
       </div>
 
-      {/* Chunk dots */}
-      {dots.length > 0 && (
-        <div className="up-dot-strip">
-          {dots.map((s, i) => <ChunkDot key={i} status={s} />)}
-        </div>
-      )}
-
-      {/* Progress bar */}
-      <div className="up-bar-section">
-        <div className="fp-ref-bar">
-          <span className="fp-ref-bar-label">{provLabel}</span>
-          <div className="fp-ref-bar-track">
-            <div className="fp-ref-bar-fill" style={{ width: `${pctBytes}%` }} />
-          </div>
-          <span className="fp-ref-bar-count">{pctBytes}%</span>
-        </div>
+      {/* One row per provider */}
+      <div className="up-providers">
+        {providers.map((p, i) => <ProviderRow key={i} state={p} />)}
       </div>
 
       {/* Status */}
-      {!isDone && !isFinalizing && (
-        <div className="up-status">
-          {streaming.phase === 'processing' ? 'Compressing & encrypting…' : `Uploading chunk ${streaming.currentChunk}`}
-          {chunksSkipped > 0 && ` (${chunksSkipped} resumed)`}
-        </div>
-      )}
+      {statusText && <div className="up-status">{statusText}</div>}
     </div>
   );
 }

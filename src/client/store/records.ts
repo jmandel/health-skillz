@@ -21,7 +21,7 @@ import {
   type EncryptedChunk,
 } from '../lib/crypto';
 import { buildLocalSkillZip } from '../lib/skill-builder';
-import type { UploadProgress } from '../components/UploadProgressWidget';
+import type { UploadProgress, ProviderUploadState } from '../components/UploadProgressWidget';
 import {
   uploadEncryptedChunk,
   finalizeSession as finalizeSess,
@@ -522,38 +522,80 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
     const selectedConns = connections.filter(c => selected.has(c.id));
     if (selectedConns.length === 0) return;
 
-    set({ status: 'sending', statusMessage: '', error: null, uploadProgress: null });
+    // Pre-compute data sizes and estimated chunk counts for all providers
+    // Compression typically achieves ~3-5x on FHIR JSON; use 4x as estimate
+    const CHUNK_SIZE = 5 * 1024 * 1024;
+    const COMPRESSION_RATIO = 4;
+
+    type ProviderPrep = {
+      conn: SavedConnection;
+      data: any;
+      providerKey: string;
+      skipChunks: number[];
+      jsonSize: number;
+    };
+    const prepared: ProviderPrep[] = [];
+
+    for (const conn of selectedConns) {
+      const cached = await getFhirData(conn.id);
+      if (!cached) continue;
+      const data = {
+        name: conn.providerName,
+        fhirBaseUrl: conn.fhirBaseUrl,
+        connectedAt: cached.fetchedAt,
+        fhir: cached.fhir,
+        attachments: cached.attachments,
+      };
+      const providerKey = await deriveProviderKey(session.sessionId, conn.id);
+      const skipChunks = session.pendingChunks?.[providerKey]?.receivedChunks ?? [];
+      const jsonSize = JSON.stringify(data).length;
+      prepared.push({ conn, data, providerKey, skipChunks, jsonSize });
+    }
+
+    // Build initial provider states with estimated chunk counts
+    const providerStates: ProviderUploadState[] = prepared.map((p) => {
+      const compressedEstimate = p.jsonSize / COMPRESSION_RATIO;
+      const estChunks = Math.max(1, Math.ceil(compressedEstimate / CHUNK_SIZE));
+      return {
+        providerName: p.conn.providerName,
+        estimatedChunks: estChunks,
+        actualChunks: null,
+        chunksUploaded: 0,
+        chunksSkipped: p.skipChunks.length,
+        bytesIn: 0,
+        totalBytesIn: p.jsonSize,
+        status: 'pending' as const,
+        currentChunk: 0,
+        chunkPhase: 'processing' as const,
+      };
+    });
+
+    const uploadProgress: UploadProgress = {
+      providers: providerStates,
+      activeProviderIndex: 0,
+      totalBytesOut: 0,
+      phase: 'uploading',
+    };
+
+    set({ status: 'sending', statusMessage: '', error: null, uploadProgress });
 
     try {
-      let sentCount = 0;
-      let chunksUploaded = 0;
+      let totalBytesOut = 0;
 
-      for (const conn of selectedConns) {
-        const cached = await getFhirData(conn.id);
-        if (!cached) continue;
-
-        const providerData = {
-          name: conn.providerName,
-          fhirBaseUrl: conn.fhirBaseUrl,
-          connectedAt: cached.fetchedAt,
-          fhir: cached.fhir,
-          attachments: cached.attachments,
-        };
-
-        // Derive a session-scoped provider key: deterministic (survives reload)
-        // but not correlatable across sessions since sessionId differs each time.
-        const providerKey = await deriveProviderKey(session.sessionId, conn.id);
-
-        // Resume: skip chunks the server already received for THIS provider
-        const skipChunks = session.pendingChunks?.[providerKey]?.receivedChunks ?? [];
+      for (let pi = 0; pi < prepared.length; pi++) {
+        const { conn, data, providerKey, skipChunks } = prepared[pi];
         if (skipChunks.length > 0) {
           console.log(`[Resume] Skipping ${skipChunks.length} already-uploaded chunks for ${conn.providerName}`);
         }
 
-        chunksUploaded = skipChunks.length;
+        // Mark this provider active
+        providerStates[pi] = { ...providerStates[pi], status: 'active' };
+        set({ uploadProgress: { ...uploadProgress, providers: [...providerStates], activeProviderIndex: pi } });
+
+        let provChunksUploaded = skipChunks.length;
 
         await encryptAndUploadStreaming(
-          providerData,
+          data,
           session.publicKeyJwk,
           async (chunk: EncryptedChunk, index: number, isLast: boolean) => {
             await uploadEncryptedChunk(
@@ -564,48 +606,42 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
               isLast ? index + 1 : null,
               providerKey,
             );
-            chunksUploaded++;
-            // Update progress after each successful chunk upload
-            const prev = get().uploadProgress;
-            if (prev) {
-              set({ uploadProgress: { ...prev, chunksUploaded, totalChunks: isLast ? index + 1 : prev.totalChunks } });
-            }
+            provChunksUploaded++;
+            totalBytesOut += chunk.ciphertext.length;
+            providerStates[pi] = {
+              ...providerStates[pi],
+              chunksUploaded: provChunksUploaded,
+              actualChunks: isLast ? index + 1 : providerStates[pi].actualChunks,
+            };
+            set({ uploadProgress: { ...uploadProgress, providers: [...providerStates], totalBytesOut } });
           },
           (progress: StreamingProgress) => {
-            set({
-              uploadProgress: {
-                providerName: conn.providerName,
-                providerIndex: sentCount,
-                providerCount: selectedConns.length,
-                streaming: progress,
-                totalChunks: progress.phase === 'done' ? progress.currentChunk : null,
-                chunksUploaded,
-                chunksSkipped: skipChunks.length,
-                phase: progress.phase === 'done' ? 'uploading' : progress.phase === 'uploading' ? 'uploading' : 'encrypting',
-              },
-            });
+            providerStates[pi] = {
+              ...providerStates[pi],
+              bytesIn: progress.bytesIn,
+              currentChunk: progress.currentChunk,
+              chunkPhase: progress.phase === 'uploading' ? 'uploading' : progress.phase === 'done' ? 'done' : 'processing',
+            };
+            totalBytesOut = totalBytesOut; // keep running total
+            set({ uploadProgress: { ...uploadProgress, providers: [...providerStates], totalBytesOut } });
           },
           skipChunks,
         );
 
-        sentCount++;
+        // Mark done
+        providerStates[pi] = { ...providerStates[pi], status: 'done', chunkPhase: 'done' };
+        set({ uploadProgress: { ...uploadProgress, providers: [...providerStates], totalBytesOut } });
       }
 
-      // Finalize the session so the AI can retrieve the data
-      set({
-        uploadProgress: get().uploadProgress
-          ? { ...get().uploadProgress!, phase: 'finalizing' }
-          : null,
-      });
+      // Finalize
+      set({ uploadProgress: { ...uploadProgress, providers: [...providerStates], totalBytesOut, phase: 'finalizing' } });
       await finalizeSess(session.sessionId, session.finalizeToken);
       clearFinalizeToken(session.sessionId);
 
       set({
         status: 'done',
         statusMessage: '',
-        uploadProgress: get().uploadProgress
-          ? { ...get().uploadProgress!, phase: 'done' }
-          : null,
+        uploadProgress: { ...uploadProgress, providers: [...providerStates], totalBytesOut, phase: 'done' },
         session: { ...session, sessionStatus: 'finalized', pendingChunks: null },
       });
     } catch (err) {
