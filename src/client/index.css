@@ -752,11 +752,6 @@ code {
   color: #2e7d32;
 }
 
-.fp-counter-check {
-  font-size: 20px;
-  margin-left: 4px;
-  color: #2e7d32;
-}
 
 .fp-counter-label {
   font-size: 12px;
@@ -899,10 +894,6 @@ code {
   flex-shrink: 0;
 }
 
-.fp-ref-bar-check {
-  font-size: 10px;
-  color: #66bb6a;
-}
 
 .fp-ref-bar-count.fp-inactive {
   color: #ccc;
