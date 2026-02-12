@@ -367,9 +367,9 @@ export async function fetchPatientData(
           }
         }
       } else if (resource.resourceType === 'DiagnosticReport') {
-        for (const media of resource.media || []) {
-          if (media.link?.data) {
-            delete media.link.data;
+        for (const form of resource.presentedForm || []) {
+          if (form.data) {
+            delete form.data;
           }
         }
       }
