@@ -64,6 +64,8 @@ The updated script prompts for mode at startup: enter "1" to use JWK Set URL (th
 
 After re-activating all 502 organizations, one of my two test sites — UnityPoint — started working. The other, UW Health, is still returning `invalid_client`. Configuration changes can take up to 12 hours to propagate from Epic's portal to customer sites, so this may just be a matter of waiting.
 
+One wrinkle: after switching everything to direct JWKS, my server logs still show Epic hitting the `jwks.json` endpoint. If direct keys are supposed to replace URL-based fetching, those requests shouldn't be happening. It's unclear whether this is propagation lag, a periodic refresh mechanism, or whether Epic always fetches the URL regardless of per-org key configuration. If it's the latter, the outbound traffic problem is less about which option you choose in the portal and more about whether the customer's network allows the fetch — in which case direct JWKS might not fully solve the problem either, just provide a fallback the server can use when the URL is unreachable.
+
 ## EC keys: accepted at registration, rejected at configuration
 
 One more surprise during the script update. My app's JWKS contains three keys: one ES384 (elliptic curve) and two RSA (RS256 and RS384). Epic's app registration page happily accepts all three in the app-level JWKS configuration. No errors, no warnings.

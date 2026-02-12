@@ -495,3 +495,5 @@ This answers the lifecycle question: **the org list does update over time — it
 ### Current Status
 
 After re-activating all 502 orgs with direct JWKS upload, one of the two test sites (UnityPoint) is now working — the token exchange succeeds and we can fetch patient data. The other test site (UW Health) is still returning `invalid_client`. Epic's configuration changes can take up to 12 hours to propagate to customer sites, so this may just be a timing issue. Waiting to confirm.
+
+Interesting observation: after switching all orgs to direct JWKS upload, the server logs for `jwks.json` still show many requests hitting it. If the per-org direct keys are supposed to replace JWK Set URL fetching, Epic shouldn't need to hit the URL at all. Possible explanations: propagation lag (some orgs still on old config), Epic fetching the URL as a periodic refresh or fallback even when direct keys are stored, or the app-level JWK Set URL being polled independently of per-org settings. Worth investigating — it complicates the outbound traffic narrative if Epic hits the URL regardless.
