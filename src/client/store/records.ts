@@ -563,10 +563,12 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
         const jsonSize = JSON.stringify(providerData).length;
         const CHUNK_THRESHOLD = 5 * 1024 * 1024;
 
+        // Derive a session-scoped provider key: deterministic (survives reload)
+        // but not correlatable across sessions since sessionId differs each time.
+        // Used by both chunked and single-upload paths for server-side dedup.
+        const providerKey = await deriveProviderKey(session.sessionId, conn.id);
+
         if (jsonSize > CHUNK_THRESHOLD) {
-          // Derive a session-scoped provider key: deterministic (survives reload)
-          // but not correlatable across sessions since sessionId differs each time.
-          const providerKey = await deriveProviderKey(session.sessionId, conn.id);
 
           // Resume: skip chunks the server already received for THIS provider
           const skipChunks = session.pendingChunks?.[providerKey]?.receivedChunks ?? [];
@@ -608,6 +610,8 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
                 : 0;
               set({ statusMessage: `Uploading ${conn.providerName}… ${pct}%` });
             },
+            undefined, // onChunkedProgress
+            providerKey,
           );
         }
 

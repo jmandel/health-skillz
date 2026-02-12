@@ -246,8 +246,9 @@ const server = Bun.serve({
                 }))
               };
             } else {
-              // v1/v2 - return full payload (small)
-              return { providerIndex: i, version: p.version || 1, ...p };
+              // v1/v2 - return full payload (small), strip internal fields
+              const { _providerKey, _chunkGroupId, _complete, ...rest } = p;
+              return { providerIndex: i, version: p.version || 1, ...rest };
             }
           });
           return Response.json({
@@ -301,8 +302,9 @@ const server = Bun.serve({
               }))
             };
           } else {
-            // v1/v2 - return full payload (usually small)
-            return { providerIndex: i, version: p.version || 1, ...p };
+            // v1/v2 - return full payload (usually small), strip internal fields
+            const { _providerKey, _chunkGroupId, _complete, ...rest } = p;
+            return { providerIndex: i, version: p.version || 1, ...rest };
           }
         });
         return Response.json({ providers: meta }, { headers: corsHeaders });
@@ -438,9 +440,10 @@ const server = Bun.serve({
           const knownTotal = providerEntry.totalChunks > 0 ? providerEntry.totalChunks : '?';
           const isComplete = providerEntry.totalChunks > 0 && receivedChunks === providerEntry.totalChunks;
           
-          // Remove temp groupId when complete
+          // Mark complete but keep _chunkGroupId so retries find
+          // the existing entry instead of creating a duplicate.
           if (isComplete) {
-            delete providerEntry._chunkGroupId;
+            providerEntry._complete = true;
           }
           
           console.log(`Received chunk ${chunkIndex + 1}/${knownTotal} for ${data.sessionId} (${receivedChunks}/${knownTotal} complete)`);
@@ -454,14 +457,28 @@ const server = Bun.serve({
             ? Array.from(Uint8Array.from(atob(data.ciphertext), c => c.charCodeAt(0)))
             : data.ciphertext;
 
-          existing.push({
+          // Deduplicate: if providerKey is supplied and an entry already
+          // exists for this provider, replace it instead of appending.
+          const providerKey = data.providerKey || null;
+          const dupeIdx = providerKey
+            ? existing.findIndex((e: any) => e._providerKey === providerKey)
+            : -1;
+
+          const entry = {
             ephemeralPublicKey: data.ephemeralPublicKey,
             iv,
             ciphertext,
             version: data.version || 1,  // v1 = uncompressed, v2 = gzip compressed
-          });
-          
-          console.log(`Received EHR data for ${data.sessionId} (${existing.length} providers)`);
+            ...(providerKey ? { _providerKey: providerKey } : {}),
+          };
+
+          if (dupeIdx >= 0) {
+            existing[dupeIdx] = entry;
+            console.log(`Replaced EHR data for ${data.sessionId} provider ${providerKey}`);
+          } else {
+            existing.push(entry);
+            console.log(`Received EHR data for ${data.sessionId} (${existing.length} providers)`);
+          }
         }
 
         db.run("UPDATE sessions SET encrypted_data = ?, status = 'collecting', finalize_token = ? WHERE id = ?",
@@ -511,10 +528,10 @@ const server = Bun.serve({
 
       const encryptedData = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
       
-      // Include per-provider chunk upload progress for v3 uploads
+      // Include per-provider chunk upload progress for incomplete v3 uploads
       let pendingChunks: Record<string, { receivedChunks: number[]; totalChunks: number }> | null = null;
       for (const entry of encryptedData) {
-        if (!entry._chunkGroupId) continue;
+        if (!entry._chunkGroupId || entry._complete) continue;
         if (!pendingChunks) pendingChunks = {};
         // Strip the "chunked_" prefix to recover the providerKey
         const providerKey = entry._chunkGroupId.replace(/^chunked_/, '');

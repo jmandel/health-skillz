@@ -110,7 +110,8 @@ export async function sendEncryptedEhrData(
   payload: AnyEncryptedPayload,
   finalizeToken: string,
   onProgress?: (progress: UploadProgress) => void,
-  onChunkedProgress?: (progress: ChunkedUploadProgress) => void
+  onChunkedProgress?: (progress: ChunkedUploadProgress) => void,
+  providerKey?: string,
 ): Promise<{ success: boolean; providerCount: number; redirectTo: string; errorId?: string }> {
   
   // v3 chunked upload
@@ -163,6 +164,7 @@ export async function sendEncryptedEhrData(
     ...payload,
     sessionId,
     finalizeToken,
+    ...(providerKey ? { providerKey } : {}),
   });
 
   return uploadChunk(`${BASE_URL}/api/receive-ehr`, body, onProgress);
