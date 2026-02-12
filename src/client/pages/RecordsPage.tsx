@@ -167,17 +167,7 @@ export default function RecordsPage() {
                       <FetchProgressWidget progress={prog} />
                     )}
                     {(c.lastError || err) && (
-                      <div className="conn-error">
-                        {err || c.lastError}
-                        {isFailed && !refreshing && (
-                          <button
-                            className="btn btn-secondary btn-sm conn-error-reconnect"
-                            onClick={e => { e.preventDefault(); e.stopPropagation(); reconnectConnection(c.id); }}
-                          >
-                            Reconnect
-                          </button>
-                        )}
-                      </div>
+                      <div className="conn-error">{err || c.lastError}</div>
                     )}
                     <div className="conn-actions">
                       {isFailed && !err ? (

@@ -2,10 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { searchBrands, collapseBrands } from '../lib/brands/loader';
 import type { BrandItem } from '../lib/brands/types';
-import { saveOAuthState } from '../lib/storage';
 import { useRecordsStore } from '../store/records';
 import { useBrandsStore } from '../store/brands';
-import { buildAuthorizationUrl, generatePKCE } from '../lib/smart/oauth';
+import { launchOAuth } from '../lib/smart/launch';
 import ProviderSearch from '../components/ProviderSearch';
 import ProviderCard from '../components/ProviderCard';
 import StatusMessage from '../components/StatusMessage';
@@ -82,7 +81,6 @@ export default function ProviderSelectPage() {
   // Handle connect (start OAuth)
   const handleConnect = async () => {
     if (!selectedItem) return;
-    // For standalone mode, use a local session ID
     const effectiveSessionId = sessionId || 'local_' + crypto.randomUUID();
 
     const vendorName = (selectedItem as any)._vendor as string;
@@ -102,37 +100,16 @@ export default function ProviderSelectPage() {
     setError(null);
 
     try {
-      // Generate PKCE
-      const pkce = await generatePKCE();
-
-      // Use configured redirect URI (must match what's registered with EHR)
-      const redirectUri = vendorConfig.redirectUrl || `${window.location.origin}/connect/callback`;
-
-      // Build authorization URL (sessionId encoded in state for cross-origin recovery)
-      const { authUrl, state, tokenEndpoint } = await buildAuthorizationUrl({
+      const storeSession = useRecordsStore.getState().session;
+      await launchOAuth({
         fhirBaseUrl: endpoint.url,
         clientId: vendorConfig.clientId,
         scopes: vendorConfig.scopes,
-        redirectUri,
-        pkce,
-        sessionId: effectiveSessionId,
-      });
-
-      // Save OAuth state keyed by state nonce (survives cross-origin redirect)
-      const storeSession = useRecordsStore.getState().session;
-      saveOAuthState(state, {
+        redirectUri: vendorConfig.redirectUrl || `${window.location.origin}/connect/callback`,
         sessionId: effectiveSessionId,
         publicKeyJwk: storeSession?.publicKeyJwk || null,
-        codeVerifier: pkce.codeVerifier,
-        tokenEndpoint,
-        fhirBaseUrl: endpoint.url,
-        clientId: vendorConfig.clientId,
-        redirectUri,
         providerName: selectedItem.displayName,
       });
-
-      // Redirect to authorization server
-      window.location.href = authUrl;
     } catch (err) {
       setConnecting(false);
       setError(err instanceof Error ? err.message : 'Failed to start authorization');

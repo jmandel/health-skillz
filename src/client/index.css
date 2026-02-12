@@ -319,14 +319,6 @@ code {
   font-size: 0.78rem;
   color: var(--danger);
   margin-top: 2px;
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.conn-error-reconnect {
-  flex-shrink: 0;
 }
 
 .conn-actions {

@@ -12,8 +12,8 @@ import {
   type SavedConnection,
   type CachedFhirData,
 } from '../lib/connections';
-import { refreshAccessToken, buildAuthorizationUrl, generatePKCE } from '../lib/smart/oauth';
-import { saveOAuthState, saveFinalizeToken, loadFinalizeToken, clearFinalizeToken } from '../lib/storage';
+import { refreshAccessToken } from '../lib/smart/oauth';
+import { saveFinalizeToken, loadFinalizeToken, clearFinalizeToken } from '../lib/storage';
 import { fetchPatientData, type FetchProgress } from '../lib/smart/client';
 import {
   encryptAndUploadStreaming,
@@ -355,6 +355,7 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
 
   // reconnectConnection — re-initiate OAuth for a failed/expired connection
   // Uses saved connection metadata so user doesn't have to search again.
+  // Reuses the same launchOAuth path as the directory-based connect flow.
   // -----------------------------------------------------------------------
   reconnectConnection: async (id) => {
     const { connections, session } = get();
@@ -362,7 +363,7 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
     if (!conn) return;
 
     try {
-      // Look up vendor config by clientId
+      // Look up vendor config by clientId to get canonical scopes + redirect
       const vendorConfigs = await getVendorConfigs();
       const vendorEntry = Object.entries(vendorConfigs).find(
         ([, v]) => v.clientId === conn.clientId
@@ -370,38 +371,18 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
       if (!vendorEntry) {
         throw new Error('Vendor configuration not found for this connection');
       }
-      const [vendorName, vendorConfig] = vendorEntry;
+      const [, vendorConfig] = vendorEntry;
 
-      const effectiveSessionId = session?.sessionId || 'local_' + crypto.randomUUID();
-
-      // Generate PKCE
-      const pkce = await generatePKCE();
-      const redirectUri = vendorConfig.redirectUrl || `${window.location.origin}/connect/callback`;
-
-      // Build authorization URL
-      const { authUrl, state, tokenEndpoint } = await buildAuthorizationUrl({
+      const { launchOAuth } = await import('../lib/smart/launch');
+      await launchOAuth({
         fhirBaseUrl: conn.fhirBaseUrl,
-        clientId: conn.clientId,
-        scopes: conn.scopes || vendorConfig.scopes,
-        redirectUri,
-        pkce,
-        sessionId: effectiveSessionId,
-      });
-
-      // Save OAuth state for callback recovery
-      saveOAuthState(state, {
-        sessionId: effectiveSessionId,
+        clientId: vendorConfig.clientId,
+        scopes: vendorConfig.scopes,
+        redirectUri: vendorConfig.redirectUrl || `${window.location.origin}/connect/callback`,
+        sessionId: session?.sessionId || 'local_' + crypto.randomUUID(),
         publicKeyJwk: session?.publicKeyJwk || null,
-        codeVerifier: pkce.codeVerifier,
-        tokenEndpoint,
-        fhirBaseUrl: conn.fhirBaseUrl,
-        clientId: conn.clientId,
-        redirectUri,
         providerName: conn.providerName,
       });
-
-      // Redirect to authorization server
-      window.location.href = authUrl;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       set({
