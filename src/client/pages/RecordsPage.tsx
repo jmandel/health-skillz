@@ -100,6 +100,29 @@ export default function RecordsPage() {
     );
   }
 
+  if (isSession && isFinalized) {
+    return (
+      <div className="page-top">
+        <div className="panel panel-wide">
+          <div className="page-title">Share records with AI</div>
+          <div className="page-subtitle">
+            End-to-end encrypted — only the requesting AI can decrypt.
+          </div>
+
+          <div className="session-done-callout" role="status" aria-live="polite">
+            <div className="session-done-title">All set. Records already sent to AI.</div>
+            <div className="session-done-sub">You can close this page.</div>
+          </div>
+
+          <div className="actions-row">
+            <a href="/" className="btn btn-secondary">About Health Skillz</a>
+            <a href="/records" className="btn btn-secondary">My Health Records</a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="page-top">
       <div className="panel panel-wide">
@@ -124,6 +147,7 @@ export default function RecordsPage() {
             <button className="link" onClick={clearError} style={{ marginLeft: 8 }}>Dismiss</button>
           </div>
         )}
+
 
         {/* Toolbar */}
         {total > 1 && (
@@ -248,11 +272,6 @@ export default function RecordsPage() {
             <InfoTip text="Builds a zip with AI instructions plus your selected health records bundled in. Give this to any AI to analyze your data — no web access needed." />
           </span>
         </div>
-        {isSession && isFinalized && (
-          <p className="text-success" style={{ padding: '8px 0' }}>
-            ✓ Records sent to AI — you can close this page.
-          </p>
-        )}
       </div>
     </div>
   );

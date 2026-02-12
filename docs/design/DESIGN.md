@@ -18,7 +18,7 @@ Health Skillz is a **Claude Skill** that enables Claude to securely fetch and an
 
 5. **Multi-provider support** - Users can connect multiple healthcare providers in a single session for cross-provider analysis
 
-6. **Simple user experience** - One-click connection flow: user clicks a link, signs into their patient portal, done
+6. **Simple user experience** - One records hub for collection/management, plus an explicit "Send to AI" step for sharing
 
 ### Non-Goals
 
@@ -75,10 +75,12 @@ Health Skillz is a **Claude Skill** that enables Claude to securely fetch and an
 │  │  React SPA Routes (Bun fullstack):                                  │   │
 │  │                                                                      │   │
 │  │  /                        HomePage (skill download, docs)            │   │
-│  │  /connect/:sessionId      ConnectPage (session status, finalize)    │   │
-│  │  /connect/:sessionId/select   ProviderSelectPage (search providers) │   │
-│  │  /connect/:sessionId/callback OAuthCallbackPage (OAuth → fetch →    │   │
-│  │                                encrypt → send)                       │   │
+│  │  /records                  RecordsPage (connection hub)              │   │
+│  │  /records/add              ProviderSelectPage (search providers)     │   │
+│  │  /records/callback         OAuthCallbackPage (OAuth → fetch → save)  │   │
+│  │  /connect/:sessionId       ConnectPage (session wrapper around       │   │
+│  │                            RecordsPage + Send to AI)                 │   │
+│  │  /connect/callback         OAuthCallbackPage (shared callback route) │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────────┘
                                    │
@@ -174,17 +176,17 @@ Health Skillz is a **Claude Skill** that enables Claude to securely fetch and an
     │                    │                        │ 14. Encrypt data     │
     │                    │                        │     with AES-256-GCM │
     │                    │                        │                      │
-    │                    │ 15. POST /api/receive-ehr                     │
-    │                    │     {ephemeralPubKey,  │                      │
-    │                    │      iv, ciphertext}   │                      │
+    │                    │ 15. POST /api/receive-ehr (chunk uploads)     │
+    │                    │     {version:3, finalizeToken, providerKey,   │
+    │                    │      totalChunks, chunk{index,key,iv,data}}   │
     │                    │<───────────────────────│                      │
     │                    │                        │                      │
     │                    │ 16. Store ciphertext   │                      │
     │                    │     (cannot decrypt)   │                      │
     │                    │                        │                      │
-    │                    │                        │ 17. User clicks      │
-    │                    │                        │     "Done" or adds   │
-    │                    │                        │     more providers   │
+    │                    │                        │ 17. User selects     │
+    │                    │                        │     records and      │
+    │                    │                        │     clicks "Send..." │
     │                    │                        │                      │
     │                    │ 18. POST /api/finalize/:id                    │
     │                    │<───────────────────────│                      │
@@ -193,13 +195,13 @@ Health Skillz is a **Claude Skill** that enables Claude to securely fetch and an
     │───────────────────>│                        │                      │
     │                    │                        │                      │
     │ {ready: true,      │                        │                      │
-    │  encryptedProviders: [...]}                 │                      │
+    │  providers: [...]}                          │                      │
     │<───────────────────│                        │                      │
     │                    │                        │                      │
-    │ 20. Derive shared secret                    │                      │
-    │     with ephemeral pubkey                   │                      │
+    │ 20. Download chunk ciphertext via           │                      │
+    │     /api/chunks/:sessionId/...              │                      │
     │                    │                        │                      │
-    │ 21. Decrypt with AES-256-GCM                │                      │
+    │ 21. Derive shared secret + decrypt chunks   │                      │
     │                    │                        │                      │
     │ 22. Analyze FHIR data                       │                      │
     │     (labs, meds, notes)                     │                      │
@@ -215,8 +217,8 @@ The app uses a standard OAuth redirect flow within a single-page React applicati
 1. User clicks "Connect" on provider selection page
 2. Browser redirects to EHR's authorization endpoint
 3. User authenticates and authorizes
-4. EHR redirects back to `/connect/:sessionId/callback`
-5. Callback page exchanges code for token, fetches data, encrypts, sends
+4. EHR redirects back to `/connect/callback` (or `/records/callback` in standalone mode)
+5. Callback page exchanges code for token, fetches data, and saves it to local browser storage
 
 **Why redirect instead of popup?**
 - Simpler implementation with React Router
@@ -234,7 +236,7 @@ The app uses a standard OAuth redirect flow within a single-page React applicati
 **Session lifecycle:**
 1. **Created**: Claude calls `POST /api/session` with ECDH public key
 2. **Collecting**: User connects providers, encrypted data accumulates
-3. **Finalized**: User clicks "Done", session marked complete
+3. **Finalized**: User clicks "Send ... to AI", upload completes, session finalized
 4. **Expired**: Auto-deleted after 1 hour
 
 ### 3. End-to-End Encryption
@@ -457,7 +459,7 @@ Create a new session for health data retrieval.
 
 ### GET /api/session/:sessionId
 
-Get session info including vendor configurations.
+Get session info for an existing AI session.
 
 **Response:**
 ```json
@@ -466,12 +468,10 @@ Get session info including vendor configurations.
   "publicKey": {"kty": "EC", "crv": "P-256", ...},
   "status": "pending",
   "providerCount": 0,
-  "vendors": {
-    "epic-sandbox": {
-      "clientId": "...",
-      "scopes": "patient/*.rs",
-      "brandFiles": ["/static/brands/epic-sandbox.json"],
-      "redirectUrl": "https://health-skillz.exe.xyz/connect/callback"
+  "pendingChunks": {
+    "abcd1234ef567890": {
+      "receivedChunks": [0, 1, 2],
+      "totalChunks": 10
     }
   }
 }
@@ -494,19 +494,26 @@ Check if health data is ready. Supports long-polling with `?timeout=N` (max 60s)
 ```json
 {
   "ready": true,
-  "encryptedProviders": [
+  "providerCount": 1,
+  "providers": [
     {
-      "ephemeralPublicKey": {"kty": "EC", "crv": "P-256", ...},
-      "iv": [1, 2, 3, ...],
-      "ciphertext": [4, 5, 6, ...],
-      "version": 2
+      "providerIndex": 0,
+      "version": 3,
+      "totalChunks": 10,
+      "chunks": [
+        {
+          "index": 0,
+          "ephemeralPublicKey": {"kty": "EC", "crv": "P-256", ...},
+          "iv": "base64..."
+        }
+      ]
     }
   ]
 }
 ```
 
-> **Note:** `version: 2` indicates the ciphertext contains gzip-compressed JSON.
-> The finalize script decompresses after decryption. Version 1 (or missing) is uncompressed.
+> **Note:** `GET /api/poll/:sessionId` returns chunk metadata only.
+> Ciphertext bytes are fetched separately from `GET /api/chunks/:sessionId/:providerIndex/:chunkIndex`.
 
 ### POST /api/receive-ehr
 
@@ -516,15 +523,20 @@ Receive encrypted health data from the browser.
 ```json
 {
   "sessionId": "d2d5a05d...",
-  "encrypted": true,
-  "version": 2,
-  "ephemeralPublicKey": {"kty": "EC", "crv": "P-256", ...},
-  "iv": "base64...",
-  "ciphertext": "base64..."
+  "finalizeToken": "9d6a...uuid...",
+  "version": 3,
+  "totalChunks": 10,
+  "providerKey": "abcd1234ef567890",
+  "chunk": {
+    "index": 0,
+    "ephemeralPublicKey": {"kty": "EC", "crv": "P-256", ...},
+    "iv": "base64...",
+    "ciphertext": "base64..."
+  }
 }
 ```
 
-> **Note:** Browser sends base64-encoded iv/ciphertext; server converts to number arrays for storage.
+> **Note:** Browser sends one chunk per request. `totalChunks: -1` is allowed for intermediate chunks when the final total is not known yet.
 
 **Response:**
 ```json
@@ -535,9 +547,22 @@ Receive encrypted health data from the browser.
 }
 ```
 
+### GET /api/chunks/:sessionId/meta
+
+Return chunk metadata for finalized sessions (same shape as `poll.providers`).
+
+### GET /api/chunks/:sessionId/:providerIndex/:chunkIndex
+
+Return raw binary ciphertext for one chunk.
+
 ### POST /api/finalize/:sessionId
 
-Mark session as complete (user is done adding providers).
+Finalize session after upload completes.
+
+**Request body:**
+```json
+{"finalizeToken": "9d6a...uuid..."}
+```
 
 **Response:**
 ```json
@@ -557,9 +582,9 @@ health-skillz/
 │       ├── index.css          # Styles
 │       ├── pages/
 │       │   ├── HomePage.tsx           # Skill download, documentation
-│       │   ├── ConnectPage.tsx        # Session status, add providers, finalize
+│       │   ├── ConnectPage.tsx        # Session wrapper around RecordsPage
 │       │   ├── ProviderSelectPage.tsx # Search and select healthcare provider
-│       │   └── OAuthCallbackPage.tsx  # OAuth callback, FHIR fetch, encrypt, send
+│       │   └── OAuthCallbackPage.tsx  # OAuth callback, FHIR fetch, save connection
 │       ├── components/
 │       │   ├── ProviderSearch.tsx     # Search input
 │       │   ├── ProviderCard.tsx       # Provider display card
@@ -577,7 +602,7 @@ health-skillz/
 │       │       ├── types.ts           # Brand/provider type definitions
 │       │       └── loader.ts          # Brand file loading and search
 │       └── store/
-│           └── session.ts             # Zustand state management
+│           └── records.ts             # Zustand state management
 ├── scripts/
 │   ├── download-brands.ts    # Fetch Epic endpoint directory
 │   └── package-skill.ts      # Create skill .zip for distribution

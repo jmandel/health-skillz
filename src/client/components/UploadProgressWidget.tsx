@@ -55,17 +55,18 @@ export default function UploadProgressWidget({ progress }: { progress: UploadPro
   const { providers, phase } = progress;
   const isDone = phase === 'done';
   const isFinalizing = phase === 'finalizing';
-  // Active provider status text
+
+  // Active provider status text while work is still in progress.
   const active = providers.find(p => p.status === 'active');
   const statusText = isDone
-    ? 'Encrypted & sent'
+    ? null
     : isFinalizing
     ? 'Finalizing session…'
     : active
     ? active.chunkPhase === 'processing'
       ? 'Compressing & encrypting…'
       : `Uploading chunk ${active.currentChunk}`
-    : null;
+    : 'Preparing upload…';
 
   return (
     <div className="up-widget">
@@ -74,10 +75,7 @@ export default function UploadProgressWidget({ progress }: { progress: UploadPro
         {providers.map((p, i) => <ProviderRow key={i} state={p} />)}
       </div>
 
-      {/* Status */}
-      {statusText && (
-        <div className={`up-status${isDone ? ' up-status-done' : ''}`}>{statusText}</div>
-      )}
+      {statusText && <div className="up-status">{statusText}</div>}
     </div>
   );
 }

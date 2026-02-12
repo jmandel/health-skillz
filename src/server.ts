@@ -40,6 +40,7 @@ const migrations = [
   "ALTER TABLE sessions ADD COLUMN encrypted_data TEXT",
   "ALTER TABLE sessions ADD COLUMN finalize_token TEXT",
   "ALTER TABLE sessions ADD COLUMN simulate_error TEXT",
+  "ALTER TABLE sessions ADD COLUMN attempt_meta TEXT",
 ];
 for (const sql of migrations) {
   try { db.run(sql); } catch (e) { /* Column already exists */ }
@@ -62,6 +63,32 @@ function generateSessionId(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
+}
+
+type AttemptMeta = {
+  attemptId: string;
+  selectedProviderKeys: string[];
+  status: "active" | "finalized";
+  createdAt: string;
+};
+
+function parseAttemptMeta(raw: string | null | undefined): AttemptMeta | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as any;
+    if (!parsed || typeof parsed !== "object") return null;
+    if (typeof parsed.attemptId !== "string") return null;
+    if (!Array.isArray(parsed.selectedProviderKeys)) return null;
+    if (parsed.status !== "active" && parsed.status !== "finalized") return null;
+    return {
+      attemptId: parsed.attemptId,
+      selectedProviderKeys: parsed.selectedProviderKeys.filter((x: unknown): x is string => typeof x === "string"),
+      status: parsed.status,
+      createdAt: typeof parsed.createdAt === "string" ? parsed.createdAt : new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
 }
 
 // Build skill zip (agent version with scripts)
@@ -325,6 +352,78 @@ const server = Bun.serve({
       });
     }
 
+    // API: Start upload attempt (locks selected provider set for deterministic resume/finalize)
+    if (path.startsWith("/api/upload/start/") && req.method === "POST") {
+      const sessionId = path.replace("/api/upload/start/", "");
+      let body: any = {};
+      try { body = await req.json(); } catch (e) {}
+
+      const row = db.query("SELECT status, finalize_token FROM sessions WHERE id = ?").get(sessionId) as any;
+      if (!row) return new Response("Session not found", { status: 404, headers: corsHeaders });
+      if (row.status === "finalized") {
+        return Response.json({ success: false, error: "session_finalized" }, { status: 400, headers: corsHeaders });
+      }
+      if (!body.finalizeToken || typeof body.finalizeToken !== "string" || body.finalizeToken.length < 16) {
+        return Response.json({ success: false, error: "missing_finalize_token" }, { status: 400, headers: corsHeaders });
+      }
+      if (!Array.isArray(body.selectedProviderKeys) || body.selectedProviderKeys.length === 0) {
+        return Response.json({ success: false, error: "missing_selected_provider_keys" }, { status: 400, headers: corsHeaders });
+      }
+      const selectedProviderKeys = body.selectedProviderKeys
+        .filter((x: unknown): x is string => typeof x === "string")
+        .map((k: string) => k.trim())
+        .filter(Boolean);
+      if (selectedProviderKeys.length === 0) {
+        return Response.json({ success: false, error: "invalid_selected_provider_keys" }, { status: 400, headers: corsHeaders });
+      }
+
+      if (row.finalize_token && row.finalize_token !== body.finalizeToken) {
+        return Response.json({ success: false, error: "token_mismatch" }, { status: 403, headers: corsHeaders });
+      }
+
+      const attemptMeta: AttemptMeta = {
+        attemptId: crypto.randomUUID(),
+        selectedProviderKeys,
+        status: "active",
+        createdAt: new Date().toISOString(),
+      };
+      db.run(
+        "UPDATE sessions SET encrypted_data = '[]', status = 'pending', finalize_token = ?, attempt_meta = ? WHERE id = ?",
+        [body.finalizeToken, JSON.stringify(attemptMeta), sessionId]
+      );
+
+      return Response.json({
+        success: true,
+        attemptMeta,
+        pendingChunks: {},
+      }, { headers: corsHeaders });
+    }
+
+    // API: Reset upload state for a session (discard partial chunks + attempt lock)
+    if (path.startsWith("/api/upload/reset/") && req.method === "POST") {
+      const sessionId = path.replace("/api/upload/reset/", "");
+      let body: any = {};
+      try { body = await req.json(); } catch (e) {}
+
+      const row = db.query("SELECT status, finalize_token FROM sessions WHERE id = ?").get(sessionId) as any;
+      if (!row) return new Response("Session not found", { status: 404, headers: corsHeaders });
+      if (row.status === "finalized") {
+        return Response.json({ success: false, error: "session_finalized" }, { status: 400, headers: corsHeaders });
+      }
+      if (!body.finalizeToken || typeof body.finalizeToken !== "string" || body.finalizeToken.length < 16) {
+        return Response.json({ success: false, error: "missing_finalize_token" }, { status: 400, headers: corsHeaders });
+      }
+      if (row.finalize_token && row.finalize_token !== body.finalizeToken) {
+        return Response.json({ success: false, error: "token_mismatch" }, { status: 403, headers: corsHeaders });
+      }
+
+      db.run(
+        "UPDATE sessions SET encrypted_data = '[]', status = 'pending', attempt_meta = NULL, finalize_token = ? WHERE id = ?",
+        [body.finalizeToken, sessionId]
+      );
+      return Response.json({ success: true }, { headers: corsHeaders });
+    }
+
     // API: Receive encrypted EHR data (also sets finalizeToken on first call)
     if (path === "/api/receive-ehr" && req.method === "POST") {
       try {
@@ -345,12 +444,15 @@ const server = Bun.serve({
         if (!data.chunk || typeof data.chunk.index !== 'number' || !data.chunk.ephemeralPublicKey || !data.chunk.iv || !data.chunk.ciphertext) {
           return Response.json({ success: false, error: "missing_chunk_fields" }, { status: 400, headers: corsHeaders });
         }
+        if (!data.attemptId || typeof data.attemptId !== "string") {
+          return Response.json({ success: false, error: "missing_attempt_id" }, { status: 400, headers: corsHeaders });
+        }
         // totalChunks: -1 means "unknown, more coming", positive means final count
         if (typeof data.totalChunks !== 'number' || (data.totalChunks < 1 && data.totalChunks !== -1)) {
           return Response.json({ success: false, error: "invalid_total_chunks" }, { status: 400, headers: corsHeaders });
         }
 
-        const row = db.query("SELECT encrypted_data, status, finalize_token, simulate_error FROM sessions WHERE id = ?").get(data.sessionId) as any;
+        const row = db.query("SELECT encrypted_data, status, finalize_token, simulate_error, attempt_meta FROM sessions WHERE id = ?").get(data.sessionId) as any;
         if (!row) return Response.json({ success: false, error: "session_not_found" }, { status: 404, headers: corsHeaders });
         if (row.status === "finalized") return Response.json({ success: false, error: "session_finalized" }, { status: 400, headers: corsHeaders });
 
@@ -380,11 +482,22 @@ const server = Bun.serve({
           return Response.json({ success: false, error: "token_mismatch" }, { status: 403, headers: corsHeaders });
         }
 
+        const attemptMeta = parseAttemptMeta(row.attempt_meta);
+        if (!attemptMeta || attemptMeta.status !== "active") {
+          return Response.json({ success: false, error: "no_active_attempt" }, { status: 400, headers: corsHeaders });
+        }
+        if (attemptMeta.attemptId !== data.attemptId) {
+          return Response.json({ success: false, error: "stale_attempt_id" }, { status: 409, headers: corsHeaders });
+        }
+
         const existing = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
 
         // Find or create provider entry keyed by providerKey
         if (!data.providerKey) {
           return Response.json({ success: false, error: "missing_provider_key" }, { status: 400, headers: corsHeaders });
+        }
+        if (!attemptMeta.selectedProviderKeys.includes(data.providerKey)) {
+          return Response.json({ success: false, error: "provider_not_in_attempt" }, { status: 400, headers: corsHeaders });
         }
         const chunkGroupId = `chunked_${data.providerKey}`;
         let providerEntry = existing.find((e: any) => e._chunkGroupId === chunkGroupId);
@@ -433,6 +546,7 @@ const server = Bun.serve({
 
         return Response.json({
           success: true,
+          attemptId: attemptMeta.attemptId,
           providerCount: existing.length,
           redirectTo: `${baseURL}/connect/${data.sessionId}?provider_added=true`
         }, { headers: corsHeaders });
@@ -449,7 +563,7 @@ const server = Bun.serve({
       let body: any = {};
       try { body = await req.json(); } catch (e) {}
 
-      const row = db.query("SELECT status, encrypted_data, finalize_token FROM sessions WHERE id = ?").get(sessionId) as any;
+      const row = db.query("SELECT status, encrypted_data, finalize_token, attempt_meta FROM sessions WHERE id = ?").get(sessionId) as any;
       if (!row) return new Response("Session not found", { status: 404, headers: corsHeaders });
       if (!row.finalize_token) {
         return Response.json({ error: "not_claimed", error_description: "Session must be claimed by a browser first" }, { status: 400, headers: corsHeaders });
@@ -458,20 +572,38 @@ const server = Bun.serve({
         return Response.json({ error: "invalid_token", error_description: "Valid finalizeToken required" }, { status: 403, headers: corsHeaders });
       }
       if (row.status === "finalized") return Response.json({ success: true, alreadyFinalized: true }, { headers: corsHeaders });
+      if (!body.attemptId || typeof body.attemptId !== "string") {
+        return Response.json({ error: "missing_attempt_id", error_description: "attemptId is required" }, { status: 400, headers: corsHeaders });
+      }
+
+      const attemptMeta = parseAttemptMeta(row.attempt_meta);
+      if (!attemptMeta || attemptMeta.status !== "active") {
+        return Response.json({ error: "no_active_attempt", error_description: "No active upload attempt for this session" }, { status: 400, headers: corsHeaders });
+      }
+      if (attemptMeta.attemptId !== body.attemptId) {
+        return Response.json({ error: "stale_attempt_id", error_description: "attemptId does not match active attempt" }, { status: 409, headers: corsHeaders });
+      }
 
       const encryptedData = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
       if (encryptedData.length === 0) return new Response("No providers connected", { status: 400, headers: corsHeaders });
 
-      // Verify all providers have complete chunk sets
+      // Verify only providers locked for this attempt
       const incomplete: string[] = [];
-      for (let i = 0; i < encryptedData.length; i++) {
-        const p = encryptedData[i];
+      for (const providerKey of attemptMeta.selectedProviderKeys) {
+        const chunkGroupId = `chunked_${providerKey}`;
+        const p = encryptedData.find((entry: any) => entry._chunkGroupId === chunkGroupId);
+        if (!p) {
+          incomplete.push(`provider ${providerKey}: 0/? chunks`);
+          continue;
+        }
         if (!p.chunks || !Array.isArray(p.chunks)) {
-          incomplete.push(`provider ${i}: missing chunks array`);
+          incomplete.push(`provider ${providerKey}: missing chunks array`);
           continue;
         }
         if (p.totalChunks > 0 && p.chunks.length !== p.totalChunks) {
-          incomplete.push(`provider ${i}: ${p.chunks.length}/${p.totalChunks} chunks`);
+          incomplete.push(`provider ${providerKey}: ${p.chunks.length}/${p.totalChunks} chunks`);
+        } else if (p.totalChunks <= 0) {
+          incomplete.push(`provider ${providerKey}: total chunk count unknown`);
         }
       }
       if (incomplete.length > 0) {
@@ -481,7 +613,8 @@ const server = Bun.serve({
         );
       }
 
-      db.run("UPDATE sessions SET status = 'finalized' WHERE id = ?", [sessionId]);
+      const finalizedAttemptMeta: AttemptMeta = { ...attemptMeta, status: "finalized" };
+      db.run("UPDATE sessions SET status = 'finalized', attempt_meta = ? WHERE id = ?", [JSON.stringify(finalizedAttemptMeta), sessionId]);
       console.log(`Finalized session ${sessionId}`);
       return Response.json({ success: true, providerCount: encryptedData.length }, { headers: corsHeaders });
     }
@@ -489,10 +622,11 @@ const server = Bun.serve({
     // API: Get session info
     if (path.startsWith("/api/session/") && req.method === "GET") {
       const sessionId = path.replace("/api/session/", "");
-      const row = db.query("SELECT status, public_key, encrypted_data FROM sessions WHERE id = ?").get(sessionId) as any;
+      const row = db.query("SELECT status, public_key, encrypted_data, attempt_meta, finalize_token FROM sessions WHERE id = ?").get(sessionId) as any;
       if (!row) return new Response("Session not found", { status: 404, headers: corsHeaders });
 
       const encryptedData = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
+      const attemptMeta = parseAttemptMeta(row.attempt_meta);
       
       // Include per-provider chunk upload progress for incomplete v3 uploads
       let pendingChunks: Record<string, { receivedChunks: number[]; totalChunks: number }> | null = null;
@@ -501,6 +635,9 @@ const server = Bun.serve({
         if (!pendingChunks) pendingChunks = {};
         // Strip the "chunked_" prefix to recover the providerKey
         const providerKey = entry._chunkGroupId.replace(/^chunked_/, '');
+        if (attemptMeta && attemptMeta.selectedProviderKeys.length > 0 && !attemptMeta.selectedProviderKeys.includes(providerKey)) {
+          continue;
+        }
         pendingChunks[providerKey] = {
           receivedChunks: entry.chunks?.map((c: any) => c.index) || [],
           totalChunks: entry.totalChunks || -1,
@@ -513,6 +650,8 @@ const server = Bun.serve({
         status: row.status,
         providerCount: encryptedData.length,
         pendingChunks,
+        attemptMeta,
+        hasFinalizeToken: Boolean(row.finalize_token),
       }, { headers: corsHeaders });
     }
 

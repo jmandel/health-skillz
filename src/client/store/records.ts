@@ -13,7 +13,17 @@ import {
   type CachedFhirData,
 } from '../lib/connections';
 import { refreshAccessToken } from '../lib/smart/oauth';
-import { saveFinalizeToken, loadFinalizeToken, clearFinalizeToken } from '../lib/storage';
+import {
+  saveFinalizeToken,
+  loadFinalizeToken,
+  clearFinalizeToken,
+  saveSessionSelection,
+  loadSessionSelection,
+  clearSessionSelection,
+  saveUploadAttemptId,
+  loadUploadAttemptId,
+  clearUploadAttemptId,
+} from '../lib/storage';
 import { fetchPatientData, type FetchProgress } from '../lib/smart/client';
 import {
   encryptAndUploadStreaming,
@@ -27,6 +37,8 @@ import {
   finalizeSession as finalizeSess,
   getSessionInfo,
   getVendorConfigs,
+  startUploadAttempt,
+  resetUploadState,
 } from '../lib/api';
 
 // ---------------------------------------------------------------------------
@@ -57,6 +69,8 @@ export interface SessionContext {
   finalizeToken: string;
   sessionStatus: string; // from server: 'pending', 'has_data', 'finalized'
   pendingChunks: Record<string, { receivedChunks: number[]; totalChunks: number }> | null;
+  attemptId: string | null;
+  attemptSelectedProviderKeys: string[];
 }
 
 interface RecordsState {
@@ -157,6 +171,20 @@ function extractPatientIdentity(fhir: Record<string, any[]>): {
   };
 }
 
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+function sameStringSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sa = [...a].sort();
+  const sb = [...b].sort();
+  for (let i = 0; i < sa.length; i++) {
+    if (sa[i] !== sb[i]) return false;
+  }
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -213,12 +241,29 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
   initSession: async (sessionId: string) => {
     try {
       const info = await getSessionInfo(sessionId);
-      // Restore persisted token so uploads/finalize survive page reloads,
-      // or generate a new one for a fresh session.
+      // Restore persisted token so uploads/finalize survive page reloads.
+      // If server already has upload state and token is missing locally,
+      // fail loudly instead of silently rotating to a new token.
       let token = loadFinalizeToken(sessionId);
+      const requiresTokenContinuity = Boolean(
+        info.status !== 'finalized' && (
+          info.status === 'collecting' ||
+          (info.pendingChunks && Object.keys(info.pendingChunks).length > 0) ||
+          (info.attemptMeta && info.attemptMeta.status === 'active') ||
+          info.hasFinalizeToken
+        )
+      );
       if (!token) {
+        if (requiresTokenContinuity) {
+          throw new Error('Session token missing locally. Ask your AI assistant to create a new session link.');
+        }
         token = crypto.randomUUID();
         saveFinalizeToken(sessionId, token);
+      }
+      if (info.attemptMeta?.attemptId) {
+        saveUploadAttemptId(sessionId, info.attemptMeta.attemptId);
+      } else {
+        clearUploadAttemptId(sessionId);
       }
       set({
         session: {
@@ -227,10 +272,18 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
           finalizeToken: token,
           sessionStatus: info.status,
           pendingChunks: info.pendingChunks ?? null,
+          attemptId: info.attemptMeta?.attemptId || loadUploadAttemptId(sessionId),
+          attemptSelectedProviderKeys: info.attemptMeta?.selectedProviderKeys ?? [],
         },
       });
       // Load connections atomically after session init
       await get().loadConnections();
+      const savedSelection = loadSessionSelection(sessionId);
+      if (savedSelection) {
+        const validIds = new Set(get().connections.map(c => c.id));
+        const restored = new Set(savedSelection.filter(id => validIds.has(id)));
+        set({ selected: restored });
+      }
     } catch (err) {
       set({
         status: 'error',
@@ -241,7 +294,11 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
 
   clearSession: () => {
     const session = get().session;
-    if (session) clearFinalizeToken(session.sessionId);
+    if (session) {
+      clearFinalizeToken(session.sessionId);
+      clearSessionSelection(session.sessionId);
+      clearUploadAttemptId(session.sessionId);
+    }
     set({ session: null });
   },
 
@@ -251,12 +308,21 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
   toggleSelected: (id) => {
     const s = new Set(get().selected);
     if (s.has(id)) s.delete(id); else s.add(id);
+    const session = get().session;
+    if (session) saveSessionSelection(session.sessionId, Array.from(s));
     set({ selected: s });
   },
   selectAll: () => {
-    set({ selected: new Set(get().connections.map(c => c.id)) });
+    const all = new Set(get().connections.map(c => c.id));
+    const session = get().session;
+    if (session) saveSessionSelection(session.sessionId, Array.from(all));
+    set({ selected: all });
   },
-  selectNone: () => set({ selected: new Set() }),
+  selectNone: () => {
+    const session = get().session;
+    if (session) saveSessionSelection(session.sessionId, []);
+    set({ selected: new Set() });
+  },
 
   // -----------------------------------------------------------------------
   // refreshConnection — use refresh token to get new access, re-fetch FHIR
@@ -414,6 +480,8 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
       connectionState: newState,
       selected: s,
     });
+    const session = get().session;
+    if (session) saveSessionSelection(session.sessionId, Array.from(s));
   },
 
   // -----------------------------------------------------------------------
@@ -506,6 +574,8 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
       status: 'idle',
       statusMessage: '',
     });
+    const session = get().session;
+    if (session) saveSessionSelection(session.sessionId, Array.from(selected));
 
     return connId;
   },
@@ -522,76 +592,124 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
     const selectedConns = connections.filter(c => selected.has(c.id));
     if (selectedConns.length === 0) return;
 
-    // Pre-compute data sizes and estimated chunk counts for all providers
-    // Compression typically achieves ~3-5x on FHIR JSON; use 4x as estimate
-    const CHUNK_SIZE = 5 * 1024 * 1024;
-    const COMPRESSION_RATIO = 4;
-
-    type ProviderPrep = {
-      conn: SavedConnection;
-      data: any;
-      providerKey: string;
-      skipChunks: number[];
-      jsonSize: number;
-    };
-    const prepared: ProviderPrep[] = [];
-
-    for (const conn of selectedConns) {
-      const cached = await getFhirData(conn.id);
-      if (!cached) continue;
-      const data = {
-        name: conn.providerName,
-        fhirBaseUrl: conn.fhirBaseUrl,
-        connectedAt: cached.fetchedAt,
-        fhir: cached.fhir,
-        attachments: cached.attachments,
-      };
-      const providerKey = await deriveProviderKey(session.sessionId, conn.id);
-      const skipChunks = session.pendingChunks?.[providerKey]?.receivedChunks ?? [];
-      const jsonSize = JSON.stringify(data).length;
-      prepared.push({ conn, data, providerKey, skipChunks, jsonSize });
-    }
-
-    // Build initial provider states with estimated chunk counts
-    const providerStates: ProviderUploadState[] = prepared.map((p) => {
-      const compressedEstimate = p.jsonSize / COMPRESSION_RATIO;
-      const estChunks = Math.max(1, Math.ceil(compressedEstimate / CHUNK_SIZE));
-      return {
-        providerName: p.conn.providerName,
-        estimatedChunks: estChunks,
-        actualChunks: null,
-        chunksUploaded: 0,
-        chunksSkipped: p.skipChunks.length,
-        bytesIn: 0,
-        totalBytesIn: p.jsonSize,
-        bytesOut: 0,
-        status: 'pending' as const,
-        currentChunk: 0,
-        chunkPhase: 'processing' as const,
-      };
-    });
-
+    // Show upload UI immediately so the browser doesn't feel hung while we prep.
+    const initialProviderStates: ProviderUploadState[] = selectedConns.map((conn) => ({
+      providerName: conn.providerName,
+      estimatedChunks: 1,
+      actualChunks: null,
+      chunksUploaded: 0,
+      chunksSkipped: 0,
+      bytesIn: 0,
+      totalBytesIn: 1,
+      bytesOut: 0,
+      status: 'pending',
+      currentChunk: 0,
+      chunkPhase: 'processing',
+    }));
     const uploadProgress: UploadProgress = {
-      providers: providerStates,
+      providers: initialProviderStates,
       activeProviderIndex: 0,
       phase: 'uploading',
     };
-
     set({ status: 'sending', statusMessage: '', error: null, uploadProgress });
+    await nextFrame();
+
+    // Compression typically achieves ~3-5x on FHIR JSON; use 4x as estimate.
+    const CHUNK_SIZE = 5 * 1024 * 1024;
+    const COMPRESSION_RATIO = 4;
+
+    type UploadWorkItem = {
+      conn: SavedConnection;
+      data: any;
+      providerKey: string;
+    };
+    const workItems: UploadWorkItem[] = [];
 
     try {
+      for (let pi = 0; pi < selectedConns.length; pi++) {
+        const conn = selectedConns[pi];
+        const cached = await getFhirData(conn.id);
+        if (!cached) {
+          throw new Error(`Selected record for ${conn.providerName} is missing local data. Refresh and try again.`);
+        }
+        const data = {
+          name: conn.providerName,
+          fhirBaseUrl: conn.fhirBaseUrl,
+          connectedAt: cached.fetchedAt,
+          fhir: cached.fhir,
+          attachments: cached.attachments,
+        };
+        const providerKey = await deriveProviderKey(session.sessionId, conn.id);
+        const estimatedInputBytes = Math.max(1, conn.dataSizeBytes || 1);
+        workItems.push({ conn, data, providerKey });
 
-      for (let pi = 0; pi < prepared.length; pi++) {
-        const { conn, data, providerKey, skipChunks } = prepared[pi];
+        const compressedEstimate = estimatedInputBytes / COMPRESSION_RATIO;
+        const estChunks = Math.max(1, Math.ceil(compressedEstimate / CHUNK_SIZE));
+        initialProviderStates[pi] = {
+          ...initialProviderStates[pi],
+          totalBytesIn: estimatedInputBytes,
+          estimatedChunks: estChunks,
+        };
+        set({ uploadProgress: { ...uploadProgress, providers: [...initialProviderStates] } });
+      }
+
+      const latestSession = await getSessionInfo(session.sessionId);
+      const selectedProviderKeys = workItems.map((w) => w.providerKey);
+
+      let attemptId = latestSession.attemptMeta?.status === 'active' ? latestSession.attemptMeta.attemptId : null;
+      let pendingChunks = latestSession.pendingChunks ?? {};
+      const activeKeys = latestSession.attemptMeta?.selectedProviderKeys ?? [];
+      const canResumeActiveAttempt = Boolean(
+        attemptId &&
+        sameStringSet(activeKeys, selectedProviderKeys)
+      );
+
+      if (canResumeActiveAttempt && attemptId) {
+        saveUploadAttemptId(session.sessionId, attemptId);
+      } else {
+        if (attemptId && !canResumeActiveAttempt) {
+          const restart = confirm(
+            'Your current upload attempt is locked to a different provider selection. Start a new upload and discard partial chunks from the old attempt?'
+          );
+          if (!restart) {
+            set({ status: 'idle', statusMessage: '', uploadProgress: null });
+            return;
+          }
+          await resetUploadState(session.sessionId, session.finalizeToken);
+        }
+        const started = await startUploadAttempt(session.sessionId, session.finalizeToken, selectedProviderKeys);
+        attemptId = started.attemptMeta.attemptId;
+        pendingChunks = started.pendingChunks ?? {};
+        saveUploadAttemptId(session.sessionId, attemptId);
+      }
+
+      set({
+        session: {
+          ...session,
+          pendingChunks,
+          attemptId,
+          attemptSelectedProviderKeys: selectedProviderKeys,
+        },
+      });
+      saveSessionSelection(session.sessionId, Array.from(selected));
+
+      for (let pi = 0; pi < workItems.length; pi++) {
+        const { conn, data, providerKey } = workItems[pi];
+        const skipChunks = pendingChunks[providerKey]?.receivedChunks ?? [];
         if (skipChunks.length > 0) {
           console.log(`[Resume] Skipping ${skipChunks.length} already-uploaded chunks for ${conn.providerName}`);
         }
 
         // Mark this provider active
-        providerStates[pi] = { ...providerStates[pi], status: 'active' };
-        set({ uploadProgress: { ...uploadProgress, providers: [...providerStates], activeProviderIndex: pi } });
+        initialProviderStates[pi] = {
+          ...initialProviderStates[pi],
+          status: 'active',
+          chunksUploaded: skipChunks.length,
+          chunksSkipped: skipChunks.length,
+        };
+        set({ uploadProgress: { ...uploadProgress, providers: [...initialProviderStates], activeProviderIndex: pi } });
 
-        let provChunksUploaded = 0;
+        let provChunksUploaded = skipChunks.length;
 
         await encryptAndUploadStreaming(
           data,
@@ -600,47 +718,57 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
             await uploadEncryptedChunk(
               session.sessionId,
               session.finalizeToken,
+              attemptId!,
               chunk,
               index,
               isLast ? index + 1 : null,
               providerKey,
             );
             provChunksUploaded++;
-            providerStates[pi] = {
-              ...providerStates[pi],
+            initialProviderStates[pi] = {
+              ...initialProviderStates[pi],
               chunksUploaded: provChunksUploaded,
-              actualChunks: isLast ? index + 1 : providerStates[pi].actualChunks,
+              actualChunks: isLast ? index + 1 : initialProviderStates[pi].actualChunks,
             };
-            set({ uploadProgress: { ...uploadProgress, providers: [...providerStates] } });
+            set({ uploadProgress: { ...uploadProgress, providers: [...initialProviderStates] } });
           },
           (progress: StreamingProgress) => {
-            providerStates[pi] = {
-              ...providerStates[pi],
+            initialProviderStates[pi] = {
+              ...initialProviderStates[pi],
               bytesIn: progress.bytesIn,
+              totalBytesIn: Math.max(1, progress.totalBytesIn),
               bytesOut: progress.bytesOut,
               currentChunk: progress.currentChunk,
               chunkPhase: progress.phase === 'uploading' ? 'uploading' : progress.phase === 'done' ? 'done' : 'processing',
             };
-            set({ uploadProgress: { ...uploadProgress, providers: [...providerStates] } });
+            set({ uploadProgress: { ...uploadProgress, providers: [...initialProviderStates] } });
           },
           skipChunks,
         );
 
         // Mark done
-        providerStates[pi] = { ...providerStates[pi], status: 'done', chunkPhase: 'done' };
-        set({ uploadProgress: { ...uploadProgress, providers: [...providerStates] } });
+        initialProviderStates[pi] = { ...initialProviderStates[pi], status: 'done', chunkPhase: 'done' };
+        set({ uploadProgress: { ...uploadProgress, providers: [...initialProviderStates] } });
       }
 
       // Finalize
-      set({ uploadProgress: { ...uploadProgress, providers: [...providerStates], phase: 'finalizing' } });
-      await finalizeSess(session.sessionId, session.finalizeToken);
+      set({ uploadProgress: { ...uploadProgress, providers: [...initialProviderStates], phase: 'finalizing' } });
+      await finalizeSess(session.sessionId, session.finalizeToken, attemptId || undefined);
       clearFinalizeToken(session.sessionId);
+      clearUploadAttemptId(session.sessionId);
+      clearSessionSelection(session.sessionId);
 
       set({
         status: 'done',
         statusMessage: '',
-        uploadProgress: { ...uploadProgress, providers: [...providerStates], phase: 'done' },
-        session: { ...session, sessionStatus: 'finalized', pendingChunks: null },
+        uploadProgress: { ...uploadProgress, providers: [...initialProviderStates], phase: 'done' },
+        session: {
+          ...session,
+          sessionStatus: 'finalized',
+          pendingChunks: null,
+          attemptId: null,
+          attemptSelectedProviderKeys: [],
+        },
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

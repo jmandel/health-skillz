@@ -15,11 +15,20 @@ export interface SessionInfo {
   providerCount: number;
   /** Per-provider pending chunk state, keyed by providerKey. */
   pendingChunks?: Record<string, PendingChunkInfo> | null;
+  attemptMeta?: UploadAttemptMeta | null;
+  hasFinalizeToken?: boolean;
 }
 
 export interface Provider {
   name: string;
   connectedAt: string;
+}
+
+export interface UploadAttemptMeta {
+  attemptId: string;
+  selectedProviderKeys: string[];
+  status: 'active' | 'finalized';
+  createdAt: string;
 }
 
 const BASE_URL = '';  // Same-origin API
@@ -86,6 +95,7 @@ function uploadChunk(
 export async function uploadEncryptedChunk(
   sessionId: string,
   finalizeToken: string,
+  attemptId: string,
   chunk: EncryptedChunk,
   chunkIndex: number,
   totalChunks: number | null, // null if unknown yet
@@ -94,6 +104,7 @@ export async function uploadEncryptedChunk(
   const body = JSON.stringify({
     sessionId,
     finalizeToken,
+    attemptId,
     version: 3,
     totalChunks: totalChunks ?? -1, // -1 means "more coming, count unknown"
     chunk,
@@ -128,9 +139,43 @@ export async function uploadEncryptedChunk(
 
 export async function finalizeSession(
   sessionId: string,
-  finalizeToken?: string
+  finalizeToken?: string,
+  attemptId?: string
 ): Promise<{ success: boolean; providerCount: number }> {
   const res = await fetch(`${BASE_URL}/api/finalize/${sessionId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ finalizeToken, attemptId }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Server returned ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function startUploadAttempt(
+  sessionId: string,
+  finalizeToken: string,
+  selectedProviderKeys: string[]
+): Promise<{ success: boolean; attemptMeta: UploadAttemptMeta; pendingChunks: Record<string, PendingChunkInfo> }> {
+  const res = await fetch(`${BASE_URL}/api/upload/start/${sessionId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ finalizeToken, selectedProviderKeys }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Server returned ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function resetUploadState(
+  sessionId: string,
+  finalizeToken: string
+): Promise<{ success: boolean }> {
+  const res = await fetch(`${BASE_URL}/api/upload/reset/${sessionId}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ finalizeToken }),

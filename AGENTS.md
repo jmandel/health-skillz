@@ -1,33 +1,107 @@
 # Agent Notes for health-skillz
 
-## Server Configuration
+## Purpose
 
-This VM (`cobra-traceroute.exe.xyz`) runs the **vnext** branch.
+This file documents **general** runbook guidance for running and debugging this project across environments.
 
-- The server runs via **systemd**: `sudo systemctl restart health-skillz`
-- The systemd unit sets `CONFIG_PATH=./config.vnext.json` — do NOT change this.
-- **Never start the server manually without `CONFIG_PATH=./config.vnext.json`.**
-  Bare `bun run dev` defaults to `config.json` which points at the **production**
-  domain (`health-skillz.joshuamandel.com`) on a different VM (`s003.exe.xyz`).
+## Configuration Discipline
 
-### Config files
+Always be explicit about config selection.
 
-| File | baseURL | Purpose |
-|---|---|---|
-| `config.json` | `https://health-skillz.joshuamandel.com` | Production (different VM — do not use here) |
-| `config.vnext.json` | `https://health-skillz-vnext.joshuamandel.com` | **This VM** — vnext branch |
-| `config.local.json` | `http://localhost:3000` | Local dev with separate OAuth client IDs |
+- The server reads `CONFIG_PATH` (defaults to `./config.json` if omitted).
+- Different config files may point at different base URLs and OAuth client IDs.
+- Do not assume defaults are safe for your current environment.
 
-### DNS mapping
-
-- `health-skillz.joshuamandel.com` → `s003.exe.xyz` (production, NOT this VM)
-- `health-skillz-vnext.joshuamandel.com` → `cobra-traceroute.exe.xyz` (this VM)
-
-### To restart the server
+Typical startup pattern:
 
 ```bash
-sudo systemctl restart health-skillz
-journalctl -u health-skillz -f   # watch logs
+CONFIG_PATH=./config.<env>.json bun run start
 ```
 
-Verify the startup log says `Base URL: https://health-skillz-vnext.joshuamandel.com`.
+Before starting, verify these fields in the selected config:
+
+- `server.port`
+- `server.baseURL`
+- `brands[].clientId`
+- `brands[].redirectURL` (or rely on server default to `${baseURL}/connect/callback`)
+
+## Running the Server
+
+Development:
+
+```bash
+CONFIG_PATH=./config.<env>.json bun run dev
+```
+
+Production-style local run:
+
+```bash
+CONFIG_PATH=./config.<env>.json bun run start
+```
+
+Health check:
+
+```bash
+curl -sS http://localhost:<port>/health
+```
+
+## Provider Directory Assets (`/static/brands/...`)
+
+`/records/add` depends on vendor brand files being reachable at the paths returned by `/api/vendors` (usually under `/static/brands/`).
+
+You can satisfy this in either way:
+
+1. Generate brand files in `./brands`:
+
+```bash
+bun run build:brands
+```
+
+2. Make them available to static routing:
+
+Option A: If files already exist in `./brands`, symlink for convenience:
+
+```bash
+mkdir -p static
+ln -snf "$(pwd)/brands" static/brands
+```
+
+Option B: Copy files directly into `./static/brands`.
+
+Either approach is fine; symlink is convenience, not a requirement.
+
+## Quick Diagnostics for "Failed to fetch" on `/records/add`
+
+1. Check server is up:
+
+```bash
+curl -sS http://localhost:<port>/health
+```
+
+2. Check vendor config endpoint:
+
+```bash
+curl -sS http://localhost:<port>/api/vendors
+```
+
+3. Check at least one brand file URL returned by vendors:
+
+```bash
+curl -sS -I http://localhost:<port>/static/brands/epic-sandbox.json
+```
+
+Expected:
+
+- `/health` responds
+- `/api/vendors` returns vendor entries
+- Brand file URL returns `200`
+
+If `/api/vendors` works but brand files fail, it is an asset-path issue (missing files/symlink/copy).
+
+## OAuth Callback Consistency
+
+Ensure configured callback URLs match your running base URL and registered OAuth app settings.
+
+Common pitfall:
+
+- App runs at `localhost`, but OAuth redirect URI registered/configured points at a deployed domain (or old path).

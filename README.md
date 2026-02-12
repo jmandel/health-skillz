@@ -31,7 +31,7 @@ Claude will create a secure session and give you a link to connect your patient 
 
 2. Claude: Creates encrypted session, shows you a link
 
-3. You: Click link → sign into patient portal → authorize → click "Done"
+3. You: Click link → sign into patient portal → authorize → choose records → click "Send ... to AI"
 
 4. Claude: Decrypts data, explores it, answers your questions
 ```
@@ -84,14 +84,14 @@ Edit `config.json` (production) or create `config.local.json` (local dev):
       "file": "./brands/epic-sandbox.json",
       "clientId": "YOUR_SANDBOX_CLIENT_ID",
       "scopes": "patient/*.rs",
-      "redirectURL": "https://your-domain.com/ehr-connect/callback"
+      "redirectURL": "https://your-domain.com/connect/callback"
     },
     {
       "name": "epic-prod",
       "file": "./brands/epic-prod.json",
       "clientId": "YOUR_PROD_CLIENT_ID",
       "scopes": "patient/*.rs",
-      "redirectURL": "https://your-domain.com/ehr-connect/callback"
+      "redirectURL": "https://your-domain.com/connect/callback"
     }
   ]
 }
@@ -153,9 +153,11 @@ health-skillz/
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/session/{id}` | GET | Get session info + vendor config + public key |
-| `/api/receive-ehr` | POST | Send encrypted EHR data to server |
-| `/api/finalize/{id}` | POST | Mark session complete (user clicked "Done") |
+| `/api/session/{id}` | GET | Get session info + public key + pending chunk state + active attempt metadata |
+| `/api/upload/start/{id}` | POST | Start or restart an upload attempt (locks selected providers) |
+| `/api/upload/reset/{id}` | POST | Discard partial upload state for current session |
+| `/api/receive-ehr` | POST | Send encrypted chunk data (requires `attemptId`) |
+| `/api/finalize/{id}` | POST | Finalize active attempt after upload (requires `attemptId`) |
 
 **Other:**
 
