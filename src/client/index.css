@@ -829,7 +829,8 @@ code {
 }
 
 .fp-status-zone {
-  min-height: 28px;
+  height: 48px;
+  overflow: hidden;
 }
 
 .fp-status-active {
@@ -837,6 +838,9 @@ code {
   color: #999;
   font-style: italic;
   line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .fp-status-settled {
