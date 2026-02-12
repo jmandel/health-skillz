@@ -33,3 +33,20 @@ export function loadOAuthState(stateNonce: string): OAuthState | null {
 export function clearOAuthState(stateNonce: string): void {
   sessionStorage.removeItem(OAUTH_KEY_PREFIX + stateNonce);
 }
+
+// === Finalize Token Storage (keyed by session ID) ===
+// Persists the per-session finalize token so it survives page reloads.
+
+const FINALIZE_TOKEN_PREFIX = 'health_skillz_finalize_';
+
+export function saveFinalizeToken(sessionId: string, token: string): void {
+  sessionStorage.setItem(FINALIZE_TOKEN_PREFIX + sessionId, token);
+}
+
+export function loadFinalizeToken(sessionId: string): string | null {
+  return sessionStorage.getItem(FINALIZE_TOKEN_PREFIX + sessionId);
+}
+
+export function clearFinalizeToken(sessionId: string): void {
+  sessionStorage.removeItem(FINALIZE_TOKEN_PREFIX + sessionId);
+}

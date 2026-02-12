@@ -12,7 +12,8 @@ import {
   type SavedConnection,
   type CachedFhirData,
 } from '../lib/connections';
-import { refreshAccessToken } from '../lib/smart/oauth';
+import { refreshAccessToken, buildAuthorizationUrl, generatePKCE } from '../lib/smart/oauth';
+import { saveOAuthState, saveFinalizeToken, loadFinalizeToken, clearFinalizeToken } from '../lib/storage';
 import { fetchPatientData, type FetchProgress } from '../lib/smart/client';
 import {
   encryptData,
@@ -25,6 +26,7 @@ import {
   uploadEncryptedChunk,
   finalizeSession as finalizeSess,
   getSessionInfo,
+  getVendorConfigs,
 } from '../lib/api';
 
 // ---------------------------------------------------------------------------
@@ -45,6 +47,8 @@ export interface ConnectionState {
   refreshing: boolean;
   refreshProgress: FetchProgress | null;
   error: string | null;
+  /** Set after a successful refresh so the user can see the final progress before dismissing */
+  doneMessage: string | null;
 }
 
 export interface SessionContext {
@@ -52,6 +56,7 @@ export interface SessionContext {
   publicKeyJwk: JsonWebKey;
   finalizeToken: string;
   sessionStatus: string; // from server: 'pending', 'has_data', 'finalized'
+  pendingChunks: { receivedChunks: number[]; totalChunks: number } | null;
 }
 
 interface RecordsState {
@@ -88,6 +93,8 @@ interface RecordsActions {
 
   // Connection CRUD
   refreshConnection: (id: string) => Promise<void>;
+  reconnectConnection: (id: string) => Promise<void>;
+  dismissConnectionDone: (id: string) => void;
   removeConnection: (id: string) => Promise<void>;
   /** Save a new/updated connection + its FHIR data (called after OAuth callback) */
   saveNewConnection: (params: {
@@ -158,7 +165,7 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
       const conns = await getAllConnections();
       const connState: Record<string, ConnectionState> = {};
       for (const c of conns) {
-        connState[c.id] = { refreshing: false, refreshProgress: null, error: null };
+        connState[c.id] = { refreshing: false, refreshProgress: null, error: null, doneMessage: null };
       }
 
       // Pre-select connections with cached data (both modes)
@@ -189,13 +196,20 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
   initSession: async (sessionId: string) => {
     try {
       const info = await getSessionInfo(sessionId);
-      const token = crypto.randomUUID();
+      // Restore persisted token so uploads/finalize survive page reloads,
+      // or generate a new one for a fresh session.
+      let token = loadFinalizeToken(sessionId);
+      if (!token) {
+        token = crypto.randomUUID();
+        saveFinalizeToken(sessionId, token);
+      }
       set({
         session: {
           sessionId,
           publicKeyJwk: info.publicKey,
           finalizeToken: token,
           sessionStatus: info.status,
+          pendingChunks: info.pendingChunks ?? null,
         },
       });
       // Load connections atomically after session init
@@ -208,7 +222,11 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
     }
   },
 
-  clearSession: () => set({ session: null }),
+  clearSession: () => {
+    const session = get().session;
+    if (session) clearFinalizeToken(session.sessionId);
+    set({ session: null });
+  },
 
   // -----------------------------------------------------------------------
   // Selection
@@ -235,7 +253,7 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
     set({
       connectionState: {
         ...get().connectionState,
-        [id]: { refreshing: true, refreshProgress: null, error: null },
+        [id]: { refreshing: true, refreshProgress: null, error: null, doneMessage: null },
       },
     });
 
@@ -262,7 +280,7 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
           set({
             connectionState: {
               ...get().connectionState,
-              [id]: { refreshing: true, refreshProgress: progress, error: null },
+              [id]: { refreshing: true, refreshProgress: progress, error: null, doneMessage: null },
             },
           });
         },
@@ -275,10 +293,16 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
       // 5. Update connection metadata
       await updateConnectionStatus(id, 'active');
 
-      // 6. Reload to get fresh state
+      // 6. Reload to get fresh state — keep final progress visible until user dismisses
       const conns = await getAllConnections();
+      const lastProgress = get().connectionState[id]?.refreshProgress ?? null;
       const newState = { ...get().connectionState };
-      newState[id] = { refreshing: false, refreshProgress: null, error: null };
+      newState[id] = {
+        refreshing: false,
+        refreshProgress: lastProgress,
+        error: null,
+        doneMessage: 'Updated',
+      };
       // Update patientDisplayName/birthDate on the connection in IDB
       const updated = conns.find(c => c.id === id);
       if (updated && (displayName || birthDate)) {
@@ -298,7 +322,82 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
         connections: await getAllConnections(),
         connectionState: {
           ...get().connectionState,
-          [id]: { refreshing: false, refreshProgress: null, error: msg },
+          [id]: { refreshing: false, refreshProgress: null, error: msg, doneMessage: null },
+        },
+      });
+    }
+  },
+
+  // -----------------------------------------------------------------------
+  // dismissConnectionDone — clear the "done" state so progress widget hides
+  // -----------------------------------------------------------------------
+  dismissConnectionDone: (id) => {
+    const cs = get().connectionState[id];
+    if (!cs) return;
+    set({
+      connectionState: {
+        ...get().connectionState,
+        [id]: { ...cs, refreshProgress: null, doneMessage: null },
+      },
+    });
+  },
+
+  // -----------------------------------------------------------------------
+  // reconnectConnection — re-initiate OAuth for a failed/expired connection
+  // Uses saved connection metadata so user doesn't have to search again.
+  // -----------------------------------------------------------------------
+  reconnectConnection: async (id) => {
+    const { connections, session } = get();
+    const conn = connections.find(c => c.id === id);
+    if (!conn) return;
+
+    try {
+      // Look up vendor config by clientId
+      const vendorConfigs = await getVendorConfigs();
+      const vendorEntry = Object.entries(vendorConfigs).find(
+        ([, v]) => v.clientId === conn.clientId
+      );
+      if (!vendorEntry) {
+        throw new Error('Vendor configuration not found for this connection');
+      }
+      const [vendorName, vendorConfig] = vendorEntry;
+
+      const effectiveSessionId = session?.sessionId || 'local_' + crypto.randomUUID();
+
+      // Generate PKCE
+      const pkce = await generatePKCE();
+      const redirectUri = vendorConfig.redirectUrl || `${window.location.origin}/connect/callback`;
+
+      // Build authorization URL
+      const { authUrl, state, tokenEndpoint } = await buildAuthorizationUrl({
+        fhirBaseUrl: conn.fhirBaseUrl,
+        clientId: conn.clientId,
+        scopes: conn.scopes || vendorConfig.scopes,
+        redirectUri,
+        pkce,
+        sessionId: effectiveSessionId,
+      });
+
+      // Save OAuth state for callback recovery
+      saveOAuthState(state, {
+        sessionId: effectiveSessionId,
+        publicKeyJwk: session?.publicKeyJwk || null,
+        codeVerifier: pkce.codeVerifier,
+        tokenEndpoint,
+        fhirBaseUrl: conn.fhirBaseUrl,
+        clientId: conn.clientId,
+        redirectUri,
+        providerName: conn.providerName,
+      });
+
+      // Redirect to authorization server
+      window.location.href = authUrl;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      set({
+        connectionState: {
+          ...get().connectionState,
+          [id]: { refreshing: false, refreshProgress: null, error: `Reconnect failed: ${msg}`, doneMessage: null },
         },
       });
     }
@@ -341,7 +440,7 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
     set({
       connectionState: {
         ...get().connectionState,
-        [connId]: { refreshing: true, refreshProgress: null, error: null },
+        [connId]: { refreshing: true, refreshProgress: null, error: null, doneMessage: null },
       },
     });
 
@@ -361,7 +460,7 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
           statusMessage: `Fetching: ${detail} (${progress.settledCount}/${progress.queries.length})`,
           connectionState: {
             ...get().connectionState,
-            [connId]: { refreshing: true, refreshProgress: progress, error: null },
+            [connId]: { refreshing: true, refreshProgress: progress, error: null, doneMessage: null },
           },
         });
       },
@@ -398,7 +497,7 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
     // Reload and update store
     const conns = await getAllConnections();
     const connState = { ...get().connectionState };
-    connState[connId] = { refreshing: false, refreshProgress: null, error: null };
+    connState[connId] = { refreshing: false, refreshProgress: null, error: null, doneMessage: null };
 
     // Auto-select the new connection in session mode
     const selected = new Set(get().selected);
@@ -451,6 +550,11 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
         const CHUNK_THRESHOLD = 5 * 1024 * 1024;
 
         if (jsonSize > CHUNK_THRESHOLD) {
+          // Resume: skip chunks the server already received (survives reload)
+          const skipChunks = session.pendingChunks?.receivedChunks ?? [];
+          if (skipChunks.length > 0) {
+            console.log(`[Resume] Skipping ${skipChunks.length} already-uploaded chunks`);
+          }
           await encryptAndUploadStreaming(
             providerData,
             session.publicKeyJwk,
@@ -471,6 +575,7 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
                 statusMessage: `${conn.providerName}: ${progress.phase} chunk ${progress.currentChunk} (${pct}%)`,
               });
             },
+            skipChunks,
           );
         } else {
           const encrypted = await encryptData(providerData, session.publicKeyJwk);
@@ -493,11 +598,12 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
       // Finalize the session so the AI can retrieve the data
       set({ statusMessage: 'Finalizing session…' });
       await finalizeSess(session.sessionId, session.finalizeToken);
+      clearFinalizeToken(session.sessionId);
 
       set({
         status: 'done',
         statusMessage: `Sent ${sentCount} connection${sentCount !== 1 ? 's' : ''} — session finalized.`,
-        session: { ...session, sessionStatus: 'finalized' },
+        session: { ...session, sessionStatus: 'finalized', pendingChunks: null },
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
