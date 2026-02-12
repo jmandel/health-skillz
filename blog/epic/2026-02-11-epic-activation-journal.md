@@ -456,18 +456,30 @@ In mode 2, the script fetches `https://health-skillz.joshuamandel.com/.well-know
 
 The script also now accepts a JWKS URL directly as input (instead of just "1" or "2"), and when it detects already-activated orgs, prompts whether to re-activate them — useful for switching from JWK Set URL to direct JWKS across all orgs.
 
-### The Pretty-Print Bug
+### The .NET Serialization Bug
 
 After re-activating all orgs with direct JWKS via the script, we noticed that re-opening the management modal for an org showed the stored JWKS with **PascalCase property names** (`Kty` instead of `kty`, `N` instead of `n`) and leaked .NET internal properties (`CryptoProviderFactory`, `HasPrivateKey`, `KeySize`). The UI's own validator then complained: *"JWKS key #1 is missing 'kty' property"* — because it was looking for lowercase `kty` in its own PascalCase-mangled output.
 
-In contrast, when manually pasting the JWKS through the UI modal, the stored JWKS showed back with **correct lowercase properties** and no .NET internals.
+Initially we thought this was a compact-vs-pretty-printed JSON issue: our script was sending compact JSON (`JSON.stringify(jwks)`) while the UI sends pretty-printed JSON (2-space indentation, newlines). We changed the script to use `JSON.stringify(jwks, null, 2)` to match the UI. When we immediately re-opened the modal after saving through the UI, the JWKS looked correct — lowercase properties, no .NET internals.
 
-The difference: our script was sending compact JSON (`JSON.stringify(jwks)`) while the UI sends **pretty-printed JSON** (2-space indentation, newlines). Epic's .NET backend handles these differently:
+**But this turned out to be an illusion.** After a full page reload, the UI shows the PascalCase/.NET-mangled version even for keys pasted manually through the form. The sequence:
 
-- **Compact JSON** → gets deserialized into .NET `JsonWebKey` objects, then re-serialized with PascalCase property names and leaked internal fields
-- **Pretty-printed JSON** → stored as-is, preserving the original lowercase JWK property names
+1. Paste JWKS into UI form → Save → Confirm
+2. Immediately re-open the modal → JWKS looks correct (lowercase `kty`, clean)
+3. Reload the page → re-open the modal → PascalCase `Kty`, leaked .NET fields, validation error
 
-Fix: changed the script to use `JSON.stringify(jwks, null, 2)` to match the UI's behavior. A one-line change, but a remarkable finding: Epic's backend literally parses the same JSON differently based on whitespace formatting, and its own UI can't display the result of its own compact-JSON processing path without triggering a validation error.
+The UI is caching the client-side value on immediate re-open, masking the server-side problem. After reload, what the server actually stored comes through — and it's always .NET-mangled regardless of input formatting. This is a server-side bug in Epic's storage layer: all JWKS submissions get deserialized into .NET `JsonWebKey` objects and re-serialized with PascalCase property names and internal fields like `CryptoProviderFactory`, `HasPrivateKey`, `KeySize`, `AdditionalData`.
+
+The keys still work for signature validation despite the mangled storage — UnityPoint was proof of that. But Epic's own UI can't display what its own backend stored without showing a validation error.
+
+### Single-Call vs Two-Call Activation
+
+We also discovered that the "single call for both environments" optimization (sending both `TestJWKS` and `ProdJWKS` with `NonProdOnly=false, ProdOnly=false`) may trigger different server behavior than sending them separately. Comparing two captured API requests:
+
+- **Prod-only call** (manual form save, `ProdOnly=true`, only `ProdJWKS` populated): stored JWKS displays correctly on immediate re-open
+- **Combined call** (script, `ProdOnly=false`, both `TestJWKS` and `ProdJWKS` populated): stored JWKS shows mangled on immediate re-open
+
+The JWKS content was byte-for-byte identical between the two requests — same encoding, same pretty-printing. The only differences were the flag combination and TestJWKS presence. The combined code path appears to use different deserialization logic on the server side. Reverting to two separate calls per org (one nonprod, one prod) may be the safer approach even in direct JWKS mode.
 
 ### New Orgs Appearing
 

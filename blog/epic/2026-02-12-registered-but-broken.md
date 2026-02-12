@@ -72,7 +72,7 @@ So the same keys that Epic accepts at the app level are rejected at the organiza
 
 The fix in the script is simple: filter the fetched JWKS to RSA keys only (`kty === 'RSA'`) before uploading. But a developer who didn't know to do this would hit a confusing wall — the keys work at the app level, work in the sandbox, and then fail when you try to deploy to production organizations.
 
-## Pretty-printing matters
+## .NET serialization artifacts
 
 After re-running the script to upload direct JWKS at all organizations, I reopened the management modal for one of them to verify the keys were stored correctly. What I saw was unexpected.
 
@@ -80,11 +80,11 @@ The stored JWKS had capitalized property names: `Kty` instead of `kty`, `N` inst
 
 The keys actually worked — UnityPoint was proof of that. But Epic's own UI couldn't display what its own backend had stored without throwing a validation error.
 
-When I pasted the same JWKS manually through the UI, the stored keys showed back correctly: lowercase properties, no .NET internals, no validation error. The difference was formatting.
+I initially thought this was a formatting issue. My script was sending compact JSON, while the UI sends pretty-printed JSON with 2-space indentation. When I pasted the same JWKS manually through the UI and immediately re-opened the modal, the keys looked correct: lowercase properties, no .NET internals, no validation error. I changed the script to pretty-print and assumed the problem was solved.
 
-My script was sending compact JSON: `{"keys":[{"kty":"RSA","n":"5xJ1..."}]}`. The UI sends pretty-printed JSON with 2-space indentation and newlines. Epic's .NET backend handles these differently. Compact JSON gets deserialized into .NET `JsonWebKey` objects, then re-serialized with PascalCase property names and internal fields. Pretty-printed JSON gets stored as-is, preserving the original.
+It wasn't. After a full page reload, the PascalCase properties and .NET internals were back — even for keys pasted manually through the form. The sequence: paste JWKS → save → immediately re-open the modal (looks fine) → reload the page → re-open the modal (mangled). The UI was caching the client-side value on immediate re-open, hiding what the server actually stored.
 
-The fix was one line: `JSON.stringify(jwks, null, 2)` instead of `JSON.stringify(jwks)`. Same data, different whitespace, completely different server behavior.
+This is a server-side bug. All JWKS submissions — compact or pretty-printed, API or form — get deserialized into .NET `JsonWebKey` objects and re-serialized with PascalCase property names and internal framework fields. The keys still validate signatures correctly, so it's cosmetic from a functionality standpoint. But Epic's own management UI can't display what its own backend stored without triggering a validation error on every single organization.
 
 ## New organizations, overnight
 
@@ -106,13 +106,13 @@ If you're building a confidential SMART on FHIR client on Epic:
 
 2. **Filter to RSA keys.** Even if your app-level JWKS includes EC keys and Epic accepts them at registration, the per-org configuration rejects them. Strip EC keys before uploading. Only `kty === 'RSA'` keys work.
 
-3. **Pretty-print your JWKS.** If you're submitting keys via the API (as our automation script does), use pretty-printed JSON with 2-space indentation. Compact JSON triggers a different server-side code path that mangles the stored representation.
+3. **Ignore the validation errors.** After uploading JWKS, Epic's management UI will show your keys with PascalCase property names (`Kty` instead of `kty`) and .NET internal fields (`CryptoProviderFactory`, `HasPrivateKey`), along with a validation error claiming the `kty` property is missing. This is a server-side serialization bug — the keys work fine for signature validation despite the mangled display. Don't let the error message send you on a debugging wild goose chase.
 
 4. **Expect to re-activate.** If you initially registered with JWK Set URL and later switch to direct JWKS (which you should), you need to re-activate every organization. The script in our repo handles this — it detects already-activated orgs and offers to re-process them.
 
 5. **The org list updates.** New organizations appear via auto-sync. Plan for your script to be re-run periodically to pick up new additions.
 
-None of this is documented. The portal actively steers you toward the option that doesn't work. The error messages don't tell you what's wrong. The workaround requires understanding that Epic's .NET backend processes the same JSON differently based on whitespace. A developer without a direct line to Epic's engineering team would be stuck — and even Epic's own representative acknowledged that the developer experience tooling hasn't received the attention the underlying infrastructure deserves.
+None of this is documented. The portal actively steers you toward the option that doesn't work. The error messages don't tell you what's wrong. The management UI shows validation errors on its own stored data. A developer without a direct line to Epic's engineering team would be stuck — and even Epic's own representative acknowledged that the developer experience tooling hasn't received the attention the underlying infrastructure deserves.
 
 ---
 
