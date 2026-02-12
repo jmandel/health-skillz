@@ -233,24 +233,16 @@ const server = Bun.serve({
         const encryptedData = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
         if (row.status === "finalized" && encryptedData.length > 0) {
           // Return metadata (IVs, keys) but not ciphertext - use /api/chunks for binary data
-          const providers = encryptedData.map((p: any, i: number) => {
-            if (p.version === 3 && p.chunks) {
-              return {
-                providerIndex: i,
-                version: 3,
-                totalChunks: p.chunks.length,
-                chunks: p.chunks.map((c: any) => ({
-                  index: c.index,
-                  ephemeralPublicKey: c.ephemeralPublicKey,
-                  iv: c.iv,
-                }))
-              };
-            } else {
-              // v1/v2 - return full payload (small), strip internal fields
-              const { _providerKey, _chunkGroupId, _complete, ...rest } = p;
-              return { providerIndex: i, version: p.version || 1, ...rest };
-            }
-          });
+          const providers = encryptedData.map((p: any, i: number) => ({
+            providerIndex: i,
+            version: 3,
+            totalChunks: p.chunks.length,
+            chunks: p.chunks.map((c: any) => ({
+              index: c.index,
+              ephemeralPublicKey: c.ephemeralPublicKey,
+              iv: c.iv,
+            }))
+          }));
           return Response.json({
             ready: true,
             providerCount: encryptedData.length,
@@ -289,24 +281,16 @@ const server = Bun.serve({
       // GET /api/chunks/{sessionId}/meta
       if (parts[1] === "meta") {
         // Return metadata without ciphertext
-        const meta = providers.map((p: any, i: number) => {
-          if (p.version === 3 && p.chunks) {
-            return {
-              providerIndex: i,
-              version: 3,
-              totalChunks: p.chunks.length,
-              chunks: p.chunks.map((c: any) => ({
-                index: c.index,
-                ephemeralPublicKey: c.ephemeralPublicKey,
-                iv: c.iv, // Keep as base64, it's small
-              }))
-            };
-          } else {
-            // v1/v2 - return full payload (usually small), strip internal fields
-            const { _providerKey, _chunkGroupId, _complete, ...rest } = p;
-            return { providerIndex: i, version: p.version || 1, ...rest };
-          }
-        });
+        const meta = providers.map((p: any, i: number) => ({
+          providerIndex: i,
+          version: 3,
+          totalChunks: p.chunks.length,
+          chunks: p.chunks.map((c: any) => ({
+            index: c.index,
+            ephemeralPublicKey: c.ephemeralPublicKey,
+            iv: c.iv,
+          }))
+        }));
         return Response.json({ providers: meta }, { headers: corsHeaders });
       }
       
@@ -352,20 +336,16 @@ const server = Bun.serve({
           return Response.json({ success: false, error: "missing_finalize_token" }, { status: 400, headers: corsHeaders });
         }
         
-        // Validate version-specific fields
-        const isV3 = data.version === 3;
-        if (isV3) {
-          if (!data.chunk || typeof data.chunk.index !== 'number' || !data.chunk.ephemeralPublicKey || !data.chunk.iv || !data.chunk.ciphertext) {
-            return Response.json({ success: false, error: "missing_chunk_fields" }, { status: 400, headers: corsHeaders });
-          }
-          // totalChunks: -1 means "unknown, more coming", positive means final count
-          if (typeof data.totalChunks !== 'number' || (data.totalChunks < 1 && data.totalChunks !== -1)) {
-            return Response.json({ success: false, error: "invalid_total_chunks" }, { status: 400, headers: corsHeaders });
-          }
-        } else {
-          if (!data.encrypted || !data.ephemeralPublicKey || !data.iv || !data.ciphertext) {
-            return Response.json({ success: false, error: "missing_fields" }, { status: 400, headers: corsHeaders });
-          }
+        // Only v3 (chunked) uploads are supported
+        if (data.version !== 3) {
+          return Response.json({ success: false, error: "unsupported_version", error_description: "Only version 3 (chunked) uploads are supported" }, { status: 400, headers: corsHeaders });
+        }
+        if (!data.chunk || typeof data.chunk.index !== 'number' || !data.chunk.ephemeralPublicKey || !data.chunk.iv || !data.chunk.ciphertext) {
+          return Response.json({ success: false, error: "missing_chunk_fields" }, { status: 400, headers: corsHeaders });
+        }
+        // totalChunks: -1 means "unknown, more coming", positive means final count
+        if (typeof data.totalChunks !== 'number' || (data.totalChunks < 1 && data.totalChunks !== -1)) {
+          return Response.json({ success: false, error: "invalid_total_chunks" }, { status: 400, headers: corsHeaders });
         }
 
         const row = db.query("SELECT encrypted_data, status, finalize_token, simulate_error FROM sessions WHERE id = ?").get(data.sessionId) as any;
@@ -399,87 +379,51 @@ const server = Bun.serve({
         }
 
         const existing = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
+
+        // Find or create provider entry keyed by providerKey
+        const chunkGroupId = data.providerKey
+          ? `chunked_${data.providerKey}`
+          : `chunked_${data.finalizeToken.slice(0, 8)}`;
+        let providerEntry = existing.find((e: any) => e._chunkGroupId === chunkGroupId);
         
-        if (isV3) {
-          // v3 chunked upload - find or create provider entry
-          // Each provider gets an entry with version:3 and chunks array
-          // Key by providerKey (connection ID) so multiple providers don't collide
-          const chunkGroupId = data.providerKey
-            ? `chunked_${data.providerKey}`
-            : `chunked_${data.finalizeToken.slice(0, 8)}`;
-          let providerEntry = existing.find((e: any) => e._chunkGroupId === chunkGroupId);
-          
-          if (!providerEntry) {
-            providerEntry = {
-              _chunkGroupId: chunkGroupId,
-              version: 3,
-              totalChunks: data.totalChunks, // -1 if unknown
-              chunks: [],
-            };
-            existing.push(providerEntry);
-          } else if (data.totalChunks > 0) {
-            // Update totalChunks when we finally know it
-            providerEntry.totalChunks = data.totalChunks;
-          }
-          
-          // Add chunk (avoid duplicates)
-          const chunkIndex = data.chunk.index;
-          if (!providerEntry.chunks.find((c: any) => c.index === chunkIndex)) {
-            providerEntry.chunks.push({
-              index: chunkIndex,
-              ephemeralPublicKey: data.chunk.ephemeralPublicKey,
-              iv: data.chunk.iv,
-              ciphertext: data.chunk.ciphertext,
-            });
-          }
-          
-          // Sort chunks by index
-          providerEntry.chunks.sort((a: any, b: any) => a.index - b.index);
-          
-          const receivedChunks = providerEntry.chunks.length;
-          const knownTotal = providerEntry.totalChunks > 0 ? providerEntry.totalChunks : '?';
-          const isComplete = providerEntry.totalChunks > 0 && receivedChunks === providerEntry.totalChunks;
-          
-          // Mark complete but keep _chunkGroupId so retries find
-          // the existing entry instead of creating a duplicate.
-          if (isComplete) {
-            providerEntry._complete = true;
-          }
-          
-          console.log(`Received chunk ${chunkIndex + 1}/${knownTotal} for ${data.sessionId} (${receivedChunks}/${knownTotal} complete)`);
-        } else {
-          // v1/v2 single payload
-          // Convert base64 to number arrays if needed (browser sends base64 for smaller payload)
-          const iv = typeof data.iv === 'string' 
-            ? Array.from(Uint8Array.from(atob(data.iv), c => c.charCodeAt(0)))
-            : data.iv;
-          const ciphertext = typeof data.ciphertext === 'string'
-            ? Array.from(Uint8Array.from(atob(data.ciphertext), c => c.charCodeAt(0)))
-            : data.ciphertext;
-
-          // Deduplicate: if providerKey is supplied and an entry already
-          // exists for this provider, replace it instead of appending.
-          const providerKey = data.providerKey || null;
-          const dupeIdx = providerKey
-            ? existing.findIndex((e: any) => e._providerKey === providerKey)
-            : -1;
-
-          const entry = {
-            ephemeralPublicKey: data.ephemeralPublicKey,
-            iv,
-            ciphertext,
-            version: data.version || 1,  // v1 = uncompressed, v2 = gzip compressed
-            ...(providerKey ? { _providerKey: providerKey } : {}),
+        if (!providerEntry) {
+          providerEntry = {
+            _chunkGroupId: chunkGroupId,
+            version: 3,
+            totalChunks: data.totalChunks, // -1 if unknown
+            chunks: [],
           };
-
-          if (dupeIdx >= 0) {
-            existing[dupeIdx] = entry;
-            console.log(`Replaced EHR data for ${data.sessionId} provider ${providerKey}`);
-          } else {
-            existing.push(entry);
-            console.log(`Received EHR data for ${data.sessionId} (${existing.length} providers)`);
-          }
+          existing.push(providerEntry);
+        } else if (data.totalChunks > 0) {
+          // Update totalChunks when we finally know it
+          providerEntry.totalChunks = data.totalChunks;
         }
+        
+        // Add chunk (avoid duplicates)
+        const chunkIndex = data.chunk.index;
+        if (!providerEntry.chunks.find((c: any) => c.index === chunkIndex)) {
+          providerEntry.chunks.push({
+            index: chunkIndex,
+            ephemeralPublicKey: data.chunk.ephemeralPublicKey,
+            iv: data.chunk.iv,
+            ciphertext: data.chunk.ciphertext,
+          });
+        }
+        
+        // Sort chunks by index
+        providerEntry.chunks.sort((a: any, b: any) => a.index - b.index);
+        
+        const receivedChunks = providerEntry.chunks.length;
+        const knownTotal = providerEntry.totalChunks > 0 ? providerEntry.totalChunks : '?';
+        const isComplete = providerEntry.totalChunks > 0 && receivedChunks === providerEntry.totalChunks;
+        
+        // Mark complete but keep _chunkGroupId so retries find
+        // the existing entry instead of creating a duplicate.
+        if (isComplete) {
+          providerEntry._complete = true;
+        }
+        
+        console.log(`Received chunk ${chunkIndex + 1}/${knownTotal} for ${data.sessionId} (${receivedChunks}/${knownTotal} complete)`);
 
         db.run("UPDATE sessions SET encrypted_data = ?, status = 'collecting', finalize_token = ? WHERE id = ?",
           [JSON.stringify(existing), data.finalizeToken, data.sessionId]);

@@ -16,14 +16,12 @@ import { refreshAccessToken, buildAuthorizationUrl, generatePKCE } from '../lib/
 import { saveOAuthState, saveFinalizeToken, loadFinalizeToken, clearFinalizeToken } from '../lib/storage';
 import { fetchPatientData, type FetchProgress } from '../lib/smart/client';
 import {
-  encryptData,
   encryptAndUploadStreaming,
   type StreamingProgress,
   type EncryptedChunk,
 } from '../lib/crypto';
 import { buildLocalSkillZip } from '../lib/skill-builder';
 import {
-  sendEncryptedEhrData,
   uploadEncryptedChunk,
   finalizeSession as finalizeSess,
   getSessionInfo,
@@ -95,7 +93,6 @@ interface RecordsActions {
   // Connection CRUD
   refreshConnection: (id: string) => Promise<void>;
   reconnectConnection: (id: string) => Promise<void>;
-  dismissConnectionDone: (id: string) => void;
   removeConnection: (id: string) => Promise<void>;
   /** Save a new/updated connection + its FHIR data (called after OAuth callback) */
   saveNewConnection: (params: {
@@ -343,20 +340,6 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
   },
 
   // -----------------------------------------------------------------------
-  // dismissConnectionDone — clear the "done" state so progress widget hides
-  // -----------------------------------------------------------------------
-  dismissConnectionDone: (id) => {
-    const cs = get().connectionState[id];
-    if (!cs) return;
-    set({
-      connectionState: {
-        ...get().connectionState,
-        [id]: { ...cs, refreshProgress: null, doneMessage: null },
-      },
-    });
-  },
-
-  // -----------------------------------------------------------------------
   // reconnectConnection — re-initiate OAuth for a failed/expired connection
   // Uses saved connection metadata so user doesn't have to search again.
   // -----------------------------------------------------------------------
@@ -560,60 +543,38 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
           attachments: cached.attachments,
         };
 
-        const jsonSize = JSON.stringify(providerData).length;
-        const CHUNK_THRESHOLD = 5 * 1024 * 1024;
-
         // Derive a session-scoped provider key: deterministic (survives reload)
         // but not correlatable across sessions since sessionId differs each time.
-        // Used by both chunked and single-upload paths for server-side dedup.
         const providerKey = await deriveProviderKey(session.sessionId, conn.id);
 
-        if (jsonSize > CHUNK_THRESHOLD) {
-
-          // Resume: skip chunks the server already received for THIS provider
-          const skipChunks = session.pendingChunks?.[providerKey]?.receivedChunks ?? [];
-          if (skipChunks.length > 0) {
-            console.log(`[Resume] Skipping ${skipChunks.length} already-uploaded chunks for ${conn.providerName}`);
-          }
-          await encryptAndUploadStreaming(
-            providerData,
-            session.publicKeyJwk,
-            async (chunk: EncryptedChunk, index: number, isLast: boolean) => {
-              await uploadEncryptedChunk(
-                session.sessionId,
-                session.finalizeToken,
-                chunk,
-                index,
-                isLast ? index + 1 : null,
-                providerKey,
-              );
-            },
-            (progress: StreamingProgress) => {
-              const pct = progress.totalBytesIn > 0
-                ? Math.round((progress.bytesIn / progress.totalBytesIn) * 100)
-                : 0;
-              set({
-                statusMessage: `${conn.providerName}: ${progress.phase} chunk ${progress.currentChunk} (${pct}%)`,
-              });
-            },
-            skipChunks,
-          );
-        } else {
-          const encrypted = await encryptData(providerData, session.publicKeyJwk);
-          await sendEncryptedEhrData(
-            session.sessionId,
-            encrypted,
-            session.finalizeToken,
-            (progress) => {
-              const pct = progress.total > 0
-                ? Math.round((progress.loaded / progress.total) * 100)
-                : 0;
-              set({ statusMessage: `Uploading ${conn.providerName}… ${pct}%` });
-            },
-            undefined, // onChunkedProgress
-            providerKey,
-          );
+        // Resume: skip chunks the server already received for THIS provider
+        const skipChunks = session.pendingChunks?.[providerKey]?.receivedChunks ?? [];
+        if (skipChunks.length > 0) {
+          console.log(`[Resume] Skipping ${skipChunks.length} already-uploaded chunks for ${conn.providerName}`);
         }
+        await encryptAndUploadStreaming(
+          providerData,
+          session.publicKeyJwk,
+          async (chunk: EncryptedChunk, index: number, isLast: boolean) => {
+            await uploadEncryptedChunk(
+              session.sessionId,
+              session.finalizeToken,
+              chunk,
+              index,
+              isLast ? index + 1 : null,
+              providerKey,
+            );
+          },
+          (progress: StreamingProgress) => {
+            const pct = progress.totalBytesIn > 0
+              ? Math.round((progress.bytesIn / progress.totalBytesIn) * 100)
+              : 0;
+            set({
+              statusMessage: `${conn.providerName}: ${progress.phase} chunk ${progress.currentChunk} (${pct}%)`,
+            });
+          },
+          skipChunks,
+        );
 
         sentCount++;
       }

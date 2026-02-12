@@ -22,23 +22,6 @@ export interface Provider {
   connectedAt: string;
 }
 
-export interface EncryptedPayload {
-  encrypted: true;
-  version: 2;
-  ephemeralPublicKey: JsonWebKey;
-  iv: string;  // base64
-  ciphertext: string;  // base64
-}
-
-export interface ChunkedEncryptedPayload {
-  encrypted: true;
-  version: 3;
-  totalChunks: number;
-  chunks: EncryptedChunk[];
-}
-
-export type AnyEncryptedPayload = EncryptedPayload | ChunkedEncryptedPayload;
-
 const BASE_URL = '';  // Same-origin API
 
 export async function getSessionInfo(sessionId: string): Promise<SessionInfo> {
@@ -96,91 +79,6 @@ function uploadChunk(
   });
 }
 
-export interface ChunkedUploadProgress {
-  currentChunk: number;
-  totalChunks: number;
-  chunkLoaded: number;
-  chunkTotal: number;
-  totalLoaded: number;
-  totalSize: number;
-}
-
-export async function sendEncryptedEhrData(
-  sessionId: string,
-  payload: AnyEncryptedPayload,
-  finalizeToken: string,
-  onProgress?: (progress: UploadProgress) => void,
-  onChunkedProgress?: (progress: ChunkedUploadProgress) => void,
-  providerKey?: string,
-): Promise<{ success: boolean; providerCount: number; redirectTo: string; errorId?: string }> {
-  
-  // v3 chunked upload
-  if (payload.version === 3) {
-    const chunked = payload as ChunkedEncryptedPayload;
-    let totalUploaded = 0;
-    
-    // Calculate total size of all chunks
-    const chunkSizes = chunked.chunks.map(c => JSON.stringify(c).length);
-    const totalSize = chunkSizes.reduce((a, b) => a + b, 0);
-    
-    let result: any;
-    for (let i = 0; i < chunked.chunks.length; i++) {
-      const chunk = chunked.chunks[i];
-      const body = JSON.stringify({
-        sessionId,
-        finalizeToken,
-        version: 3,
-        totalChunks: chunked.totalChunks,
-        chunk,
-      });
-      
-      const chunkSize = chunkSizes[i];
-      
-      result = await uploadChunk(
-        `${BASE_URL}/api/receive-ehr`,
-        body,
-        (p) => {
-          onChunkedProgress?.({
-            currentChunk: i + 1,
-            totalChunks: chunked.totalChunks,
-            chunkLoaded: p.loaded,
-            chunkTotal: p.total,
-            totalLoaded: totalUploaded + p.loaded,
-            totalSize,
-          });
-          // Also report simple progress
-          onProgress?.({ loaded: totalUploaded + p.loaded, total: totalSize });
-        }
-      );
-      
-      totalUploaded += chunkSize;
-    }
-    
-    return result;
-  }
-  
-  // v2 single upload
-  const body = JSON.stringify({
-    ...payload,
-    sessionId,
-    finalizeToken,
-    ...(providerKey ? { providerKey } : {}),
-  });
-
-  return uploadChunk(`${BASE_URL}/api/receive-ehr`, body, onProgress);
-}
-
-export interface StreamingUploadProgress {
-  phase: 'processing' | 'uploading' | 'done';
-  currentChunk: number;
-  bytesIn: number;
-  totalBytesIn: number;
-  bytesOut: number;
-}
-
-/**
- * Upload a single encrypted chunk to server.
- */
 /**
  * Upload a single encrypted chunk with retry logic.
  * Retries up to 3 times with exponential backoff on transient failures.
