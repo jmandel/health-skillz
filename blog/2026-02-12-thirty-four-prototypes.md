@@ -1,83 +1,65 @@
 # Thirty-four prototypes in an afternoon
 
-I needed a progress widget. Health Skillz fetches your medical records through 44 parallel FHIR queries — labs, vitals, conditions, medications, encounters, documents — and the existing UI for this was a spinner with a single line of text that flashed by too fast to read:
+Health Skillz needs a progress widget. When you connect your patient portal, the app fires off a bunch of FHIR queries in parallel — labs, vitals, conditions, encounters, medications, documents — and the user needs to see *something* while that's happening. The existing UI was a spinner with a line of status text. It worked fine. But I had a vague sense that it could be better, and for once I had the means to actually explore that.
 
-> ⟳ Fetching: Observation:vital-signs (3/20)
+I'm building this on [exe.dev](https://exe.dev), using Shelley — a coding agent backed by Claude — that lives in a persistent VM with a browser, a filesystem, and the ability to spin up sub-agents in parallel. What follows is a description of what it's actually like to do iterative visual design with this kind of tool. Not to sell anyone on it, but because I think the workflow is genuinely new and I'm still figuring out what it's good for.
 
-Functional for me during development. Meaningless to a patient watching it. No sense of overall progress, no indication of what "3/20" means, no way to tell if the thing is stuck or just working through a lot of data.
+## Round 1: "Give me six different ideas"
 
-I knew I wanted something better but didn't have a strong opinion about *what*. A grid? A bar chart? Dots? Numbers? I could picture several approaches, each with tradeoffs I wouldn't really understand until I saw them. This is the kind of design question that, on a solo project, you normally just... pick something reasonable and move on. You don't have a design team to brainstorm with. You can't justify spending a day exploring radically different directions for a loading screen.
+I described the problem: we're fetching about 20 resource types, each might paginate, and I want some kind of visual progress indicator. Rather than go back and forth on a single approach, I asked for six completely different ones — a heatmap grid, a waterfall chart, a treemap, a radial diagram, a text ticker, and a mosaic of labeled chips. Each built as a standalone HTML file showing the widget at several stages of loading.
 
-Except now you can.
+Shelley spawned six sub-agents simultaneously. Each one built its prototype in isolation. A few minutes later I had six HTML files to look at.
 
-## The new economics of exploration
+<!-- TODO: 2-3 screenshots from Round 1 -->
 
-I'm building Health Skillz on [exe.dev](https://exe.dev), which gives me a persistent cloud VM with [Shelley](https://exe.dev) — an agentic coding assistant backed by Claude. Shelley has a browser, a filesystem, shell access, and the ability to spawn parallel sub-agents. When I described what I wanted, Shelley didn't just build one widget. It articulated the design constraints back to me, proposed six fundamentally different visualization approaches, and then launched six sub-agents simultaneously — each one building a complete, styled HTML prototype with multiple snapshots showing early, mid, and completed states.
+The interesting thing here isn't the output quality. Some of these were genuinely good, some were kind of ugly, a couple had the wrong vibe entirely. What was interesting was what happened in my head. Before seeing these I had a fuzzy preference — something compact, something that shows progress without demanding attention. After seeing six concrete options, I had *specific* opinions. The waterfall felt too developer-tool-ish. The radial chart was visually interesting but I couldn't quickly parse which segment was which. The ticker was too minimal. The mosaic was onto something.
 
-Six prototypes. In parallel. Each one a self-contained HTML file I could open and evaluate. The whole batch took a couple of minutes.
+I didn't know any of that before I saw the prototypes. I learned it by reacting to artifacts.
 
-<!-- TODO: Insert 2-3 example screenshots from Round 1, e.g. the heatmap, radial, and mosaic -->
+## Rounds 2–4: Tightening the constraints
 
-This is the part that's hard to convey if you haven't experienced it. It's not that any individual prototype was amazing — some were, some weren't. It's that the *cost of exploration collapsed*. Instead of committing to an approach and refining it, I could look at six different directions and develop an informed opinion about what I actually wanted.
+Each round followed the same pattern. I'd look at the batch, say what was working and what wasn't, and Shelley would generate six more. The conversation was fast and informal — sometimes just a sentence or two of feedback, sometimes voice-transcribed and full of typos.
 
-## Feedback loops, not prompts
+What changed between rounds wasn't just the visuals. It was the *problem definition*. In round 2, I realized the prototypes were assuming knowledge we don't have at render time — how many pages of results to expect for each query. I hadn't thought to specify that constraint upfront because I hadn't thought about it. Seeing it violated in six different ways made it obvious.
 
-The first round taught me something I didn't know before I saw the prototypes: all six assumed I'd know upfront how many pages of lab results there would be. I don't. The FHIR server might return 1 page or 8 pages for any given query, and I only learn that as each page comes back. Every prototype that pre-allocated space per page was wrong.
+In round 3, the state model got formalized — five distinct states per query slot (pending, active, done, empty, error), each needing to be visually distinguishable at a glance. That came from looking at prototypes where "pending" and "empty" looked the same and realizing that was confusing.
 
-So I said that. Not in carefully worded requirements — just a quick voice-transcribed note: "You are repeatedly giving me visualizations where it implies that we know how many pages of labs and vitals there will be and we don't!"
+In round 4, the labels shifted from technical identifiers to patient-friendly names. Not because anyone told me to, but because seeing "Observation:vital-signs" on a widget that was starting to look polished felt wrong. The design was outgrowing the placeholder data.
 
-Six new prototypes. This time with a proper constraint: 44 fixed query slots, pre-allocated from the start, that change state in place. No growing, no reflowing, no adding elements as pages are discovered.
+Each round, the brief got more precise. Not because I sat down and wrote a spec, but because each batch of prototypes revealed assumptions I hadn't examined.
 
-But they still had page numbers displayed inside the active cells. Patients don't care about "page 3." And they were using FHIR resource type names — "Observation," "DiagnosticReport" — instead of anything a human would recognize.
+## Round 5: Choosing
 
-Another round. Six more. Now with patient-friendly labels like "Labs," "Vitals," "Clinical Notes" and no technical details exposed.
+By the fifth round I had a tight brief — 44 fixed query slots in 7 groups, five visual states, no layout shift ever, three phases (resources, references, attachments). Six final candidates:
 
-Then another round, refining the state model. Then a final round, where I could see the real tradeoffs clearly:
+<!-- TODO: Round 5 grid with all 6 -->
 
-<!-- TODO: Insert the Round 5 grid showing all 6 final candidates, with the chosen one highlighted -->
+The winner was "Counter Hero + Dot Strip" — a big resource count with a row of tiny colored dots underneath. Not the most information-dense option, not the most visually novel. But the one that felt right for a loading screen that should provide comfort without demanding attention.
 
-The "Counter Hero + Dot Strip" won. A big number counting up (the thing patients actually care about — how much data has been found), a strip of 44 tiny dots below it (giving a gestalt sense of progress without requiring any reading), and pre-allocated progress bars for the references and attachments phases.
+One refinement pass (pre-allocate the reference and attachment progress bars so the layout never shifts), an implementation plan written to disk, and then a new agent picked it up and built the React component.
 
-## What thirty-four prototypes teaches you
+## The animation
 
-Six rounds × six variants = thirty-four prototypes (plus a refinement pass on the winner). Each round took a few minutes of wall-clock time. My contribution was looking at results and saying what I liked and didn't like — usually in a sentence or two.
+Here's what the final widget looks like in motion — 21 seconds of simulated loading with realistic data:
 
-Here's what I learned that I wouldn't have learned by just building one:
+<!-- TODO: Embed video -->
 
-**The counter matters more than the visualization.** I thought I wanted a clever grid or chart. After seeing a dozen of them next to a version with just a big number, it was obvious: "1,490 resources found" is what a patient actually wants to see. The dot strip is decoration that provides comfort — you can see things are happening — but the number is the hero.
+[Full gallery of all 34 prototypes →](progress-widget-design/index.html)
 
-**Layout stability is a feature you only appreciate in contrast.** Several early prototypes grew or reflowed as data arrived. I didn't realize how much that bothered me until I saw versions where the layout was completely static from the first frame. The widget should claim its space and hold it.
+## What I'm actually trying to say
 
-**Empty states need design too.** Many of the 44 queries return nothing — there are no "disability status" observations for most patients. Early prototypes didn't visually distinguish "pending" from "done but empty." Once I saw a version where empty slots faded to a distinct light grey, the information density jumped.
+I've been a software developer for a long time, and there are a lot of tasks like this one. Not hard, exactly, but expansive — the kind of problem where the space of reasonable solutions is large and your first idea is fine but probably not your best idea. Normally you go with the first idea because exploring alternatives takes real time and you have other things to do.
 
-**You can't evaluate a progress widget from a screenshot.** I needed three snapshots per variant — early, mid, complete — to understand how each one would feel over time. The winning design was the one where all three snapshots felt like the same widget in different states, rather than three different-looking things.
+The thing that's different with agentic tools isn't the quality of any individual output. I could have built any of these prototypes myself, probably better in some cases. What's different is the *tempo*. Six alternatives in parallel, in minutes. Feedback applied instantly to the next batch. Constraints that emerge from reaction rather than speculation.
 
-None of these insights came from the AI. They came from me looking at real artifacts and having opinions. The AI just made it feasible to generate enough artifacts to have opinions about.
+It's a different kind of thinking. Instead of imagining what a widget might look like and trying to evaluate it in my head, I describe the space and then *react to real things*. My design taste still drives every decision — the AI has no opinion about whether dots or bars better suit a health app loading screen. But I get to exercise that taste against a much broader range of options than I'd ever produce on my own, on a schedule that fits inside the actual work rather than displacing it.
 
-## The final result
+For a solo developer, this changes the math on a lot of decisions. Not the big architectural ones — those still need deep thought and you wouldn't want to rush them. But the hundred small design questions that come up in any application: how should this transition work, what's the right layout for this card, how should errors be displayed. These are all questions with a large solution space and a historically high cost of exploration. That cost just dropped by an order of magnitude.
 
-Here it is in motion — a 21-second simulation running through all three phases with realistic data volumes:
+I don't think this replaces design expertise. A skilled designer looking at my 34 prototypes would probably propose a 35th that's better than all of them. But "hire a designer" was never the realistic alternative for a loading widget on an open-source side project. The realistic alternative was spending ten minutes on it and moving on. What happened instead was spending forty-five minutes — not much more — and ending up with something I'm genuinely happy with, after a process that was itself interesting and educational.
 
-<!-- TODO: Embed loading-widget-animation.mp4 video -->
-
-Forty-four queries fire with a concurrency of 5. The big number ticks up as resources arrive. Dots transition from grey (pending) through teal (active, pulsing) to green (done, with intensity proportional to count) or light grey (empty) or red (error). When all 44 settle, the references phase kicks in, then attachments, then a final checkmark.
-
-The whole thing is ~140px tall. It never changes size. Every element is present from the first frame.
-
-[Browse the full gallery of all 34 prototypes →](progress-widget-design/index.html)
-
-## What this means for small teams
-
-I want to be clear about what happened here. I didn't use AI to *design* a widget. I used it to *explore a design space* that I then navigated with my own taste and judgment. The difference matters.
-
-A designer with a week could have done better work on any single prototype. But I wouldn't have hired a designer for a loading widget on a side project. The realistic alternative wasn't "professional design" — it was "pick the first idea that seems okay and ship it." That's what solo developers do for everything that isn't the core product, because exploration has always been expensive.
-
-What's changed is that exploration is now cheap. Not free — I still had to look at every prototype, form opinions, and articulate what I wanted differently. That's real cognitive work. But the mechanical cost of turning "what if we tried a radial chart?" into an artifact I can evaluate went from hours to seconds.
-
-This shifts which problems are worth going deep on. A loading widget is a small thing. But it's the kind of small thing that, multiplied across an entire application, is the difference between software that feels considered and software that feels like someone got it working and moved on. When the cost of "let me see six different ways to do this" is a couple of minutes, you start doing it for things you never would have before.
-
-That's what I'm most excited about. Not AI-generated design, but AI-enabled *taste development*. You learn what you want by seeing what you don't want, and now the bottleneck on that process is your attention, not your implementation capacity.
+That last part is easy to overlook. The prototypes I rejected taught me more about what I wanted than the one I picked. That's the actual value — not AI-generated design, but accelerated development of your own design intuition through rapid exposure to concrete alternatives.
 
 ---
 
-*Built with [exe.dev](https://exe.dev) + Shelley + Claude. Health Skillz is open source at [github.com/jmandel/health-skillz](https://github.com/jmandel/health-skillz).*
+*Built with [exe.dev](https://exe.dev) + Shelley + Claude Opus 4. Health Skillz is open source at [github.com/jmandel/health-skillz](https://github.com/jmandel/health-skillz).*
