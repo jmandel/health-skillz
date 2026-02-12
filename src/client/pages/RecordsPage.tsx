@@ -61,6 +61,8 @@ export default function RecordsPage() {
   const selectNone = useRecordsStore((s) => s.selectNone);
   const toggleSelected = useRecordsStore((s) => s.toggleSelected);
   const refreshConnection = useRecordsStore((s) => s.refreshConnection);
+  const reconnectConnection = useRecordsStore((s) => s.reconnectConnection);
+  const dismissConnectionDone = useRecordsStore((s) => s.dismissConnectionDone);
   const removeConnection = useRecordsStore((s) => s.removeConnection);
   const clearError = useRecordsStore((s) => s.clearError);
   const sendToAI = useRecordsStore((s) => s.sendToAI);
@@ -141,8 +143,10 @@ export default function RecordsPage() {
               const cs = connectionState[c.id];
               const refreshing = cs?.refreshing ?? false;
               const err = cs?.error ?? null;
+              const doneMsg = cs?.doneMessage ?? null;
               const checked = selected.has(c.id);
               const prog = cs?.refreshProgress;
+              const isFailed = c.status === 'expired' || c.status === 'error';
 
               return (
                 <label key={c.id} className={`conn-card${checked ? ' selected' : ''}`}>
@@ -163,20 +167,53 @@ export default function RecordsPage() {
                     <div className="conn-meta">
                       {c.providerName} · {fmtSize(c.dataSizeBytes)} · {timeAgo(c.lastFetchedAt)}
                     </div>
-                    {refreshing && prog && (
+                    {/* Show progress widget while refreshing OR after done (until dismissed) */}
+                    {(refreshing || doneMsg) && prog && (
                       <FetchProgressWidget progress={prog} />
                     )}
+                    {/* Done banner with dismiss */}
+                    {doneMsg && !refreshing && (
+                      <div className="conn-done">
+                        <span>✅ {doneMsg}</span>
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          onClick={e => { e.preventDefault(); e.stopPropagation(); dismissConnectionDone(c.id); }}
+                        >
+                          OK
+                        </button>
+                      </div>
+                    )}
                     {(c.lastError || err) && (
-                      <div className="conn-error">{err || c.lastError}</div>
+                      <div className="conn-error">
+                        {err || c.lastError}
+                        {isFailed && !refreshing && (
+                          <button
+                            className="btn btn-secondary btn-sm conn-error-reconnect"
+                            onClick={e => { e.preventDefault(); e.stopPropagation(); reconnectConnection(c.id); }}
+                          >
+                            Reconnect
+                          </button>
+                        )}
+                      </div>
                     )}
                     <div className="conn-actions">
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        disabled={refreshing || busy}
-                        onClick={e => { e.preventDefault(); e.stopPropagation(); refreshConnection(c.id); }}
-                      >
-                        {refreshing ? 'Refreshing…' : 'Refresh'}
-                      </button>
+                      {isFailed && !err ? (
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          disabled={refreshing || busy}
+                          onClick={e => { e.preventDefault(); e.stopPropagation(); reconnectConnection(c.id); }}
+                        >
+                          Reconnect
+                        </button>
+                      ) : (
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          disabled={refreshing || busy || !!doneMsg}
+                          onClick={e => { e.preventDefault(); e.stopPropagation(); refreshConnection(c.id); }}
+                        >
+                          {refreshing ? 'Refreshing…' : 'Refresh'}
+                        </button>
+                      )}
                       <button
                         className="btn btn-ghost btn-sm"
                         disabled={refreshing || busy}

@@ -313,6 +313,24 @@ code {
   font-size: 0.78rem;
   color: var(--danger);
   margin-top: 2px;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.conn-error-reconnect {
+  flex-shrink: 0;
+}
+
+.conn-done {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: #2e7d32;
+  margin-top: 4px;
+  padding: 4px 0;
 }
 
 .conn-actions {
@@ -824,8 +842,7 @@ code {
 }
 
 .fp-status-zone {
-  height: 48px;
-  overflow: hidden;
+  min-height: 48px;
 }
 
 .fp-status-active {
