@@ -1,5 +1,5 @@
 
-# I registered Health Skilz at 500 organizations but couldn't connect
+# I registered Health Skillz at 500 organizations but couldn't connect
 
 *Josh Mandel, MD · February 2026*
 
