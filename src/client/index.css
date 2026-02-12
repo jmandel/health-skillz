@@ -903,3 +903,81 @@ code {
 .fp-ref-bar-count.fp-inactive {
   color: #ccc;
 }
+
+/* -- Upload Progress Widget -- */
+.up-widget {
+  text-align: center;
+  padding: 10px 20px 8px;
+}
+
+.up-hero {
+  margin-bottom: 4px;
+}
+
+.up-hero-num {
+  font-size: 32px;
+  font-weight: 600;
+  color: #263238;
+  line-height: 1.1;
+  letter-spacing: -0.5px;
+}
+
+.up-hero-num.up-complete {
+  color: #2e7d32;
+}
+
+.up-hero-label {
+  font-size: 12px;
+  color: #999;
+  margin-top: 1px;
+}
+
+.up-dot-strip {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 3px;
+  margin: 6px 0;
+  min-height: 12px;
+}
+
+.up-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.up-pending {
+  background: #e8e8e8;
+}
+
+.up-skipped {
+  background: #90caf9;
+}
+
+.up-processing {
+  background: #ffa726;
+  animation: fp-pulse 1.2s ease-in-out infinite;
+}
+
+.up-uploading {
+  background: #42a5f5;
+  animation: fp-pulse 1.2s ease-in-out infinite;
+}
+
+.up-done {
+  background: #4caf50;
+}
+
+.up-bar-section {
+  margin-top: 4px;
+}
+
+.up-status {
+  font-size: 12px;
+  color: #999;
+  font-style: italic;
+  margin-top: 3px;
+}

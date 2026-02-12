@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useRecordsStore } from '../store/records';
 import StatusMessage from '../components/StatusMessage';
 import FetchProgressWidget from '../components/FetchProgressWidget';
+import UploadProgressWidget from '../components/UploadProgressWidget';
 
 function InfoTip({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
@@ -65,6 +66,7 @@ export default function RecordsPage() {
   const removeConnection = useRecordsStore((s) => s.removeConnection);
   const clearError = useRecordsStore((s) => s.clearError);
   const sendToAI = useRecordsStore((s) => s.sendToAI);
+  const uploadProgress = useRecordsStore((s) => s.uploadProgress);
   const downloadSkillZip = useRecordsStore((s) => s.downloadSkillZip);
 
   const dismissConnectionDone = useRecordsStore((s) => s.dismissConnectionDone);
@@ -209,7 +211,10 @@ export default function RecordsPage() {
         )}
 
         {/* Action status bar (near the buttons that trigger it) */}
-        {statusMessage && status !== 'error' && status !== 'idle' && (
+        {uploadProgress && (status === 'sending' || status === 'done') && (
+          <UploadProgressWidget progress={uploadProgress} />
+        )}
+        {statusMessage && !uploadProgress && status !== 'error' && status !== 'idle' && (
           <StatusMessage
             status={status === 'done' ? 'success' : 'loading'}
             message={statusMessage}

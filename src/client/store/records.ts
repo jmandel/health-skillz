@@ -21,6 +21,7 @@ import {
   type EncryptedChunk,
 } from '../lib/crypto';
 import { buildLocalSkillZip } from '../lib/skill-builder';
+import type { UploadProgress } from '../components/UploadProgressWidget';
 import {
   uploadEncryptedChunk,
   finalizeSession as finalizeSess,
@@ -74,6 +75,9 @@ interface RecordsState {
   status: GlobalStatus;
   statusMessage: string;
   error: string | null;
+
+  // --- Upload progress (structured, for UploadProgressWidget) ---
+  uploadProgress: UploadProgress | null;
 
   // --- Flags ---
   loaded: boolean;
@@ -166,6 +170,7 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
   status: 'idle',
   statusMessage: '',
   error: null,
+  uploadProgress: null,
   loaded: false,
 
   // -----------------------------------------------------------------------
@@ -517,17 +522,15 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
     const selectedConns = connections.filter(c => selected.has(c.id));
     if (selectedConns.length === 0) return;
 
-    set({ status: 'sending', statusMessage: 'Preparing data…', error: null });
+    set({ status: 'sending', statusMessage: '', error: null, uploadProgress: null });
 
     try {
       let sentCount = 0;
+      let chunksUploaded = 0;
+
       for (const conn of selectedConns) {
         const cached = await getFhirData(conn.id);
         if (!cached) continue;
-
-        set({
-          statusMessage: `Encrypting & sending ${conn.providerName} (${sentCount + 1}/${selectedConns.length})…`,
-        });
 
         const providerData = {
           name: conn.providerName,
@@ -546,6 +549,9 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
         if (skipChunks.length > 0) {
           console.log(`[Resume] Skipping ${skipChunks.length} already-uploaded chunks for ${conn.providerName}`);
         }
+
+        chunksUploaded = skipChunks.length;
+
         await encryptAndUploadStreaming(
           providerData,
           session.publicKeyJwk,
@@ -558,13 +564,25 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
               isLast ? index + 1 : null,
               providerKey,
             );
+            chunksUploaded++;
+            // Update progress after each successful chunk upload
+            const prev = get().uploadProgress;
+            if (prev) {
+              set({ uploadProgress: { ...prev, chunksUploaded, totalChunks: isLast ? index + 1 : prev.totalChunks } });
+            }
           },
           (progress: StreamingProgress) => {
-            const pct = progress.totalBytesIn > 0
-              ? Math.round((progress.bytesIn / progress.totalBytesIn) * 100)
-              : 0;
             set({
-              statusMessage: `${conn.providerName}: ${progress.phase} chunk ${progress.currentChunk} (${pct}%)`,
+              uploadProgress: {
+                providerName: conn.providerName,
+                providerIndex: sentCount,
+                providerCount: selectedConns.length,
+                streaming: progress,
+                totalChunks: progress.phase === 'done' ? progress.currentChunk : null,
+                chunksUploaded,
+                chunksSkipped: skipChunks.length,
+                phase: progress.phase === 'done' ? 'uploading' : progress.phase === 'uploading' ? 'uploading' : 'encrypting',
+              },
             });
           },
           skipChunks,
@@ -574,18 +592,25 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
       }
 
       // Finalize the session so the AI can retrieve the data
-      set({ statusMessage: 'Finalizing session…' });
+      set({
+        uploadProgress: get().uploadProgress
+          ? { ...get().uploadProgress!, phase: 'finalizing' }
+          : null,
+      });
       await finalizeSess(session.sessionId, session.finalizeToken);
       clearFinalizeToken(session.sessionId);
 
       set({
         status: 'done',
-        statusMessage: `Sent ${sentCount} connection${sentCount !== 1 ? 's' : ''} — session finalized.`,
+        statusMessage: '',
+        uploadProgress: get().uploadProgress
+          ? { ...get().uploadProgress!, phase: 'done' }
+          : null,
         session: { ...session, sessionStatus: 'finalized', pendingChunks: null },
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      set({ status: 'error', error: msg, statusMessage: '' });
+      set({ status: 'error', error: msg, statusMessage: '', uploadProgress: null });
     }
   },
 
@@ -657,5 +682,5 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
   // Status helpers
   // -----------------------------------------------------------------------
   setError: (msg) => set({ status: 'error', error: msg }),
-  clearError: () => set({ status: 'idle', error: null, statusMessage: '' }),
+  clearError: () => set({ status: 'idle', error: null, statusMessage: '', uploadProgress: null }),
 }));
