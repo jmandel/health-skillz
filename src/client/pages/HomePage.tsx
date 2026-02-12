@@ -137,7 +137,7 @@ export default function HomePage() {
           </div>
           <p className="footer-note">
             Your health data never leaves your browser unencrypted.
-            {' '}<a href="https://github.com/jmandel/health-skillz/blob/main/DESIGN.md" target="_blank" rel="noopener">Learn how it works</a>.
+            {' '}<a href="https://github.com/jmandel/health-skillz/blob/main/docs/design/DESIGN.md" target="_blank" rel="noopener">Learn how it works</a>.
           </p>
         </div>
       </footer>
