@@ -64,8 +64,9 @@ export default function HomePage() {
                     Without this, the skill's scripts will fail with network errors.
                   </p>
                   <p style={{ marginTop: 6 }}>
-                    Alternatively, collect records here first, download the <strong>skill zip with
-                    data bundled in</strong>, and upload it via Settings → Profile → Claude Skills → Add Skill.
+                    Alternatively, collect records first on the <Link to="/records">My Health Records</Link> page,
+                    then download a <strong>skill zip with your data bundled in</strong> from there.
+                    Upload it via Settings → Profile → Claude Skills → Add Skill.
                     No network access needed for that path.
                   </p>
 

@@ -66,6 +66,7 @@ export default function RecordsPage() {
   const removeConnection = useRecordsStore((s) => s.removeConnection);
   const clearError = useRecordsStore((s) => s.clearError);
   const sendToAI = useRecordsStore((s) => s.sendToAI);
+  const downloadSkillZip = useRecordsStore((s) => s.downloadSkillZip);
 
   const isSession = Boolean(session);
   const isFinalized = session?.sessionStatus === 'finalized';
@@ -255,11 +256,11 @@ export default function RecordsPage() {
             <button
               className="btn btn-ghost"
               disabled={noneSel || busy}
-              onClick={() => { window.location.href = '/skill.zip'; }}
+              onClick={downloadSkillZip}
             >
-              {noneSel ? 'Download AI Skill' : `Download AI Skill with ${selCount} record${selCount !== 1 ? 's' : ''}`}
+              {`Download AI Skill with ${selCount} record${selCount !== 1 ? 's' : ''}`}
             </button>
-            <InfoTip text="Downloads a zip with AI agent scripts plus your selected health records. Give this to any AI to analyze your data without web access." />
+            <InfoTip text="Builds a zip with AI instructions plus your selected health records bundled in. Give this to any AI to analyze your data — no web access needed." />
           </span>
         </div>
         {isSession && isFinalized && (

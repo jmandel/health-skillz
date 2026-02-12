@@ -21,6 +21,7 @@ import {
   type StreamingProgress,
   type EncryptedChunk,
 } from '../lib/crypto';
+import { buildLocalSkillZip } from '../lib/skill-builder';
 import {
   sendEncryptedEhrData,
   uploadEncryptedChunk,
@@ -114,6 +115,7 @@ interface RecordsActions {
 
   // Export
   downloadJson: () => Promise<void>;
+  downloadSkillZip: () => Promise<void>;
 
   // Status
   setError: (msg: string) => void;
@@ -646,6 +648,33 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  },
+
+  // -----------------------------------------------------------------------
+  // downloadSkillZip — build a local skill zip with selected records
+  // -----------------------------------------------------------------------
+  downloadSkillZip: async () => {
+    const { connections, selected } = get();
+    const selectedConns = connections.filter(c => selected.has(c.id));
+    if (selectedConns.length === 0) return;
+
+    set({ status: 'sending', statusMessage: 'Building skill zip…', error: null });
+
+    try {
+      const blob = await buildLocalSkillZip(selectedConns);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'health-record-assistant.zip';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      set({ status: 'idle', statusMessage: '' });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      set({ status: 'error', error: msg, statusMessage: '' });
+    }
   },
 
   // -----------------------------------------------------------------------
