@@ -171,9 +171,7 @@ const server = Bun.serve({
     "/connect/:sessionId": homepage,
     // OAuth callback (shared)
     "/connect/callback": homepage,
-    // Legacy routes
-    "/collect": homepage,
-    "/connections": homepage,
+
   },
 
   async fetch(req) {
@@ -233,16 +231,18 @@ const server = Bun.serve({
         const encryptedData = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
         if (row.status === "finalized" && encryptedData.length > 0) {
           // Return metadata (IVs, keys) but not ciphertext - use /api/chunks for binary data
-          const providers = encryptedData.map((p: any, i: number) => ({
-            providerIndex: i,
-            version: 3,
-            totalChunks: p.chunks.length,
-            chunks: p.chunks.map((c: any) => ({
-              index: c.index,
-              ephemeralPublicKey: c.ephemeralPublicKey,
-              iv: c.iv,
-            }))
-          }));
+          const providers = encryptedData
+            .filter((p: any) => p.version === 3 && Array.isArray(p.chunks))
+            .map((p: any, i: number) => ({
+              providerIndex: i,
+              version: 3,
+              totalChunks: p.chunks.length,
+              chunks: p.chunks.map((c: any) => ({
+                index: c.index,
+                ephemeralPublicKey: c.ephemeralPublicKey,
+                iv: c.iv,
+              }))
+            }));
           return Response.json({
             ready: true,
             providerCount: encryptedData.length,
@@ -281,16 +281,18 @@ const server = Bun.serve({
       // GET /api/chunks/{sessionId}/meta
       if (parts[1] === "meta") {
         // Return metadata without ciphertext
-        const meta = providers.map((p: any, i: number) => ({
-          providerIndex: i,
-          version: 3,
-          totalChunks: p.chunks.length,
-          chunks: p.chunks.map((c: any) => ({
-            index: c.index,
-            ephemeralPublicKey: c.ephemeralPublicKey,
-            iv: c.iv,
-          }))
-        }));
+        const meta = providers
+          .filter((p: any) => p.version === 3 && Array.isArray(p.chunks))
+          .map((p: any, i: number) => ({
+            providerIndex: i,
+            version: 3,
+            totalChunks: p.chunks.length,
+            chunks: p.chunks.map((c: any) => ({
+              index: c.index,
+              ephemeralPublicKey: c.ephemeralPublicKey,
+              iv: c.iv,
+            }))
+          }));
         return Response.json({ providers: meta }, { headers: corsHeaders });
       }
       
@@ -459,6 +461,25 @@ const server = Bun.serve({
 
       const encryptedData = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
       if (encryptedData.length === 0) return new Response("No providers connected", { status: 400, headers: corsHeaders });
+
+      // Verify all providers have complete chunk sets
+      const incomplete: string[] = [];
+      for (let i = 0; i < encryptedData.length; i++) {
+        const p = encryptedData[i];
+        if (!p.chunks || !Array.isArray(p.chunks)) {
+          incomplete.push(`provider ${i}: missing chunks array`);
+          continue;
+        }
+        if (p.totalChunks > 0 && p.chunks.length !== p.totalChunks) {
+          incomplete.push(`provider ${i}: ${p.chunks.length}/${p.totalChunks} chunks`);
+        }
+      }
+      if (incomplete.length > 0) {
+        return Response.json(
+          { success: false, error: "incomplete_upload", details: incomplete },
+          { status: 400, headers: corsHeaders }
+        );
+      }
 
       db.run("UPDATE sessions SET status = 'finalized' WHERE id = ?", [sessionId]);
       console.log(`Finalized session ${sessionId}`);
@@ -774,9 +795,12 @@ const server = Bun.serve({
       }
     }
 
-    // Legacy callback URL redirect (if any old links use /ehr-connect/callback)
+    // Legacy URL redirects
     if (path === "/ehr-connect/callback") {
       return Response.redirect(`${baseURL}/connect/callback${url.search}`, 302);
+    }
+    if (path === "/collect" || path === "/connections") {
+      return Response.redirect(`${baseURL}/`, 302);
     }
 
     return new Response("Not found", { status: 404 });

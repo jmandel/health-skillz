@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import HomePage from './pages/HomePage';
 import RecordsPage from './pages/RecordsPage';
 import ConnectPage from './pages/ConnectPage';
@@ -23,9 +23,8 @@ export default function App() {
         {/* OAuth callback (shared) */}
         <Route path="/connect/callback" element={<OAuthCallbackPage />} />
 
-        {/* Legacy routes — redirect */}
-        <Route path="/collect" element={<RecordsPage />} />
-        <Route path="/connections" element={<RecordsPage />} />
+        {/* Catch-all: redirect unknown paths to home */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );
