@@ -260,14 +260,14 @@ function renderStatus(activeNames, settledCount, totalCount, phase, refProgress,
   } else if (phase === 'attachments') {
     html += `<div class="status-active">Processing attachments…</div>`;
     html += `<div class="ref-bars">`;
-    html += `<div class="ref-bar"><span class="ref-bar-label">References</span><div class="ref-bar-track"><div class="ref-bar-fill" style="width:100%"></div></div><span class="ref-bar-count">148 <span class="ref-bar-check">✓</span></span></div>`;
+    html += `<div class="ref-bar"><span class="ref-bar-label">References</span><div class="ref-bar-track"><div class="ref-bar-fill" style="width:100%"></div></div><span class="ref-bar-count">148</span></div>`;
     html += `<div class="ref-bar"><span class="ref-bar-label">Attachments</span><div class="ref-bar-track"><div class="ref-bar-fill" style="width:${attProgress}%"></div></div><span class="ref-bar-count">${Math.round(attProgress * 0.31)}</span></div>`;
     html += `</div>`;
   } else if (phase === 'complete') {
     html += `<div class="status-summary">${doneTypes} types found · ${emptyTypes} empty · ${errorTypes} failed</div>`;
     html += `<div class="ref-bars">`;
-    html += `<div class="ref-bar"><span class="ref-bar-label">References</span><div class="ref-bar-track"><div class="ref-bar-fill" style="width:100%"></div></div><span class="ref-bar-count">148 <span class="ref-bar-check">✓</span></span></div>`;
-    html += `<div class="ref-bar"><span class="ref-bar-label">Attachments</span><div class="ref-bar-track"><div class="ref-bar-fill" style="width:100%"></div></div><span class="ref-bar-count">31 <span class="ref-bar-check">✓</span></span></div>`;
+    html += `<div class="ref-bar"><span class="ref-bar-label">References</span><div class="ref-bar-track"><div class="ref-bar-fill" style="width:100%"></div></div><span class="ref-bar-count">148</span></div>`;
+    html += `<div class="ref-bar"><span class="ref-bar-label">Attachments</span><div class="ref-bar-track"><div class="ref-bar-fill" style="width:100%"></div></div><span class="ref-bar-count">31</span></div>`;
     html += `</div>`;
   }
   statusEl.innerHTML = html;
@@ -343,7 +343,7 @@ function animate(ts) {
   
   if (elapsed >= HOLD_AT) {
     phase = 'complete';
-    counterEl.innerHTML = `1,655<span class="counter-check">✓</span>`;
+    counterEl.innerHTML = `1,655`;
     counterEl.className = 'counter-num complete';
   } else if (elapsed >= PHASE3_START) {
     phase = 'attachments';

@@ -250,7 +250,7 @@ window.renderFrame = function(elapsed) {
   let phase = 'fetching', refProgress = 0, attProgress = 0;
   if (elapsed >= HOLD_AT) {
     phase = 'complete';
-    counterEl.innerHTML = '1,655<span class="counter-check">\u2713</span>';
+    counterEl.innerHTML = '1,655';
     counterEl.className = 'counter-num complete';
   } else if (elapsed >= PHASE3_START) {
     phase = 'attachments';
@@ -282,12 +282,12 @@ window.renderFrame = function(elapsed) {
     html += '<div class="ref-bar"><span class="ref-bar-label">Attachments</span><div class="ref-bar-track"><div class="ref-bar-fill" style="width:0%"></div></div><span class="ref-bar-count" style="color:#ccc">&mdash;</span></div></div>';
   } else if (phase === 'attachments') {
     html += '<div class="status-active">Processing attachments\u2026</div>';
-    html += '<div class="ref-bars"><div class="ref-bar"><span class="ref-bar-label">References</span><div class="ref-bar-track"><div class="ref-bar-fill" style="width:100%"></div></div><span class="ref-bar-count">148 <span class="ref-bar-check">\u2713</span></span></div>';
+    html += '<div class="ref-bars"><div class="ref-bar"><span class="ref-bar-label">References</span><div class="ref-bar-track"><div class="ref-bar-fill" style="width:100%"></div></div><span class="ref-bar-count">148</span></div>';
     html += '<div class="ref-bar"><span class="ref-bar-label">Attachments</span><div class="ref-bar-track"><div class="ref-bar-fill" style="width:'+attProgress+'%"></div></div><span class="ref-bar-count">'+Math.round(attProgress*0.31)+'</span></div></div>';
   } else {
     html += '<div class="status-summary">'+doneTypes+' types found \u00b7 '+emptyTypes+' empty \u00b7 '+errorTypes+' failed</div>';
-    html += '<div class="ref-bars"><div class="ref-bar"><span class="ref-bar-label">References</span><div class="ref-bar-track"><div class="ref-bar-fill" style="width:100%"></div></div><span class="ref-bar-count">148 <span class="ref-bar-check">\u2713</span></span></div>';
-    html += '<div class="ref-bar"><span class="ref-bar-label">Attachments</span><div class="ref-bar-track"><div class="ref-bar-fill" style="width:100%"></div></div><span class="ref-bar-count">31 <span class="ref-bar-check">\u2713</span></span></div></div>';
+    html += '<div class="ref-bars"><div class="ref-bar"><span class="ref-bar-label">References</span><div class="ref-bar-track"><div class="ref-bar-fill" style="width:100%"></div></div><span class="ref-bar-count">148</span></div>';
+    html += '<div class="ref-bar"><span class="ref-bar-label">Attachments</span><div class="ref-bar-track"><div class="ref-bar-fill" style="width:100%"></div></div><span class="ref-bar-count">31</span></div></div>';
   }
   statusEl.innerHTML = html;
 };

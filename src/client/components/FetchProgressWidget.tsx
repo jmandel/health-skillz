@@ -28,7 +28,7 @@ function RefBar({ label, data }: { label: string; data: { completed: number; tot
         <div className="fp-ref-bar-fill" style={{ width: `${pct}%` }} />
       </div>
       <span className={`fp-ref-bar-count${!active ? ' fp-inactive' : ''}`}>
-        {isDone ? <>{data.total} <span className="fp-ref-bar-check">✓</span></> : active ? `${data.completed}/${data.total}` : '—'}
+        {isDone ? data.total : active ? `${data.completed}/${data.total}` : '—'}
       </span>
     </div>
   );
@@ -74,7 +74,7 @@ export default function FetchProgressWidget({ progress }: { progress: FetchProgr
       <div className="fp-counter-hero">
         <div className={`fp-counter-num${isComplete ? ' fp-complete' : ''}`}>
           {totalResources.toLocaleString()}
-          {isComplete && <span className="fp-counter-check"> ✓</span>}
+
         </div>
         <div className="fp-counter-label">resources found</div>
       </div>
