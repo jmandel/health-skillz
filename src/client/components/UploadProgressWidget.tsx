@@ -85,7 +85,7 @@ export default function UploadProgressWidget({ progress }: { progress: UploadPro
   const { providers, phase } = progress;
   const isDone = phase === 'done';
   const isFinalizing = phase === 'finalizing';
-  const totalBytesOut = providers.reduce((sum, p) => sum + p.bytesOut, 0);
+  const totalBytesProcessed = providers.reduce((sum, p) => sum + p.bytesIn, 0);
 
   // Active provider status text
   const active = providers.find(p => p.status === 'active');
@@ -104,7 +104,7 @@ export default function UploadProgressWidget({ progress }: { progress: UploadPro
       {/* Hero: total bytes sent */}
       <div className="up-hero">
         <div className={`up-hero-num${isDone ? ' up-complete' : ''}`}>
-          {fmtBytes(totalBytesOut)}
+          {fmtBytes(totalBytesProcessed)}
         </div>
         <div className="up-hero-label">
           {isDone ? 'encrypted & sent' : isFinalizing ? 'finalizing…' : 'encrypted & uploading'}
