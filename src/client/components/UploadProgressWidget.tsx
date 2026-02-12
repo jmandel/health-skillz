@@ -12,6 +12,8 @@ export interface ProviderUploadState {
   bytesIn: number;
   /** Total input bytes */
   totalBytesIn: number;
+  /** Compressed+encrypted bytes out for this provider */
+  bytesOut: number;
   /** Phase for this provider */
   status: 'pending' | 'active' | 'done';
   /** Current chunk being processed (1-based) */
@@ -24,8 +26,6 @@ export interface UploadProgress {
   providers: ProviderUploadState[];
   /** Index of the provider currently being uploaded */
   activeProviderIndex: number;
-  /** Total bytes sent across all providers */
-  totalBytesOut: number;
   /** Overall phase */
   phase: 'uploading' | 'finalizing' | 'done';
 }
@@ -82,9 +82,10 @@ function ProviderRow({ state }: { state: ProviderUploadState }) {
 }
 
 export default function UploadProgressWidget({ progress }: { progress: UploadProgress }) {
-  const { providers, totalBytesOut, phase } = progress;
+  const { providers, phase } = progress;
   const isDone = phase === 'done';
   const isFinalizing = phase === 'finalizing';
+  const totalBytesOut = providers.reduce((sum, p) => sum + p.bytesOut, 0);
 
   // Active provider status text
   const active = providers.find(p => p.status === 'active');

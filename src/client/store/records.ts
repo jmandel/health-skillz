@@ -564,6 +564,7 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
         chunksSkipped: p.skipChunks.length,
         bytesIn: 0,
         totalBytesIn: p.jsonSize,
+        bytesOut: 0,
         status: 'pending' as const,
         currentChunk: 0,
         chunkPhase: 'processing' as const,
@@ -573,14 +574,12 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
     const uploadProgress: UploadProgress = {
       providers: providerStates,
       activeProviderIndex: 0,
-      totalBytesOut: 0,
       phase: 'uploading',
     };
 
     set({ status: 'sending', statusMessage: '', error: null, uploadProgress });
 
     try {
-      let totalBytesOut = 0;
 
       for (let pi = 0; pi < prepared.length; pi++) {
         const { conn, data, providerKey, skipChunks } = prepared[pi];
@@ -592,7 +591,7 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
         providerStates[pi] = { ...providerStates[pi], status: 'active' };
         set({ uploadProgress: { ...uploadProgress, providers: [...providerStates], activeProviderIndex: pi } });
 
-        let provChunksUploaded = skipChunks.length;
+        let provChunksUploaded = 0;
 
         await encryptAndUploadStreaming(
           data,
@@ -607,41 +606,40 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
               providerKey,
             );
             provChunksUploaded++;
-            totalBytesOut += chunk.ciphertext.length;
             providerStates[pi] = {
               ...providerStates[pi],
               chunksUploaded: provChunksUploaded,
               actualChunks: isLast ? index + 1 : providerStates[pi].actualChunks,
             };
-            set({ uploadProgress: { ...uploadProgress, providers: [...providerStates], totalBytesOut } });
+            set({ uploadProgress: { ...uploadProgress, providers: [...providerStates] } });
           },
           (progress: StreamingProgress) => {
             providerStates[pi] = {
               ...providerStates[pi],
               bytesIn: progress.bytesIn,
+              bytesOut: progress.bytesOut,
               currentChunk: progress.currentChunk,
               chunkPhase: progress.phase === 'uploading' ? 'uploading' : progress.phase === 'done' ? 'done' : 'processing',
             };
-            totalBytesOut = totalBytesOut; // keep running total
-            set({ uploadProgress: { ...uploadProgress, providers: [...providerStates], totalBytesOut } });
+            set({ uploadProgress: { ...uploadProgress, providers: [...providerStates] } });
           },
           skipChunks,
         );
 
         // Mark done
         providerStates[pi] = { ...providerStates[pi], status: 'done', chunkPhase: 'done' };
-        set({ uploadProgress: { ...uploadProgress, providers: [...providerStates], totalBytesOut } });
+        set({ uploadProgress: { ...uploadProgress, providers: [...providerStates] } });
       }
 
       // Finalize
-      set({ uploadProgress: { ...uploadProgress, providers: [...providerStates], totalBytesOut, phase: 'finalizing' } });
+      set({ uploadProgress: { ...uploadProgress, providers: [...providerStates], phase: 'finalizing' } });
       await finalizeSess(session.sessionId, session.finalizeToken);
       clearFinalizeToken(session.sessionId);
 
       set({
         status: 'done',
         statusMessage: '',
-        uploadProgress: { ...uploadProgress, providers: [...providerStates], totalBytesOut, phase: 'done' },
+        uploadProgress: { ...uploadProgress, providers: [...providerStates], phase: 'done' },
         session: { ...session, sessionStatus: 'finalized', pendingChunks: null },
       });
     } catch (err) {
