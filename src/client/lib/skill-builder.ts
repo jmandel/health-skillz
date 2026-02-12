@@ -26,6 +26,7 @@ export async function buildLocalSkillZip(
 
   // Bundle selected health records into data/
   const dataDir = root.folder('data')!;
+  const usedNames = new Set<string>();
   for (const conn of connections) {
     const cached = await getFhirData(conn.id);
     if (!cached) continue;
@@ -39,11 +40,17 @@ export async function buildLocalSkillZip(
       fetchedAt: cached.fetchedAt,
     };
 
-    // Sanitise provider name into a safe filename
-    const safeName = conn.providerName
+    // Sanitise provider name into a safe filename, deduplicating collisions
+    let safeName = conn.providerName
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '');
+      .replace(/^-|-$/g, '') || 'provider';
+    if (usedNames.has(safeName)) {
+      let n = 2;
+      while (usedNames.has(`${safeName}-${n}`)) n++;
+      safeName = `${safeName}-${n}`;
+    }
+    usedNames.add(safeName);
     dataDir.file(`${safeName}.json`, JSON.stringify(payload, null, 2));
   }
 
