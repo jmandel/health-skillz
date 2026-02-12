@@ -20,7 +20,7 @@ export default function HomePage() {
     <div className="page-top">
       <div className="home-header">
         <h1>Health Skillz</h1>
-        <p>Connect your patient portals, collect your records, and share securely with AI.</p>
+        <p>Connect, collect, and securely share your health records with AI.</p>
       </div>
 
       <div className="container">
