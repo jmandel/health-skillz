@@ -89,7 +89,7 @@ export async function uploadEncryptedChunk(
   chunk: EncryptedChunk,
   chunkIndex: number,
   totalChunks: number | null, // null if unknown yet
-  providerKey?: string,
+  providerKey: string,
 ): Promise<any> {
   const body = JSON.stringify({
     sessionId,
@@ -97,7 +97,7 @@ export async function uploadEncryptedChunk(
     version: 3,
     totalChunks: totalChunks ?? -1, // -1 means "more coming, count unknown"
     chunk,
-    ...(providerKey ? { providerKey } : {}),
+    providerKey,
   });
   
   const maxRetries = 3;
