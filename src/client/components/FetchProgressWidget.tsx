@@ -55,8 +55,10 @@ export default function FetchProgressWidget({ progress }: { progress: FetchProgr
     groupMap.get(q.group)!.push(q);
   }
 
-  // Active labels (max 5)
-  const activeQueries = queries.filter(q => q.state.status === 'active');
+  // Active labels sorted by longest-loading first (most stable ordering)
+  const activeQueries = queries
+    .filter(q => q.state.status === 'active')
+    .sort((a, b) => (a.activeSince || 0) - (b.activeSince || 0));
   const maxLabels = 5;
   const activeLabels = activeQueries.slice(0, maxLabels).map(q => q.label);
   const hasMore = activeQueries.length > maxLabels;
@@ -98,7 +100,7 @@ export default function FetchProgressWidget({ progress }: { progress: FetchProgr
           <>
             {activeLabels.length > 0 && (
               <div className="fp-status-active">
-                Loading: {activeLabels.join(', ')}{hasMore ? ', …' : ''}
+                {activeLabels.join(', ')}{hasMore ? ', …' : ''}
               </div>
             )}
             <div className="fp-status-settled">{settledCount} of {queries.length} settled</div>

@@ -30,6 +30,7 @@ export interface QuerySlot {
   label: string;
   group: number;
   state: QueryState;
+  activeSince: number;  // timestamp when query became active (0 if not yet)
 }
 
 export interface FetchProgress {
@@ -160,12 +161,15 @@ export async function fetchPatientData(
       label: q.label,
       group: q.group,
       state: { status: 'pending' as const },
+      activeSince: 0,
     })),
     totalResources: 0,
     settledCount: 0,
     references: null,
     attachments: null,
   };
+
+  let refResourceCount = 0;  // resources discovered during reference chasing
 
   function recomputeTotals() {
     let total = 0;
@@ -176,7 +180,7 @@ export async function fetchPatientData(
       else if (q.state.status === 'empty') { settled++; }
       else if (q.state.status === 'error') { settled++; }
     }
-    fp.totalResources = total;
+    fp.totalResources = total + refResourceCount;
     fp.settledCount = settled;
   }
 
@@ -197,6 +201,7 @@ export async function fetchPatientData(
 
       // Mark slot as active
       fp.queries[queryIndex].state = { status: 'active', resourcesSoFar: 0 };
+      fp.queries[queryIndex].activeSince = Date.now();
       recomputeTotals();
       emit();
 
@@ -295,11 +300,13 @@ export async function fetchPatientData(
               result.fhir[resType] = [];
             }
             result.fhir[resType].push(resource);
+            refResourceCount++;
           }
         }
 
         completedRefs++;
         fp.references = { completed: completedRefs, total: totalRefs };
+        recomputeTotals();
         emit();
       } catch (err) {
         console.warn(`Failed to fetch reference ${ref}:`, err);
