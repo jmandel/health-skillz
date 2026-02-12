@@ -180,6 +180,12 @@ code {
   color: var(--text);
 }
 
+.btn-success {
+  background: #dcfce7;
+  color: #16a34a;
+  border-color: #86efac;
+}
+
 .btn-sm { font-size: 0.8rem; padding: 5px 10px; }
 .btn-full { width: 100%; }
 
@@ -321,16 +327,6 @@ code {
 
 .conn-error-reconnect {
   flex-shrink: 0;
-}
-
-.conn-done {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.82rem;
-  color: #2e7d32;
-  margin-top: 4px;
-  padding: 4px 0;
 }
 
 .conn-actions {

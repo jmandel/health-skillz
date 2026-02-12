@@ -62,11 +62,27 @@ export default function RecordsPage() {
   const toggleSelected = useRecordsStore((s) => s.toggleSelected);
   const refreshConnection = useRecordsStore((s) => s.refreshConnection);
   const reconnectConnection = useRecordsStore((s) => s.reconnectConnection);
-  const dismissConnectionDone = useRecordsStore((s) => s.dismissConnectionDone);
   const removeConnection = useRecordsStore((s) => s.removeConnection);
   const clearError = useRecordsStore((s) => s.clearError);
   const sendToAI = useRecordsStore((s) => s.sendToAI);
   const downloadSkillZip = useRecordsStore((s) => s.downloadSkillZip);
+
+  // Track connections that recently finished refreshing — auto-clear after 4s
+  const [recentlyDone, setRecentlyDone] = useState<Set<string>>(new Set());
+  const prevConnectionState = useRef(connectionState);
+  useEffect(() => {
+    // Detect transitions from refreshing→done (doneMessage set, refreshing false)
+    for (const [id, cs] of Object.entries(connectionState)) {
+      const prev = prevConnectionState.current[id];
+      if (prev?.refreshing && !cs.refreshing && cs.doneMessage) {
+        setRecentlyDone(s => new Set(s).add(id));
+        setTimeout(() => {
+          setRecentlyDone(s => { const next = new Set(s); next.delete(id); return next; });
+        }, 4000);
+      }
+    }
+    prevConnectionState.current = connectionState;
+  }, [connectionState]);
 
   const isSession = Boolean(session);
   const isFinalized = session?.sessionStatus === 'finalized';
@@ -114,18 +130,12 @@ export default function RecordsPage() {
           </div>
         )}
 
-        {/* Global messages */}
+        {/* Global error bar (top of page) */}
         {status === 'error' && error && (
           <div className="alert alert-error" style={{ marginBottom: 12 }}>
             {error}
             <button className="link" onClick={clearError} style={{ marginLeft: 8 }}>Dismiss</button>
           </div>
-        )}
-        {statusMessage && status !== 'error' && status !== 'idle' && (
-          <StatusMessage
-            status={status === 'done' ? 'success' : 'loading'}
-            message={statusMessage}
-          />
         )}
 
         {/* Toolbar */}
@@ -144,7 +154,7 @@ export default function RecordsPage() {
               const cs = connectionState[c.id];
               const refreshing = cs?.refreshing ?? false;
               const err = cs?.error ?? null;
-              const doneMsg = cs?.doneMessage ?? null;
+              const justDone = recentlyDone.has(c.id);
               const checked = selected.has(c.id);
               const prog = cs?.refreshProgress;
               const isFailed = c.status === 'expired' || c.status === 'error';
@@ -168,21 +178,8 @@ export default function RecordsPage() {
                     <div className="conn-meta">
                       {c.providerName} · {fmtSize(c.dataSizeBytes)} · {timeAgo(c.lastFetchedAt)}
                     </div>
-                    {/* Show progress widget while refreshing OR after done (until dismissed) */}
-                    {(refreshing || doneMsg) && prog && (
+                    {refreshing && prog && (
                       <FetchProgressWidget progress={prog} />
-                    )}
-                    {/* Done banner with dismiss */}
-                    {doneMsg && !refreshing && (
-                      <div className="conn-done">
-                        <span>✅ {doneMsg}</span>
-                        <button
-                          className="btn btn-ghost btn-sm"
-                          onClick={e => { e.preventDefault(); e.stopPropagation(); dismissConnectionDone(c.id); }}
-                        >
-                          OK
-                        </button>
-                      </div>
                     )}
                     {(c.lastError || err) && (
                       <div className="conn-error">
@@ -208,11 +205,11 @@ export default function RecordsPage() {
                         </button>
                       ) : (
                         <button
-                          className="btn btn-secondary btn-sm"
-                          disabled={refreshing || busy || !!doneMsg}
+                          className={`btn btn-sm${justDone ? ' btn-success' : ' btn-secondary'}`}
+                          disabled={refreshing || busy}
                           onClick={e => { e.preventDefault(); e.stopPropagation(); refreshConnection(c.id); }}
                         >
-                          {refreshing ? 'Refreshing…' : 'Refresh'}
+                          {refreshing ? 'Refreshing…' : justDone ? '✓ Updated' : 'Refresh'}
                         </button>
                       )}
                       <button
@@ -234,6 +231,14 @@ export default function RecordsPage() {
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
             No connections yet.
           </p>
+        )}
+
+        {/* Action status bar (near the buttons that trigger it) */}
+        {statusMessage && status !== 'error' && status !== 'idle' && (
+          <StatusMessage
+            status={status === 'done' ? 'success' : 'loading'}
+            message={statusMessage}
+          />
         )}
 
         {/* Actions */}
