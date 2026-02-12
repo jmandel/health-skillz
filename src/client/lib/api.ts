@@ -46,22 +46,6 @@ export async function getSessionInfo(sessionId: string): Promise<SessionInfo> {
   return res.json();
 }
 
-export async function sendEncryptedData(
-  sessionId: string,
-  payload: EncryptedPayload
-): Promise<{ success: boolean; providerCount: number }> {
-  const res = await fetch(`${BASE_URL}/api/data/${sessionId}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || `Server returned ${res.status}`);
-  }
-  return res.json();
-}
-
 export interface UploadProgress {
   loaded: number;
   total: number;
