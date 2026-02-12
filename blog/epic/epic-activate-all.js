@@ -67,25 +67,31 @@
   sessionStorage.removeItem(LOG_KEY);
 
   // --- Mode selection ---
-  const mode = prompt(
+  const modeInput = prompt(
     'Select activation mode:\n\n' +
-    '1 = JWK Set URL (Epic\'s "Recommended" — but fails at orgs that block outbound requests)\n' +
-    '2 = Direct JWKS upload (works everywhere — uploads RSA keys directly)\n\n' +
-    'Enter 1 or 2:',
-    '2'
+    '1 = JWK Set URL (Epic\'s "Recommended" — but fails at orgs that block outbound requests)\n\n' +
+    'OR enter a JWKS URL to upload keys directly (works everywhere).\n' +
+    'Example: https://example.com/.well-known/jwks.json\n\n' +
+    'Enter 1 or a URL:',
+    JWKS_URL
   );
 
-  if (mode !== '1' && mode !== '2') {
-    log('[Epic Activator] Aborted — invalid mode selection.', 'color: red; font-weight: bold');
+  if (!modeInput) {
+    log('[Epic Activator] Aborted.', 'color: red; font-weight: bold');
     return;
   }
 
-  const useDirectJWKS = mode === '2';
+  const useDirectJWKS = modeInput !== '1';
+  const jwksSourceUrl = useDirectJWKS ? modeInput : null;
   let rsaJwks = '';
 
   if (useDirectJWKS) {
-    log(`[Epic Activator] Fetching JWKS from ${JWKS_URL}...`, 'color: blue; font-weight: bold');
-    const jwksResp = await fetch(JWKS_URL);
+    log(`[Epic Activator] Fetching JWKS from ${jwksSourceUrl}...`, 'color: blue; font-weight: bold');
+    const jwksResp = await fetch(jwksSourceUrl);
+    if (!jwksResp.ok) {
+      log(`[Epic Activator] Failed to fetch JWKS: HTTP ${jwksResp.status}. Aborting.`, 'color: red; font-weight: bold');
+      return;
+    }
     const jwks = await jwksResp.json();
     const rsaKeys = jwks.keys.filter(k => k.kty === 'RSA');
     if (rsaKeys.length === 0) {
@@ -162,9 +168,23 @@
   }
 
   // --- Categorize ---
-  const needsBoth = allOrgs.filter(o => o.approved === 0);   // Not responded
-  const needsProd = allOrgs.filter(o => o.approved === 3);   // Non-Production only
-  const alreadyDone = allOrgs.filter(o => o.approved === 1); // Keys enabled
+  const notResponded = allOrgs.filter(o => o.approved === 0);   // Not responded
+  const nonProdOnly = allOrgs.filter(o => o.approved === 3);    // Non-Production only
+  const alreadyDone = allOrgs.filter(o => o.approved === 1);    // Keys enabled
+
+  // In direct JWKS mode, offer to re-activate already-enabled orgs (e.g. to switch from JKU to direct JWKS)
+  let reactivateAll = false;
+  if (useDirectJWKS && alreadyDone.length > 0) {
+    reactivateAll = confirm(
+      `${alreadyDone.length} orgs are already activated (likely with JWK Set URL).\n\n` +
+      `Re-activate ALL orgs with direct JWKS?\n` +
+      `• OK = re-activate all ${allOrgs.length} orgs with direct JWKS\n` +
+      `• Cancel = only process ${notResponded.length + nonProdOnly.length} pending orgs`
+    );
+  }
+
+  const needsBoth = reactivateAll ? allOrgs : notResponded;
+  const needsProd = reactivateAll ? [] : nonProdOnly;
 
   // In direct JWKS mode, we can do both envs in one call
   const callsForBoth = useDirectJWKS ? needsBoth.length : needsBoth.length * 2;
@@ -172,9 +192,9 @@
 
   log('[Epic Activator] Summary:', 'color: blue; font-weight: bold');
   log(`  Total orgs: ${allOrgs.length}`);
-  log(`  Already enabled: ${alreadyDone.length}`);
-  log(`  Need Non-Prod + Prod: ${needsBoth.length}`);
-  log(`  Need Prod only: ${needsProd.length}`);
+  log(`  Already enabled: ${alreadyDone.length}${reactivateAll ? ' (will re-activate)' : ' (skipped)'}`);
+  log(`  Not responded: ${notResponded.length}`);
+  log(`  Non-prod only: ${nonProdOnly.length}`);
   log(`  Total API calls needed: ${totalCalls}${useDirectJWKS ? ' (single call per org in direct JWKS mode)' : ''}`);
 
   if (needsBoth.length === 0 && needsProd.length === 0) {
@@ -187,8 +207,8 @@
     `Epic Activator will make ${totalCalls} API calls:\n` +
     `• ${needsBoth.length} orgs: activate Non-Prod + Prod${useDirectJWKS ? ' (1 call each, direct JWKS)' : ' (2 calls each)'}\n` +
     `• ${needsProd.length} orgs: activate Prod only\n` +
-    `• ${alreadyDone.length} orgs: already done (skipped)\n\n` +
-    `Mode: ${useDirectJWKS ? 'Direct JWKS upload' : 'JWK Set URL'}\n\n` +
+    (reactivateAll ? `• Re-activating ALL orgs (including ${alreadyDone.length} already enabled)\n` : '') +
+    `\nMode: ${useDirectJWKS ? 'Direct JWKS upload' : 'JWK Set URL'}\n\n` +
     `Click OK to proceed, Cancel to abort.`
   );
 
