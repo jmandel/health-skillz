@@ -214,6 +214,19 @@ export default function RecordsPage() {
                       <div className="conn-error">{err || c.lastError}</div>
                     )}
                     <div className="conn-actions">
+                      {!isSession && (
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          disabled={busy}
+                          onClick={e => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            nav(`/records/browser?source=${encodeURIComponent(c.id)}`);
+                          }}
+                        >
+                          Browse
+                        </button>
+                      )}
                       {isFailed && !err ? (
                         <button
                           className="btn btn-secondary btn-sm"
@@ -302,22 +315,6 @@ export default function RecordsPage() {
               {appliedRedactionProfile
                 ? `Applying "${appliedRedactionProfile.name}" · Active terms: ${enabledTermCount} · Strip attachment base64: ${appliedRedactionProfile.stripAttachmentBase64 ? 'On' : 'Off'}`
                 : 'No redaction will be applied to send or downloads.'}
-            </div>
-          </div>
-        )}
-
-        {total > 0 && (
-          <div className="redaction-card">
-            <div className="redaction-head">
-              <div>
-                <div className="section-title" style={{ marginBottom: 2 }}>Data Browser</div>
-                <div className="redaction-note">
-                  Browse structured FHIR resources and one best attachment rendition per source document across selected connections.
-                </div>
-              </div>
-              <button className="btn btn-ghost btn-sm" onClick={() => nav('/records/browser')}>
-                Open
-              </button>
             </div>
           </div>
         )}

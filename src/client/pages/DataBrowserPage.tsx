@@ -1,5 +1,5 @@
-import { memo, useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import DOMPurify from 'dompurify';
 import { getFhirData, type CachedFhirData } from '../lib/connections';
 import type { ProcessedAttachment, ProcessedAttachmentOriginal } from '../lib/smart/attachments';
@@ -1200,6 +1200,7 @@ const AttachmentRow = memo(function AttachmentRow({
 
 export default function DataBrowserPage() {
   const nav = useNavigate();
+  const [searchParams] = useSearchParams();
   const connections = useRecordsStore((s) => s.connections);
   const loaded = useRecordsStore((s) => s.loaded);
   const loadConnections = useRecordsStore((s) => s.loadConnections);
@@ -1211,6 +1212,13 @@ export default function DataBrowserPage() {
   const [selectedTypeFilters, setSelectedTypeFilters] = useState<Set<string>>(new Set());
   const [typeFiltersInitialized, setTypeFiltersInitialized] = useState(false);
   const [typeFiltersDirty, setTypeFiltersDirty] = useState(false);
+  const lastAppliedSourceParamRef = useRef<string | null | undefined>(undefined);
+  const requestedSourceId = useMemo(() => {
+    const value = searchParams.get('source');
+    if (!value) return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }, [searchParams]);
 
   useEffect(() => {
     if (!loaded) void loadConnections();
@@ -1220,6 +1228,12 @@ export default function DataBrowserPage() {
     if (!loaded) return;
     const ids = connections.map((conn) => conn.id);
     setSelectedIds((prev) => {
+      if (lastAppliedSourceParamRef.current !== requestedSourceId) {
+        lastAppliedSourceParamRef.current = requestedSourceId;
+        if (requestedSourceId && ids.includes(requestedSourceId)) {
+          return sameStringSet(prev, [requestedSourceId]) ? prev : [requestedSourceId];
+        }
+      }
       const kept = prev.filter((id) => ids.includes(id));
       if (kept.length > 0) {
         return sameStringSet(prev, kept) ? prev : kept;
@@ -1228,7 +1242,7 @@ export default function DataBrowserPage() {
       const next = withData.length > 0 ? withData : ids;
       return sameStringSet(prev, next) ? prev : next;
     });
-  }, [loaded, connections]);
+  }, [loaded, connections, requestedSourceId]);
 
   useEffect(() => {
     const idsToLoad = selectedIds.filter((id) => dataByConnection[id] === undefined && !loadingIds.has(id));
