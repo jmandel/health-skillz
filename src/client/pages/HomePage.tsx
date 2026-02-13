@@ -124,16 +124,12 @@ export default function HomePage() {
                       </div>
                     </div>
                   )}
+                  <p className="transfer-next-step">
+                    <strong>Then:</strong> the AI will send you a link. Click it, choose which records to share,
+                    and they’re encrypted end-to-end before sending.
+                  </p>
                 </section>
               </div>
-            </div>
-          </div>
-
-          <div className="step-row">
-            <span className="step-badge">3</span>
-            <div className="step-text">
-              <strong>If you chose Option B</strong> — The AI will send you a link. Click it,
-              pick which records to share, and they’re encrypted end-to-end before sending.
             </div>
           </div>
         </div>

@@ -1444,6 +1444,11 @@ code {
   margin-bottom: 6px !important;
 }
 
+.transfer-next-step {
+  margin-top: 8px !important;
+  font-size: 0.84rem;
+}
+
 /* Expandable help */
 .help-toggle {
   font-size: 0.82rem;
