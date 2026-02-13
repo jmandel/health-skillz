@@ -63,8 +63,21 @@ code {
 }
 
 /* --- Layout --- */
-.page-centered {
+.app-shell {
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.page-centered {
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -73,7 +86,7 @@ code {
 }
 
 .page-top {
-  min-height: 100vh;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1197,7 +1210,7 @@ code {
 
 /* --- Provider Select Page --- */
 .provider-select-container {
-  min-height: 100vh;
+  min-height: 100%;
   background: var(--bg);
   padding: 16px;
 }
@@ -1255,13 +1268,13 @@ code {
 /* --- Home page --- */
 .home-header {
   text-align: center;
-  padding: 24px 16px 18px;
+  padding: 4px 16px 30px;
 }
 .home-header h1 {
   font-size: 1.5rem;
   font-weight: 700;
   color: var(--text);
-  margin-bottom: 6px;
+  margin: 0 0 6px;
 }
 .home-header p {
   font-size: 0.95rem;
@@ -1512,7 +1525,7 @@ code {
 
 /* --- Footer --- */
 .site-footer {
-  margin-top: auto;
+  margin-top: 0;
   padding: 32px 0 24px;
   width: 100%;
 }

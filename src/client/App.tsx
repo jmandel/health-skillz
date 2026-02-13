@@ -6,30 +6,36 @@ import ProviderSelectPage from './pages/ProviderSelectPage';
 import OAuthCallbackPage from './pages/OAuthCallbackPage';
 import RedactionStudioPage from './pages/RedactionStudioPage';
 import DataBrowserPage from './pages/DataBrowserPage';
+import SiteFooter from './components/SiteFooter';
 import './index.css';
 
 export default function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<HomePage />} />
+      <div className="app-shell">
+        <main className="app-main">
+          <Routes>
+            <Route path="/" element={<HomePage />} />
 
-        {/* Records hub (standalone) */}
-        <Route path="/records" element={<RecordsPage />} />
-        <Route path="/records/add" element={<ProviderSelectPage />} />
-        <Route path="/records/callback" element={<OAuthCallbackPage />} />
-        <Route path="/records/redaction" element={<RedactionStudioPage />} />
-        <Route path="/records/browser" element={<DataBrowserPage />} />
+            {/* Records hub (standalone) */}
+            <Route path="/records" element={<RecordsPage />} />
+            <Route path="/records/add" element={<ProviderSelectPage />} />
+            <Route path="/records/callback" element={<OAuthCallbackPage />} />
+            <Route path="/records/redaction" element={<RedactionStudioPage />} />
+            <Route path="/records/browser" element={<DataBrowserPage />} />
 
-        {/* AI session flow */}
-        <Route path="/connect/:sessionId" element={<ConnectPage />} />
+            {/* AI session flow */}
+            <Route path="/connect/:sessionId" element={<ConnectPage />} />
 
-        {/* OAuth callback (shared) */}
-        <Route path="/connect/callback" element={<OAuthCallbackPage />} />
+            {/* OAuth callback (shared) */}
+            <Route path="/connect/callback" element={<OAuthCallbackPage />} />
 
-        {/* Catch-all: redirect unknown paths to home */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+            {/* Catch-all: redirect unknown paths to home */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </main>
+        <SiteFooter />
+      </div>
     </BrowserRouter>
   );
 }
