@@ -25,7 +25,7 @@ const AGENT_PARTIALS = [
   'analysis-philosophy.md',
   'connect-agent.md',
   'data-structure.md',
-  'fhir-examples.md',
+  'fhir-guide.md',
   'guidelines.md',
   'testing.md',
 ];
@@ -36,7 +36,7 @@ const LOCAL_PARTIALS = [
   'analysis-philosophy.md',
   'connect-local.md',
   'data-structure.md',
-  'fhir-examples.md',
+  'fhir-guide.md',
   'guidelines.md',
 ];
 

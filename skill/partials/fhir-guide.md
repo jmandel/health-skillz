@@ -130,6 +130,42 @@ const visits = provider.fhir.Encounter?.map(e => ({
 }));
 ```
 
+### DocumentReference timing semantics (important)
+
+For `DocumentReference`, do **not** treat `docRef.date` as the date care occurred.
+
+- `docRef.date` is usually a document metadata timestamp (indexing/creation/import time).
+- For clinical chronology, prefer `docRef.context?.period?.start` / `end`.
+- If `docRef.context?.encounter[]` points to an `Encounter`, use that encounter's `period.start` as the visit date.
+- If context/encounter timing is missing, label timing as uncertain instead of inferring from `docRef.date`.
+
+```javascript
+function getDocumentTimeline(provider) {
+  const encounters = new Map(
+    (provider.fhir.Encounter || []).map(e => [e.id, e])
+  );
+
+  return (provider.fhir.DocumentReference || []).map(docRef => {
+    const encounterRef = docRef.context?.encounter?.[0]?.reference; // "Encounter/{id}"
+    const encounterId = encounterRef?.split('/')[1];
+    const encounter = encounterId ? encounters.get(encounterId) : null;
+
+    const clinicalDate =
+      docRef.context?.period?.start ||
+      encounter?.period?.start ||
+      null;
+
+    return {
+      id: docRef.id,
+      type: docRef.type?.text || docRef.type?.coding?.[0]?.display || 'Document',
+      clinicalDate,            // preferred for care timeline
+      metadataDate: docRef.date, // useful metadata, not care timing
+      encounter: encounter?.type?.[0]?.coding?.[0]?.display || docRef.context?.encounter?.[0]?.display || null,
+    };
+  });
+}
+```
+
 ## LOINC Code Reference
 
 | Category | Test | LOINC |
@@ -173,8 +209,11 @@ function searchNotes(provider, terms) {
     for (const term of termList) {
       const idx = text.toLowerCase().indexOf(term.toLowerCase());
       if (idx !== -1) {
+        const docRef = provider.fhir.DocumentReference?.find(d => d.id === att.source?.resourceId);
         return {
           docId: att.source?.resourceId,
+          clinicalDate: docRef?.context?.period?.start ?? null,
+          metadataDate: docRef?.date ?? null,
           context: text.substring(
             Math.max(0, idx - 150),
             Math.min(text.length, idx + term.length + 150)

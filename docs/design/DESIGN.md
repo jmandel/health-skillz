@@ -632,12 +632,12 @@ health-skillz/
 ├── skill/
 │   ├── build-skill.ts
 │   ├── partials/
+│   │   └── fhir-guide.md
 │   └── health-record-assistant/
 │       ├── scripts/
 │       │   ├── create-session.ts
 │       │   └── finalize-session.ts
 │       └── references/
-│           └── FHIR-GUIDE.md
 ├── scripts/
 │   ├── download-brands.ts
 │   ├── package-skill.ts
