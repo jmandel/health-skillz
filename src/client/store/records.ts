@@ -12,11 +12,13 @@ import {
   type SavedConnection,
   type CachedFhirData,
 } from '../lib/connections';
-import { refreshAccessToken } from '../lib/smart/oauth';
+import { exchangeCodeForToken, refreshAccessToken } from '../lib/smart/oauth';
 import {
   saveFinalizeToken,
   loadFinalizeToken,
   clearFinalizeToken,
+  loadOAuthState,
+  clearOAuthState,
   saveSessionSelection,
   loadSessionSelection,
   clearSessionSelection,
@@ -128,6 +130,12 @@ interface RecordsActions {
     scopes: string;
     accessToken: string;
   }) => Promise<string>; // returns connection ID
+  completeOAuthAuthorization: (params: {
+    code: string | null;
+    stateNonce: string | null;
+    errorParam: string | null;
+    errorDescription: string | null;
+  }) => Promise<{ redirectTo: string | null; error: string | null }>;
 
   // Session actions
   sendToAI: () => Promise<void>;
@@ -366,9 +374,20 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
   // refreshConnection — use refresh token to get new access, re-fetch FHIR
   // -----------------------------------------------------------------------
   refreshConnection: async (id) => {
-    const { connections, connectionState } = get();
+    const { connections } = get();
     const conn = connections.find(c => c.id === id);
     if (!conn) return;
+    const canRefresh = conn.canRefresh !== false && Boolean(conn.refreshToken?.trim());
+    if (!canRefresh) {
+      const msg = 'This connection is not refreshable (no refresh token). Reconnect to refresh data.';
+      set({
+        connectionState: {
+          ...get().connectionState,
+          [id]: { refreshing: false, refreshProgress: null, error: msg, doneMessage: null },
+        },
+      });
+      return;
+    }
 
     // Mark refreshing
     set({
@@ -530,6 +549,7 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
   saveNewConnection: async (params) => {
     const { providerName, fhirBaseUrl, tokenEndpoint, clientId, patientId,
             refreshToken, scopes, accessToken } = params;
+    const normalizedRefreshToken = refreshToken.trim();
 
     set({ status: 'loading', statusMessage: 'Fetching health records…' });
 
@@ -579,12 +599,16 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
       tokenEndpoint,
       clientId,
       patientId,
-      refreshToken,
+      refreshToken: normalizedRefreshToken,
+      canRefresh: normalizedRefreshToken.length > 0,
       scopes,
       createdAt: existing?.createdAt ?? now,
       lastRefreshedAt: now,
       lastFetchedAt: now,
-      dataSizeBytes: JSON.stringify(ehrData.fhir).length,
+      dataSizeBytes: JSON.stringify({
+        fhir: ehrData.fhir,
+        attachments: ehrData.attachments,
+      }).length,
       status: 'active',
       patientDisplayName: displayName,
       patientBirthDate: birthDate,
@@ -616,6 +640,60 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
     if (session) saveSessionSelection(session.sessionId, Array.from(selected));
 
     return connId;
+  },
+
+  // -----------------------------------------------------------------------
+  // completeOAuthAuthorization — handle callback params + token exchange
+  // -----------------------------------------------------------------------
+  completeOAuthAuthorization: async ({ code, stateNonce, errorParam, errorDescription }) => {
+    if (errorParam) {
+      return { redirectTo: null, error: errorDescription || errorParam };
+    }
+    if (!code || !stateNonce) {
+      return { redirectTo: null, error: 'Missing authorization code or state parameter.' };
+    }
+
+    const oauth = loadOAuthState(stateNonce);
+    if (!oauth) {
+      return { redirectTo: null, error: 'OAuth session not found. This link may have already been used.' };
+    }
+
+    // Clear immediately to prevent replay.
+    clearOAuthState(stateNonce);
+
+    try {
+      set({ status: 'loading', statusMessage: 'Completing authorization…', error: null });
+      const tokenResponse = await exchangeCodeForToken(
+        code,
+        oauth.tokenEndpoint,
+        oauth.clientId,
+        oauth.redirectUri,
+        oauth.codeVerifier,
+      );
+
+      const patientId = tokenResponse.patient;
+      if (!patientId) {
+        throw new Error('No patient ID in token response. The server may not have returned patient context.');
+      }
+
+      await get().saveNewConnection({
+        providerName: oauth.providerName,
+        fhirBaseUrl: oauth.fhirBaseUrl,
+        tokenEndpoint: oauth.tokenEndpoint,
+        clientId: oauth.clientId,
+        patientId,
+        refreshToken: tokenResponse.refresh_token || '',
+        scopes: tokenResponse.scope || '',
+        accessToken: tokenResponse.access_token,
+      });
+
+      const redirectTo = oauth.sessionId && !oauth.sessionId.startsWith('local_')
+        ? `/connect/${oauth.sessionId}`
+        : '/records';
+      return { redirectTo, error: null };
+    } catch (err) {
+      return { redirectTo: null, error: err instanceof Error ? err.message : String(err) };
+    }
   },
 
   // -----------------------------------------------------------------------

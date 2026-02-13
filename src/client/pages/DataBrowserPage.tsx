@@ -4,6 +4,7 @@ import DOMPurify from 'dompurify';
 import { getFhirData, type CachedFhirData } from '../lib/connections';
 import type { ProcessedAttachment, ProcessedAttachmentOriginal } from '../lib/smart/attachments';
 import { useRecordsStore } from '../store/records';
+import RecordsHeaderBar from '../components/RecordsHeaderBar';
 
 const MAIN_RESOURCE_TYPES = [
   'patient',
@@ -318,25 +319,26 @@ function formatStructuredPrimitive(value: unknown, keyName: string): string {
 
   const normalized = value.replace(/\s+/g, ' ').trim();
   const lowerKey = keyName.toLowerCase();
-  if (
+  const keepFull =
     lowerKey === 'reference' ||
     lowerKey.endsWith('reference') ||
     lowerKey === 'subject' ||
-    lowerKey === 'encounter'
-  ) {
-    return shortenReference(normalized);
-  }
-  if (
+    lowerKey === 'encounter' ||
     lowerKey === 'id' ||
     lowerKey.endsWith('id') ||
     lowerKey.includes('identifier') ||
-    lowerKey === 'fullurl'
-  ) {
-    return looksOpaqueIdentifier(normalized) ? shortenOpaqueToken(normalized) : normalized;
+    lowerKey === 'fullurl' ||
+    lowerKey === 'url' ||
+    lowerKey.endsWith('url') ||
+    lowerKey === 'system' ||
+    lowerKey.endsWith('system') ||
+    lowerKey === 'value' ||
+    lowerKey.startsWith('value') ||
+    lowerKey.endsWith('value');
+  if (keepFull) {
+    return normalized;
   }
-  if (looksOpaqueIdentifier(normalized) && normalized.length > 44) {
-    return shortenOpaqueToken(normalized, 44);
-  }
+
   return truncateText(normalized, 240);
 }
 
@@ -345,6 +347,7 @@ interface StructuredTreeLine {
   depth: number;
   label: string;
   value?: string;
+  tone?: 'extension';
 }
 
 type AttachmentRenderModel =
@@ -358,34 +361,36 @@ type AttachmentSourceGroup = ProcessedAttachment;
 
 function humanizeKeyLabel(label: string): string {
   if (!label) return label;
-  if (label.toLowerCase() === 'extension') return 'Extensions';
+  if (label.toLowerCase() === 'extension') return 'Extension';
   const noIndex = label.replace(/^\[(\d+)\]$/, 'Item $1');
   const spaced = noIndex.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ');
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
-function summarizeExtensionUrl(url: string): string {
+function summarizeExtensionName(url: string): string {
   const raw = url.trim();
-  if (!raw) return 'Ext';
+  if (!raw) return 'Item';
   try {
     const parsed = new URL(raw);
     const pathParts = parsed.pathname.split('/').filter(Boolean);
     if (parsed.hostname.endsWith('hl7.org')) {
       const structureIdx = pathParts.findIndex((part) => part.toLowerCase() === 'structuredefinition');
       if (structureIdx >= 0 && structureIdx < pathParts.length - 1) {
-        return `Ext: ${pathParts.slice(structureIdx + 1).join('/')}`;
+        return pathParts.slice(structureIdx + 1).join('/');
       }
-      if (pathParts.length > 0) return `Ext: ${pathParts.join('/')}`;
-      return 'Ext: hl7';
+      if (pathParts.length > 0) return pathParts.join('/');
+      return parsed.hostname;
     }
-    const tail = pathParts.slice(-2).join('/');
-    if (tail) return `Ext: ${tail}`;
-    return `Ext: ${parsed.hostname}`;
+    const tail = pathParts[pathParts.length - 1];
+    return tail || parsed.hostname;
   } catch {
     const pieces = raw.split('/').filter(Boolean);
-    const tail = pieces[pieces.length - 1] || raw;
-    return `Ext: ${tail}`;
+    return pieces[pieces.length - 1] || raw;
   }
+}
+
+function summarizeExtensionUrl(url: string): string {
+  return `Ext: ${summarizeExtensionName(url)}`;
 }
 
 function summarizeArrayObjectEntry(value: Record<string, unknown>): string | null {
@@ -425,6 +430,34 @@ function renderRemainingTreeLines(value: unknown, covered: string[] = []): Struc
     }
 
     if (Array.isArray(node)) {
+      const isExtensionArray =
+        label.toLowerCase() === 'extension' &&
+        node.every((item) => item && typeof item === 'object' && !Array.isArray(item));
+      if (isExtensionArray) {
+        if (node.length === 0) {
+          lines.push({ kind: 'empty', depth, label: 'No extensions' });
+          return;
+        }
+        for (let i = 0; i < node.length; i += 1) {
+          const child = node[i] as Record<string, unknown>;
+          const url = normalizeString(child.url);
+          const title = url ? summarizeExtensionName(url) : `Item ${i + 1}`;
+          lines.push({ kind: 'group', depth, label: title, tone: 'extension' });
+          if (url) {
+            lines.push({ kind: 'leaf', depth: depth + 1, label: 'URL', value: url });
+          }
+          const childEntries = Object.entries(child).filter(([childKey]) => childKey !== 'url');
+          if (childEntries.length === 0) {
+            lines.push({ kind: 'empty', depth: depth + 1, label: 'No fields' });
+            continue;
+          }
+          for (const [childKey, grandChild] of childEntries) {
+            walk(grandChild, [...path, i, childKey], depth + 1, childKey);
+          }
+        }
+        return;
+      }
+
       lines.push({
         kind: 'group',
         depth,
@@ -951,7 +984,7 @@ const TreeLines = memo(function TreeLines({ lines, keyPrefix }: { lines: Structu
         {lines.map((line, lineIndex) => (
           <div
             key={`${keyPrefix}:line:${lineIndex}`}
-            className={`browser-tree-line ${line.kind}`}
+            className={`browser-tree-line ${line.kind}${line.tone ? ` ${line.tone}` : ''}`}
             style={treeIndentStyle(line.depth)}
           >
             {line.kind === 'leaf' ? (
@@ -961,7 +994,7 @@ const TreeLines = memo(function TreeLines({ lines, keyPrefix }: { lines: Structu
                 <span className="browser-tree-value">{line.value}</span>
               </>
             ) : (
-              <span className="browser-tree-group">{line.label}</span>
+              <span className={`browser-tree-group${line.tone === 'extension' ? ' browser-tree-group-ext' : ''}`}>{line.label}</span>
             )}
           </div>
         ))}
@@ -1401,7 +1434,8 @@ export default function DataBrowserPage() {
   };
 
   return (
-    <div className="page-top">
+    <div className="page-top with-records-nav">
+      <RecordsHeaderBar current="browser" />
       <div className="panel panel-wide">
         <div className="page-title">Data Browser</div>
         <div className="page-subtitle">
@@ -1574,12 +1608,6 @@ export default function DataBrowserPage() {
 
                     return (
                       <div className="browser-type-card" key={typeKey}>
-                        <div className="browser-type-head">
-                          <div className="browser-type-title">
-                            {resourceType} ({resources.length})
-                          </div>
-                        </div>
-
                         <ResourceRows
                           resources={resources}
                           typeKey={typeKey}

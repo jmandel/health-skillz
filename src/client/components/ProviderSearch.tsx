@@ -1,14 +1,16 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type RefObject } from 'react';
 
 interface Props {
   onSearch: (query: string) => void;
   disabled?: boolean;
   placeholder?: string;
+  inputRef?: RefObject<HTMLInputElement | null>;
+  autoFocus?: boolean;
 }
 
 const DEBOUNCE_MS = 400;
 
-export default function ProviderSearch({ onSearch, disabled, placeholder }: Props) {
+export default function ProviderSearch({ onSearch, disabled, placeholder, inputRef, autoFocus = true }: Props) {
   const [value, setValue] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -33,12 +35,13 @@ export default function ProviderSearch({ onSearch, disabled, placeholder }: Prop
     <div className="provider-search">
       <input
         type="text"
+        ref={inputRef}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         placeholder={placeholder || 'Search for your healthcare provider...'}
         disabled={disabled}
         className="provider-search-input"
-        autoFocus
+        autoFocus={autoFocus}
       />
       {value && (
         <button

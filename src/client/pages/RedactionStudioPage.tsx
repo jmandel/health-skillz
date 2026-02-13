@@ -17,6 +17,7 @@ import {
   type RedactionState,
 } from '../lib/redaction';
 import { useRecordsStore } from '../store/records';
+import RecordsHeaderBar from '../components/RecordsHeaderBar';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -172,7 +173,8 @@ export default function RedactionStudioPage() {
   }, [loaded, connections, activeProfile.id, activeProfile.terms]);
 
   return (
-    <div className="page-top">
+    <div className="page-top with-records-nav">
+      <RecordsHeaderBar current="redaction" />
       <div className="panel panel-wide">
         <div className="page-title">Privacy Redaction Studio</div>
         <div className="page-subtitle">

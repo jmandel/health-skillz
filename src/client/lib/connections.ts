@@ -21,6 +21,8 @@ export interface SavedConnection {
   patientId: string;
   /** Refresh token (rolling — MUST be updated after each use) */
   refreshToken: string;
+  /** Whether this connection can be refreshed without re-auth */
+  canRefresh?: boolean;
   /** Scopes that were granted */
   scopes: string;
   /** When the connection was first established */
@@ -170,6 +172,7 @@ export async function updateConnectionToken(
       }
 
       conn.refreshToken = newRefreshToken;
+      conn.canRefresh = true;
       conn.lastRefreshedAt = new Date().toISOString();
       conn.status = 'active';
       // Clear any previous error on successful refresh

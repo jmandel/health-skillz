@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { readFileSync, existsSync, readdirSync } from "fs";
-import { join } from "path";
+import { join, resolve, relative } from "path";
 
 // Import HTML for Bun's fullstack server - serves the React SPA
 import homepage from "./index.html";
@@ -18,6 +18,53 @@ if (process.env.BASE_URL) {
 
 const baseURL = config.server.baseURL.replace(/\/$/, "");
 const port = Number(process.env.PORT) || config.server.port || 8000;
+const isProduction = process.env.NODE_ENV === "production";
+const ENABLE_TEST_PROVIDER =
+  process.env.ENABLE_TEST_PROVIDER === "true" ||
+  process.env.ENABLE_TEST_PROVIDER === "1" ||
+  !isProduction;
+const ENABLE_RANDOM_BIN_ENDPOINT =
+  process.env.ENABLE_RANDOM_BIN_ENDPOINT === "true" ||
+  process.env.ENABLE_RANDOM_BIN_ENDPOINT === "1";
+const TEST_PROVIDER_SIZES_MB = [1, 10, 50, 100] as const;
+const TEST_PROVIDER_SIZE_SET = new Set<number>(TEST_PROVIDER_SIZES_MB);
+const RANDOM_BIN_MAX_MB = 100;
+const STATIC_BRANDS_ROOT = resolve("./static/brands");
+const UPLOAD_CHUNK_SIZE_BYTES =
+  Number.isFinite(Number(process.env.UPLOAD_CHUNK_SIZE_BYTES)) &&
+  Number(process.env.UPLOAD_CHUNK_SIZE_BYTES) > 0
+    ? Math.floor(Number(process.env.UPLOAD_CHUNK_SIZE_BYTES))
+    : 5 * 1024 * 1024;
+const MAX_CIPHERTEXT_BASE64_LENGTH = Math.ceil((UPLOAD_CHUNK_SIZE_BYTES * 2) / 3) * 4;
+const MAX_REQUEST_BODY_SIZE = Math.max(16 * 1024 * 1024, MAX_CIPHERTEXT_BASE64_LENGTH + 512 * 1024);
+const allowedCorsOrigin = new URL(baseURL).origin;
+const contentSecurityPolicy = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  `script-src 'self'${isProduction ? "" : " 'unsafe-eval'"}`,
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  `connect-src 'self' https: http:${isProduction ? "" : " ws: wss:"}`,
+].join("; ");
+const securityHeaders = {
+  "Content-Security-Policy": contentSecurityPolicy,
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+};
+
+function withSecurityHeaders(headers: HeadersInit = {}): Headers {
+  const merged = new Headers(headers);
+  for (const [key, value] of Object.entries(securityHeaders)) {
+    if (!merged.has(key)) merged.set(key, value);
+  }
+  return merged;
+}
 
 // Initialize SQLite database
 const db = new Database("./data/health-skillz.db", { create: true });
@@ -143,9 +190,11 @@ async function buildSkillZip(): Promise<Response> {
 
 // CORS headers
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  ...securityHeaders,
+  "Access-Control-Allow-Origin": allowedCorsOrigin,
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
+  "Vary": "Origin",
 };
 
 // Build vendor configs from config.brands
@@ -164,20 +213,21 @@ function getVendors() {
       redirectUrl: brand.redirectURL || `${baseURL}/connect/callback`,
     };
   }
-  
-  // Add synthetic test data provider (various sizes)
-  for (const size of [1, 10, 50, 100]) {
-    vendors[`__test_${size}mb__`] = {
-      clientId: 'test',
-      scopes: 'patient/*.rs',
-      brandFiles: [`/test/${size}mb/brand.json`],
-      tags: ['test'],
-      redirectUrl: `${baseURL}/connect/callback`,
-      testProvider: true,
-      testSizeMB: size,
-    };
+
+  if (ENABLE_TEST_PROVIDER) {
+    for (const size of TEST_PROVIDER_SIZES_MB) {
+      vendors[`__test_${size}mb__`] = {
+        clientId: 'test',
+        scopes: 'patient/*.rs',
+        brandFiles: [`/test/${size}mb/brand.json`],
+        tags: ['test'],
+        redirectUrl: `${baseURL}/connect/callback`,
+        testProvider: true,
+        testSizeMB: size,
+      };
+    }
   }
-  
+
   return vendors;
 }
 
@@ -185,7 +235,7 @@ function getVendors() {
 const server = Bun.serve({
   port,
   development: process.env.NODE_ENV !== 'production',
-  maxRequestBodySize: 1024 * 1024 * 1024, // 1GB (default is 128MB)
+  maxRequestBodySize: MAX_REQUEST_BODY_SIZE,
 
   routes: {
     // SPA routes - all handled by React Router
@@ -211,9 +261,17 @@ const server = Bun.serve({
   async fetch(req) {
     const url = new URL(req.url);
     const path = url.pathname;
+    const requestOrigin = req.headers.get("Origin");
+
+    if (path.startsWith("/api/") && requestOrigin && requestOrigin !== allowedCorsOrigin) {
+      return new Response("CORS origin not allowed", { status: 403 });
+    }
 
     // CORS preflight
     if (req.method === "OPTIONS") {
+      if (requestOrigin && requestOrigin !== allowedCorsOrigin) {
+        return new Response("CORS origin not allowed", { status: 403 });
+      }
       return new Response(null, { headers: corsHeaders });
     }
 
@@ -448,15 +506,47 @@ const server = Bun.serve({
         if (data.version !== 3) {
           return Response.json({ success: false, error: "unsupported_version", error_description: "Only version 3 (chunked) uploads are supported" }, { status: 400, headers: corsHeaders });
         }
-        if (!data.chunk || typeof data.chunk.index !== 'number' || !data.chunk.ephemeralPublicKey || !data.chunk.iv || !data.chunk.ciphertext) {
+        if (!data.chunk || typeof data.chunk !== "object") {
           return Response.json({ success: false, error: "missing_chunk_fields" }, { status: 400, headers: corsHeaders });
         }
+
+        const chunkIndex = data.chunk.index;
+        if (!Number.isInteger(chunkIndex) || chunkIndex < 0 || chunkIndex > 1_000_000) {
+          return Response.json({ success: false, error: "invalid_chunk_index" }, { status: 400, headers: corsHeaders });
+        }
+        if (!data.chunk.ephemeralPublicKey || typeof data.chunk.ephemeralPublicKey !== "object") {
+          return Response.json({ success: false, error: "missing_chunk_ephemeral_public_key" }, { status: 400, headers: corsHeaders });
+        }
+        if (typeof data.chunk.iv !== "string" || typeof data.chunk.ciphertext !== "string") {
+          return Response.json({ success: false, error: "missing_chunk_fields" }, { status: 400, headers: corsHeaders });
+        }
+        if (data.chunk.ciphertext.length === 0 || data.chunk.iv.length === 0) {
+          return Response.json({ success: false, error: "missing_chunk_fields" }, { status: 400, headers: corsHeaders });
+        }
+
+        if (data.chunk.ciphertext.length > MAX_CIPHERTEXT_BASE64_LENGTH) {
+          return Response.json(
+            { success: false, error: "chunk_too_large", maxCiphertextBase64Chars: MAX_CIPHERTEXT_BASE64_LENGTH },
+            { status: 400, headers: corsHeaders }
+          );
+        }
+        if (data.chunk.iv.length > 64) {
+          return Response.json({ success: false, error: "invalid_chunk_iv" }, { status: 400, headers: corsHeaders });
+        }
+
         if (!data.attemptId || typeof data.attemptId !== "string") {
           return Response.json({ success: false, error: "missing_attempt_id" }, { status: 400, headers: corsHeaders });
         }
         // totalChunks: -1 means "unknown, more coming", positive means final count
-        if (typeof data.totalChunks !== 'number' || (data.totalChunks < 1 && data.totalChunks !== -1)) {
+        if (
+          !Number.isInteger(data.totalChunks) ||
+          data.totalChunks > 1_000_000 ||
+          (data.totalChunks < 1 && data.totalChunks !== -1)
+        ) {
           return Response.json({ success: false, error: "invalid_total_chunks" }, { status: 400, headers: corsHeaders });
+        }
+        if (data.totalChunks > 0 && chunkIndex >= data.totalChunks) {
+          return Response.json({ success: false, error: "chunk_index_out_of_bounds" }, { status: 400, headers: corsHeaders });
         }
 
         const row = db.query("SELECT encrypted_data, status, finalize_token, simulate_error, attempt_meta FROM sessions WHERE id = ?").get(data.sessionId) as any;
@@ -523,7 +613,6 @@ const server = Bun.serve({
         }
         
         // Add chunk (avoid duplicates)
-        const chunkIndex = data.chunk.index;
         if (!providerEntry.chunks.find((c: any) => c.index === chunkIndex)) {
           providerEntry.chunks.push({
             index: chunkIndex,
@@ -725,12 +814,17 @@ const server = Bun.serve({
       }
     }
 
-    // Test provider: all routes under /test/{size}mb/
-    const testMatch = path.match(/^\/test\/(\d+)mb\/(.*)$/);
+    // Test provider routes (gated and fixed-size allowlisted)
+    const testMatch = ENABLE_TEST_PROVIDER
+      ? path.match(/^\/test\/(\d+)mb\/(.*)$/)
+      : null;
     if (testMatch) {
-      const sizeMB = parseInt(testMatch[1]);
+      const sizeMB = parseInt(testMatch[1], 10);
+      if (!TEST_PROVIDER_SIZE_SET.has(sizeMB)) {
+        return new Response("Test provider size not allowed", { status: 404, headers: corsHeaders });
+      }
       const subPath = testMatch[2];
-      
+
       // Brand file
       if (subPath === 'brand.json') {
         return Response.json({
@@ -750,7 +844,7 @@ const server = Bun.serve({
           processedTimestamp: new Date().toISOString(),
         }, { headers: corsHeaders });
       }
-      
+
       // SMART configuration
       if (subPath === 'fhir/.well-known/smart-configuration') {
         return Response.json({
@@ -759,7 +853,7 @@ const server = Bun.serve({
           capabilities: ['launch-standalone', 'client-public', 'permission-patient'],
         }, { headers: corsHeaders });
       }
-      
+
       // FHIR metadata
       if (subPath === 'fhir/metadata') {
         return Response.json({
@@ -782,20 +876,20 @@ const server = Bun.serve({
           }]
         }, { headers: corsHeaders });
       }
-      
+
       // OAuth authorize
       if (subPath === 'authorize') {
         const state = url.searchParams.get('state');
         const redirectUri = url.searchParams.get('redirect_uri');
-        
+
         if (!state || !redirectUri) {
           return new Response('Missing state or redirect_uri', { status: 400 });
         }
-        
+
         const code = `test_${sizeMB}mb_${Date.now()}`;
         return Response.redirect(`${redirectUri}?code=${code}&state=${state}`, 302);
       }
-      
+
       // OAuth token
       if (subPath === 'token' && req.method === 'POST') {
         return Response.json({
@@ -806,11 +900,11 @@ const server = Bun.serve({
           scope: 'patient/*.rs',
         }, { headers: corsHeaders });
       }
-      
+
       // FHIR resources
       if (subPath.startsWith('fhir/')) {
         const resourcePath = subPath.replace('fhir/', '');
-        
+
         // Patient resource
         if (resourcePath.startsWith('Patient/')) {
           return Response.json({
@@ -820,7 +914,7 @@ const server = Bun.serve({
             birthDate: '1990-01-01',
           }, { headers: corsHeaders });
         }
-        
+
         // Only generate big data for DocumentReference (single resource type)
         // Other resource types return empty to avoid multiplying the data
         if (!resourcePath.startsWith('DocumentReference')) {
@@ -831,13 +925,13 @@ const server = Bun.serve({
             entry: [],
           }, { headers: corsHeaders });
         }
-        
+
         // Generate synthetic bundle of requested size as DocumentReferences with inline data
         const targetBytes = sizeMB * 1024 * 1024;
         const entries: any[] = [];
         let currentSize = 100;
         let resourceId = 0;
-        
+
         while (currentSize < targetBytes) {
           const paddingSize = Math.min(50000, targetBytes - currentSize); // 50KB chunks
           const docRef = {
@@ -856,9 +950,9 @@ const server = Bun.serve({
           entries.push({ resource: docRef });
           currentSize += JSON.stringify(docRef).length + 50;
         }
-        
+
         console.log(`[TEST] Generated ${sizeMB}MB synthetic data: ${entries.length} DocumentReferences, ~${Math.round(currentSize/1024/1024)}MB`);
-        
+
         return Response.json({
           resourceType: 'Bundle',
           type: 'searchset',
@@ -870,13 +964,18 @@ const server = Bun.serve({
 
     // Health check
     if (path === "/health") {
-      return new Response("ok");
+      return new Response("ok", { headers: withSecurityHeaders() });
     }
 
-    // Debug: random binary data endpoint
-    const randomMatch = path.match(/^\/random\/(\d+(?:\.\d+)?)\.MB\.bin$/);
+    // Debug: random binary data endpoint (opt-in only)
+    const randomMatch = ENABLE_RANDOM_BIN_ENDPOINT
+      ? path.match(/^\/random\/(\d+(?:\.\d+)?)\.MB\.bin$/)
+      : null;
     if (randomMatch) {
       const sizeMB = parseFloat(randomMatch[1]);
+      if (!Number.isFinite(sizeMB) || sizeMB <= 0 || sizeMB > RANDOM_BIN_MAX_MB) {
+        return new Response("Requested size is out of bounds", { status: 400, headers: corsHeaders });
+      }
       const bytes = Math.floor(sizeMB * 1024 * 1024);
       const data = crypto.getRandomValues(new Uint8Array(bytes));
       return new Response(data, {
@@ -884,43 +983,51 @@ const server = Bun.serve({
       });
     }
 
-    // Static files with cache headers, ETag, and gzip compression
-    if (path.startsWith("/static/")) {
-      const filePath = "." + path;
-      if (existsSync(filePath)) {
-        const file = Bun.file(filePath);
-        const mtime = file.lastModified;
-        const etag = `"${mtime}-${file.size}"`;
+    // Static brand assets only: /static/brands/*
+    if (path.startsWith("/static/brands/")) {
+      const encodedRelativePath = path.slice("/static/brands/".length);
+      let decodedRelativePath = "";
+      try {
+        decodedRelativePath = decodeURIComponent(encodedRelativePath);
+      } catch {
+        return new Response("Not found", { status: 404 });
+      }
+      const staticFilePath = resolve(STATIC_BRANDS_ROOT, decodedRelativePath);
+      const rel = relative(STATIC_BRANDS_ROOT, staticFilePath);
+      if (!rel || rel.startsWith("..") || !existsSync(staticFilePath)) {
+        return new Response("Not found", { status: 404 });
+      }
 
-        // Conditional request: return 304 if ETag matches
-        const ifNoneMatch = req.headers.get("If-None-Match");
-        if (ifNoneMatch === etag) {
-          return new Response(null, { status: 304, headers: { "ETag": etag } });
-        }
+      const file = Bun.file(staticFilePath);
+      const mtime = file.lastModified;
+      const etag = `"${mtime}-${file.size}"`;
 
-        const acceptEncoding = req.headers.get("Accept-Encoding") || "";
-        
-        // Compress JSON files if client supports gzip
-        if (acceptEncoding.includes("gzip") && filePath.endsWith(".json")) {
-          const content = await file.arrayBuffer();
-          const compressed = Bun.gzipSync(new Uint8Array(content));
-          return new Response(compressed, {
-            headers: {
-              "Cache-Control": "public, max-age=86400",
-              "Content-Encoding": "gzip",
-              "Content-Type": "application/json",
-              "ETag": etag,
-            },
-          });
-        }
-        
-        return new Response(file, {
-          headers: {
+      const ifNoneMatch = req.headers.get("If-None-Match");
+      if (ifNoneMatch === etag) {
+        return new Response(null, { status: 304, headers: withSecurityHeaders({ "ETag": etag }) });
+      }
+
+      const acceptEncoding = req.headers.get("Accept-Encoding") || "";
+
+      if (acceptEncoding.includes("gzip") && staticFilePath.endsWith(".json")) {
+        const content = await file.arrayBuffer();
+        const compressed = Bun.gzipSync(new Uint8Array(content));
+        return new Response(compressed, {
+          headers: withSecurityHeaders({
             "Cache-Control": "public, max-age=86400",
+            "Content-Encoding": "gzip",
+            "Content-Type": "application/json",
             "ETag": etag,
-          },
+          }),
         });
       }
+
+      return new Response(file, {
+        headers: withSecurityHeaders({
+          "Cache-Control": "public, max-age=86400",
+          "ETag": etag,
+        }),
+      });
     }
 
     // JWKS endpoints — serve both keysets under .well-known/
@@ -949,7 +1056,7 @@ const server = Bun.serve({
       return Response.redirect(`${baseURL}/`, 302);
     }
 
-    return new Response("Not found", { status: 404 });
+    return new Response("Not found", { status: 404, headers: withSecurityHeaders() });
   },
 });
 

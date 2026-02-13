@@ -4,6 +4,7 @@ import { useRecordsStore } from '../store/records';
 import StatusMessage from '../components/StatusMessage';
 import FetchProgressWidget from '../components/FetchProgressWidget';
 import UploadProgressWidget from '../components/UploadProgressWidget';
+import RecordsHeaderBar from '../components/RecordsHeaderBar';
 import {
   countEnabledTerms,
   getAppliedProfile,
@@ -142,7 +143,8 @@ export default function RecordsPage() {
   }
 
   return (
-    <div className="page-top">
+    <div className={`page-top${!isSession ? ' with-records-nav' : ''}`}>
+      {!isSession && <RecordsHeaderBar current="records" />}
       <div className="panel panel-wide">
         <div className="page-title">
           {isSession ? 'Share records with AI' : 'My Health Records'}
@@ -176,6 +178,12 @@ export default function RecordsPage() {
           </div>
         )}
 
+        <div className="records-top-actions">
+          <button className={`btn ${total === 0 ? 'btn-primary' : 'btn-secondary'}`} onClick={handleAdd} disabled={busy}>
+            Connect to new provider
+          </button>
+        </div>
+
         {/* List */}
         {total > 0 && (
           <div className="conn-list">
@@ -187,6 +195,8 @@ export default function RecordsPage() {
               const checked = selected.has(c.id);
               const prog = cs?.refreshProgress;
               const isFailed = c.status === 'expired' || c.status === 'error';
+              const canRefresh = c.canRefresh !== false && Boolean(c.refreshToken?.trim());
+              const showReconnect = isFailed || !canRefresh;
 
               return (
                 <label key={c.id} className={`conn-card${checked ? ' selected' : ''}`}>
@@ -206,6 +216,7 @@ export default function RecordsPage() {
                     </div>
                     <div className="conn-meta">
                       {c.providerName} · {fmtSize(c.dataSizeBytes)} · {timeAgo(c.lastFetchedAt)}
+                      {!canRefresh ? ' · reconnect required for refresh' : ''}
                     </div>
                     {(refreshing || done) && prog && (
                       <FetchProgressWidget progress={prog} />
@@ -214,20 +225,7 @@ export default function RecordsPage() {
                       <div className="conn-error">{err || c.lastError}</div>
                     )}
                     <div className="conn-actions">
-                      {!isSession && (
-                        <button
-                          className="btn btn-ghost btn-sm"
-                          disabled={busy}
-                          onClick={e => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            nav(`/records/browser?source=${encodeURIComponent(c.id)}`);
-                          }}
-                        >
-                          Browse
-                        </button>
-                      )}
-                      {isFailed && !err ? (
+                      {showReconnect && !err ? (
                         <button
                           className="btn btn-secondary btn-sm"
                           disabled={refreshing || busy}
@@ -242,6 +240,19 @@ export default function RecordsPage() {
                           onClick={e => { e.preventDefault(); e.stopPropagation(); done ? dismissConnectionDone(c.id) : refreshConnection(c.id); }}
                         >
                           {refreshing ? 'Refreshing…' : done ? '✓ Updated' : 'Refresh'}
+                        </button>
+                      )}
+                      {!isSession && (
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          disabled={busy}
+                          onClick={e => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            nav(`/records/browser?source=${encodeURIComponent(c.id)}`);
+                          }}
+                        >
+                          Browse
                         </button>
                       )}
                       <button
@@ -321,9 +332,6 @@ export default function RecordsPage() {
 
         {/* Actions */}
         <div className="actions-row">
-          <button className={`btn ${total === 0 ? 'btn-primary' : 'btn-secondary'}`} onClick={handleAdd} disabled={busy}>
-            Add connection
-          </button>
           {isSession && !isFinalized && (
             <button
               className="btn btn-primary"

@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
+import RecordsHeaderBar from '../components/RecordsHeaderBar';
 
 const SKILL_URL = window.location.origin + '/skill.zip';
 
@@ -17,13 +18,18 @@ export default function HomePage() {
   }, []);
 
   return (
-    <div className="page-top">
+    <div className="page-top with-records-nav">
+      <RecordsHeaderBar current="about" />
       <div className="home-header">
         <h1>Health Skillz</h1>
         <p>Connect, collect, and securely share your health records with AI.</p>
+        <div className="home-quick-actions">
+          <Link to="/records" className="btn btn-primary">Go to My Records</Link>
+          <Link to="/records/add" className="btn btn-secondary">Connect to new provider</Link>
+        </div>
       </div>
 
-      <div className="container">
+      <div className="container home-container">
         {/* Getting Started */}
         <div className="card home-section">
           <h2>Get started</h2>
@@ -33,11 +39,6 @@ export default function HomePage() {
             <div className="step-text">
               <strong>Collect your records</strong> — Sign into your patient portal(s) and save
               health data to this browser.
-              <div style={{ marginTop: 8 }}>
-                <Link to="/records" className="btn btn-primary" style={{ padding: '6px 16px', fontSize: '0.85rem' }}>
-                  My Health Records
-                </Link>
-              </div>
             </div>
           </div>
 
@@ -64,7 +65,7 @@ export default function HomePage() {
                     Without this, the skill's scripts will fail with network errors.
                   </p>
                   <p style={{ marginTop: 6 }}>
-                    Alternatively, collect records first on the <Link to="/records">My Health Records</Link> page,
+                    Alternatively, collect records first on the <Link to="/records">My Records</Link> page,
                     then download a <strong>skill zip with your data bundled in</strong> from there.
                     Upload it via Settings → Profile → Claude Skills → Add Skill.
                     No network access needed for that path.
