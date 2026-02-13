@@ -134,17 +134,6 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Direct download */}
-        <div className="card home-section">
-          <h2>Direct download</h2>
-          <p className="step-text" style={{ marginBottom: 8 }}>
-            The skill zip contains instructions and scripts for AI agents.
-            No health data is included.
-          </p>
-          <a href="/skill.zip" className="btn btn-secondary" style={{ fontSize: '0.85rem', padding: '6px 14px' }} download>
-            Download skill (.zip)
-          </a>
-        </div>
       </div>
 
       {/* Footer */}
