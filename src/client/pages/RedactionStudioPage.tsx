@@ -348,7 +348,7 @@ export default function RedactionStudioPage() {
           </label>
         </div>
         <div className="redaction-note" style={{ marginTop: 8 }}>
-          Built-in detection for SSN, phone, email, and identifier-like strings is always active when a profile is applied.
+          Only terms in this profile are redacted.
         </div>
 
         <div className="actions-row">

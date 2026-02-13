@@ -2017,12 +2017,6 @@ function compileRegexes(profile: RedactionProfile): RegExp[] {
     }
   }
 
-  // Built-in detectors always apply whenever a profile is applied.
-  addRegex(/\b\d{3}[- ]?\d{2}[- ]?\d{4}\b/g);
-  addRegex(/\b(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]*\d{3}[\s.-]*\d{4}\b/g);
-  addRegex(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi);
-  addRegex(new RegExp(`\\b${IDENTIFIER_LABEL}\\s*[:#-]?\\s*[A-Z0-9][A-Z0-9-]{3,}\\b`, 'gi'));
-
   return regexes;
 }
 
