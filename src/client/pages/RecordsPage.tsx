@@ -225,7 +225,7 @@ export default function RecordsPage() {
                       <div className="conn-error">{err || c.lastError}</div>
                     )}
                     <div className="conn-actions">
-                      {showReconnect && !err ? (
+                      {showReconnect ? (
                         <button
                           className="btn btn-secondary btn-sm"
                           disabled={refreshing || busy}
