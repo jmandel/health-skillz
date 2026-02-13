@@ -10,11 +10,11 @@ const AI_MESSAGE = `Please download the Health Record Assistant skill from ${SKI
 export default function HomePage() {
   const [copied, setCopied] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
-  const [copyFlashToggle, setCopyFlashToggle] = useState(false);
+  const [copyFlashCount, setCopyFlashCount] = useState(0);
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(AI_MESSAGE).then(() => {
-      setCopyFlashToggle((prev) => !prev);
+      setCopyFlashCount((prev) => prev + 1);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
@@ -65,7 +65,11 @@ export default function HomePage() {
                   </p>
                   <div
                     className={`copy-box copy-box-quote ${
-                      copyFlashToggle ? 'copy-box-quote-flash-a' : 'copy-box-quote-flash-b'
+                      copyFlashCount === 0
+                        ? ''
+                        : copyFlashCount % 2 === 0
+                          ? 'copy-box-quote-flash-a'
+                          : 'copy-box-quote-flash-b'
                     }`}
                     onClick={handleCopy}
                   >
