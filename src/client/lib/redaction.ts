@@ -615,13 +615,23 @@ function buildNameGroupHintsFromParts(
   }
 
   if (textValue) {
-    const words = wordsOnly(textValue);
-    if (words.length >= 2) {
-      const first = words[0];
-      const last = words[words.length - 1];
+    const commaNameMatch = textValue.match(/^\s*([A-Za-z]{2,})\s*,\s*([A-Za-z]{1,})\s*$/);
+    if (commaNameMatch) {
+      const first = wordsOnly(commaNameMatch[2])[0];
+      const last = wordsOnly(commaNameMatch[1])[0];
       if (first.length >= 2 && last.length >= 3) {
         hints.add(`name:${last}:${first}`);
         hints.add(`name:${last}:${first[0]}`);
+      }
+    } else {
+      const words = wordsOnly(textValue);
+      if (words.length >= 2) {
+        const first = words[0];
+        const last = words[words.length - 1];
+        if (first.length >= 2 && last.length >= 3) {
+          hints.add(`name:${last}:${first}`);
+          hints.add(`name:${last}:${first[0]}`);
+        }
       }
     }
   }
@@ -1372,16 +1382,6 @@ function extractIdentityAliasKeys(value: string): string[] {
         const alias = buildNameAliasKey(first, last);
         if (alias) keys.add(alias);
       }
-    } else if (words.length === 1) {
-      const firstWord = words[0];
-      if (firstWord) {
-        const word = firstWord.toLowerCase();
-        if (word.length >= 4) {
-          keys.add(`handle:${word}`);
-        }
-        const alias = parseHandleAsNameAlias(word);
-        if (alias) keys.add(alias);
-      }
     }
   }
 
@@ -1425,6 +1425,26 @@ function mergeGroupsByIdentityAlias(groups: SuggestedTermGroup[]): SuggestedTerm
 
   const aliasBuckets = new Map<string, Set<string>>();
   const hintBuckets = new Map<string, Set<string>>();
+  const hasCompositeNameSignal = (group: SuggestedTermGroup): boolean => {
+    return group.variants.some((variant) => {
+      if (/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(variant)) return true;
+      if (/^[A-Za-z]{2,}\s*,\s*[A-Za-z]{1,}/.test(variant)) return true;
+      const words = variant.match(/[A-Za-z]+/g) || [];
+      return words.length >= 2;
+    });
+  };
+  const singleWordValue = (group: SuggestedTermGroup): string | null => {
+    const token = (group.primary.match(/[A-Za-z]+/g) || [])[0]?.toLowerCase() || '';
+    if (!token) return null;
+    const primaryWords = group.primary.match(/[A-Za-z]+/g) || [];
+    if (primaryWords.length !== 1) return null;
+    return token;
+  };
+  const parseNameHint = (hint: string): { last: string; first: string } | null => {
+    const match = hint.match(/^name:([a-z]+):([a-z]+)$/);
+    if (!match) return null;
+    return { last: match[1], first: match[2] };
+  };
   const shouldMergeOnHint = (hint: string): boolean => {
     if (
       hint.startsWith('name:') ||
@@ -1457,6 +1477,15 @@ function mergeGroupsByIdentityAlias(groups: SuggestedTermGroup[]): SuggestedTerm
 
     for (const hint of group.groupHints || []) {
       if (!shouldMergeOnHint(hint)) continue;
+      if (hint.startsWith('name:') && !hasCompositeNameSignal(group)) {
+        const parsed = parseNameHint(hint);
+        const word = singleWordValue(group);
+        if (!parsed || !word) continue;
+        // Avoid surname-only bridges (e.g., "Mandel") that collapse family members.
+        if (word === parsed.last) continue;
+        // Allow first-name tokens (e.g., "Charles") to rejoin their matching full-name group.
+        if (!parsed.first.startsWith(word[0])) continue;
+      }
       if (!hintBuckets.has(hint)) hintBuckets.set(hint, new Set<string>());
       hintBuckets.get(hint)!.add(group.key);
     }

@@ -158,6 +158,7 @@ export default function RedactionStudioPage() {
           return Boolean(key) && !existing.has(key);
         })
       );
+
       setSuggestions(filtered);
       setScanStatus(`Found ${filtered.length} suggestion group${filtered.length === 1 ? '' : 's'}.`);
     } catch (err) {

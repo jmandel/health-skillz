@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import RecordsHeaderBar from '../components/RecordsHeaderBar';
 
 const SKILL_URL = window.location.origin + '/skill.zip';
+const BASE_DOMAIN = window.location.hostname;
 
 const AI_MESSAGE = `Please download the Health Record Assistant skill from ${SKILL_URL} and then help me access my health records.`;
 
@@ -45,65 +46,83 @@ export default function HomePage() {
           <div className="step-row">
             <span className="step-badge">2</span>
             <div className="step-text">
-              <strong>Ask your AI for help</strong> — Copy this message and paste it into Claude, ChatGPT, or any AI assistant:
-              <div className="copy-box" onClick={handleCopy} style={{ marginTop: 8 }}>
-                {AI_MESSAGE}
+              <strong>Choose how to load data into AI</strong>
+              <div className="transfer-options">
+                <section className="transfer-card">
+                  <div className="transfer-title">Option A: Download and share directly</div>
+                  <p>
+                    Download a skill zip from <Link to="/records">My Records</Link> and share it with your AI tool,
+                    either by web upload or by passing a local file path in CLI-based workflows.
+                  </p>
+                </section>
+
+                <section className="transfer-card">
+                  <div className="transfer-title">Option B: AI loads over web</div>
+                  <p className="transfer-copy-intro">
+                    Paste this into your AI. This avoids manual transfer and can bypass some upload-size limits.
+                  </p>
+                  <div className="copy-box copy-box-quote" onClick={handleCopy}>
+                    {AI_MESSAGE}
+                  </div>
+                  <div className="copy-box-hint" onClick={handleCopy} style={{ cursor: 'pointer' }}>
+                    {copied ? '✓ Copied!' : 'Click to copy'}
+                  </div>
+                  <button className="help-toggle" style={{ marginTop: 10 }} onClick={() => setShowHelp(!showHelp)}>
+                    {showHelp ? '▾' : '▸'} Setup notes for specific AI tools
+                  </button>
+                  {showHelp && (
+                    <div className="help-detail">
+                      <div className="help-cards">
+                        <section className="help-card">
+                          <h4>Claude.ai (web app)</h4>
+                          <p>
+                            Open <a href="https://claude.ai/settings/capabilities" target="_blank" rel="noopener"><strong>Settings → Capabilities</strong></a>.
+                            Turn on <strong>Code execution and file creation</strong>, then turn on{' '}
+                            <strong>Allow network egress</strong>.
+                          </p>
+                          <p>
+                            For <strong>Domain allowlist</strong>, either choose <strong>All domains</strong>,
+                            or choose <strong>None</strong> and add <code>{BASE_DOMAIN}</code> under{' '}
+                            <strong>Additional allowed domains</strong>.
+                          </p>
+                        </section>
+
+                        <section className="help-card">
+                          <h4>Claude Code (CLI)</h4>
+                          <p>
+                            Network access is allowed by default. Paste the message and follow prompts.
+                            Requires <a href="https://bun.sh" target="_blank" rel="noopener">Bun</a>.
+                          </p>
+                        </section>
+
+                        <section className="help-card">
+                          <h4>Codex CLI</h4>
+                          <p>
+                            Same model as Claude Code: full shell + network.
+                            Paste the message or point it at <code>SKILL.md</code>. Requires Bun.
+                          </p>
+                        </section>
+
+                        <section className="help-card">
+                          <h4>Any other AI tool</h4>
+                          <p>
+                            Needs web access, code execution/local shell access, and the intro message above.
+                            Without web access, use Option A.
+                          </p>
+                        </section>
+                      </div>
+                    </div>
+                  )}
+                </section>
               </div>
-              <div className="copy-box-hint" onClick={handleCopy} style={{ cursor: 'pointer' }}>
-                {copied ? '✓ Copied!' : 'Click to copy'}
-              </div>
-              <button className="help-toggle" style={{ marginTop: 10 }} onClick={() => setShowHelp(!showHelp)}>
-                {showHelp ? '▾' : '▸'} Setup notes for specific AI tools
-              </button>
-              {showHelp && (
-                <div className="help-detail">
-                  <h4>Claude.ai (web app)</h4>
-                  <p>
-                    The sandbox blocks network access by default. Before pasting the message,
-                    go to <a href="https://claude.ai/settings/capabilities" target="_blank" rel="noopener"><strong>Settings → Capabilities</strong></a> and
-                    enable network access for the analysis tool.
-                    Without this, the skill's scripts will fail with network errors.
-                  </p>
-                  <p style={{ marginTop: 6 }}>
-                    Alternatively, collect records first on the <Link to="/records">My Records</Link> page,
-                    then download a <strong>skill zip with your data bundled in</strong> from there.
-                    Upload it via Settings → Profile → Claude Skills → Add Skill.
-                    No network access needed for that path.
-                  </p>
-
-                  <h4>Claude Code (CLI)</h4>
-                  <p>
-                    Network access is allowed by default. Just paste the message.
-                    Claude will download the skill, run the scripts, and walk you through it.
-                    Requires <a href="https://bun.sh" target="_blank" rel="noopener">Bun</a> installed locally.
-                  </p>
-
-                  <h4>Codex CLI</h4>
-                  <p>
-                    Same as Claude Code — full shell and network access.
-                    Paste the message or tell it to read <code>SKILL.md</code> from
-                    the unzipped skill folder. Requires Bun.
-                  </p>
-
-                  <h4>Any other AI tool</h4>
-                  <p>
-                    Three requirements: <strong>1)</strong> your agent can access the web,
-                    <strong>2)</strong> it can run code or access a local shell
-                    (to execute the skill's scripts), and <strong>3)</strong> you
-                    paste in the intro message above. If your AI doesn't have
-                    web access, collect records here and
-                    {' '}<strong>download a JSON export</strong> to upload directly.
-                  </p>
-                </div>
-              )}
             </div>
           </div>
 
           <div className="step-row">
             <span className="step-badge">3</span>
             <div className="step-text">
-              <strong>Share when asked</strong> — The AI will send you a link. Click it,
-              pick which records to share, and they're encrypted end-to-end before sending.
+              <strong>If you chose Option B</strong> — The AI will send you a link. Click it,
+              pick which records to share, and they’re encrypted end-to-end before sending.
             </div>
           </div>
         </div>

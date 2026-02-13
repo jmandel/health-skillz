@@ -44,7 +44,7 @@ const contentSecurityPolicy = [
   "object-src 'none'",
   "frame-ancestors 'none'",
   "form-action 'self'",
-  `script-src 'self'${isProduction ? "" : " 'unsafe-eval'"}`,
+  `script-src 'self'${isProduction ? "" : " 'unsafe-eval' 'unsafe-inline'"}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
@@ -64,6 +64,14 @@ function withSecurityHeaders(headers: HeadersInit = {}): Headers {
     if (!merged.has(key)) merged.set(key, value);
   }
   return merged;
+}
+
+function serveSpa(): Response {
+  return new Response(Bun.file(homepage.index), {
+    headers: withSecurityHeaders({
+      "Content-Type": "text/html; charset=utf-8",
+    }),
+  });
 }
 
 // Initialize SQLite database
@@ -239,22 +247,22 @@ const server = Bun.serve({
 
   routes: {
     // SPA routes - all handled by React Router
-    "/": homepage,
+    "/": serveSpa,
     // Records hub
-    "/records": homepage,
-    "/records/": homepage,
-    "/records/add": homepage,
-    "/records/add/": homepage,
-    "/records/callback": homepage,
-    "/records/callback/": homepage,
-    "/records/redaction": homepage,
-    "/records/redaction/": homepage,
-    "/records/browser": homepage,
-    "/records/browser/": homepage,
+    "/records": serveSpa,
+    "/records/": serveSpa,
+    "/records/add": serveSpa,
+    "/records/add/": serveSpa,
+    "/records/callback": serveSpa,
+    "/records/callback/": serveSpa,
+    "/records/redaction": serveSpa,
+    "/records/redaction/": serveSpa,
+    "/records/browser": serveSpa,
+    "/records/browser/": serveSpa,
     // AI session
-    "/connect/:sessionId": homepage,
+    "/connect/:sessionId": serveSpa,
     // OAuth callback (shared)
-    "/connect/callback": homepage,
+    "/connect/callback": serveSpa,
 
   },
 
