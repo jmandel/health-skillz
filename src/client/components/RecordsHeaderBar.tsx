@@ -23,7 +23,7 @@ export default function RecordsHeaderBar({ current }: { current: RecordsSection 
     <div className="records-nav-wrap">
       <div className="records-nav" role="navigation" aria-label="Records section navigation">
         <div className="records-nav-main">
-          <div className="records-nav-brand">Records Hub</div>
+          <div className="records-nav-brand">Health Skillz</div>
           <button
             type="button"
             className="records-nav-toggle"

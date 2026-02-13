@@ -1462,6 +1462,33 @@ function mergeGroupsByIdentityAlias(groups: SuggestedTermGroup[]): SuggestedTerm
     }
     return false;
   };
+  const extractNameWords = (value: string): string[] => {
+    return (value.match(/[A-Za-z]+/g) || [])
+      .map((word) => word.toLowerCase())
+      .filter((word) => word.length >= 2);
+  };
+  const compositeWordsByNameHint = new Map<string, Set<string>>();
+
+  for (const group of groups) {
+    if (!hasCompositeNameSignal(group)) continue;
+    const words = new Set<string>();
+    for (const variant of group.variants) {
+      for (const word of extractNameWords(variant)) {
+        words.add(word);
+      }
+    }
+    if (words.size === 0) continue;
+    for (const hint of group.groupHints || []) {
+      if (!hint.startsWith('name:')) continue;
+      if (!compositeWordsByNameHint.has(hint)) {
+        compositeWordsByNameHint.set(hint, new Set<string>());
+      }
+      const bucket = compositeWordsByNameHint.get(hint)!;
+      for (const word of words) {
+        bucket.add(word);
+      }
+    }
+  }
 
   for (const group of groups) {
     const aliases = new Set<string>();
@@ -1483,8 +1510,10 @@ function mergeGroupsByIdentityAlias(groups: SuggestedTermGroup[]): SuggestedTerm
         if (!parsed || !word) continue;
         // Avoid surname-only bridges (e.g., "Mandel") that collapse family members.
         if (word === parsed.last) continue;
-        // Allow first-name tokens (e.g., "Charles") to rejoin their matching full-name group.
-        if (!parsed.first.startsWith(word[0])) continue;
+        // Allow first-name and middle-name tokens to rejoin matching full-name groups.
+        const compositeWords = compositeWordsByNameHint.get(hint);
+        const appearsInComposite = Boolean(compositeWords && compositeWords.has(word));
+        if (!appearsInComposite && !parsed.first.startsWith(word[0])) continue;
       }
       if (!hintBuckets.has(hint)) hintBuckets.set(hint, new Set<string>());
       hintBuckets.get(hint)!.add(group.key);
