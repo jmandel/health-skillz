@@ -66,14 +66,6 @@ function withSecurityHeaders(headers: HeadersInit = {}): Headers {
   return merged;
 }
 
-function serveSpa(): Response {
-  return new Response(Bun.file(homepage.index), {
-    headers: withSecurityHeaders({
-      "Content-Type": "text/html; charset=utf-8",
-    }),
-  });
-}
-
 // Initialize SQLite database
 const db = new Database("./data/health-skillz.db", { create: true });
 db.run(`
@@ -247,22 +239,22 @@ const server = Bun.serve({
 
   routes: {
     // SPA routes - all handled by React Router
-    "/": serveSpa,
+    "/": homepage,
     // Records hub
-    "/records": serveSpa,
-    "/records/": serveSpa,
-    "/records/add": serveSpa,
-    "/records/add/": serveSpa,
-    "/records/callback": serveSpa,
-    "/records/callback/": serveSpa,
-    "/records/redaction": serveSpa,
-    "/records/redaction/": serveSpa,
-    "/records/browser": serveSpa,
-    "/records/browser/": serveSpa,
+    "/records": homepage,
+    "/records/": homepage,
+    "/records/add": homepage,
+    "/records/add/": homepage,
+    "/records/callback": homepage,
+    "/records/callback/": homepage,
+    "/records/redaction": homepage,
+    "/records/redaction/": homepage,
+    "/records/browser": homepage,
+    "/records/browser/": homepage,
     // AI session
-    "/connect/:sessionId": serveSpa,
+    "/connect/:sessionId": homepage,
     // OAuth callback (shared)
-    "/connect/callback": serveSpa,
+    "/connect/callback": homepage,
 
   },
 
