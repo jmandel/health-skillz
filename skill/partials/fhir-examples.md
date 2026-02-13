@@ -82,68 +82,53 @@ const conditions = data.fhir.Condition
 
 ### Understanding Attachments
 
-The `attachments` array is the **canonical location** for all attachment content. It contains clinical documents extracted from `DocumentReference` and `DiagnosticReport` resources. Each attachment has `contentPlaintext` (extracted text) and `contentBase64` (raw encoded content).
+The `attachments` array is the **canonical location** for all attachment content. It contains source-grouped documents extracted from `DocumentReference` and `DiagnosticReport`.
 
-**Note:** Inline `attachment.data` is stripped from FHIR resources to avoid duplication. The FHIR resources retain metadata (`attachment.url`, `contentType`, etc.) but the actual content is only in `attachments[]`. To find content for a DocumentReference, look up by `resourceId` in the attachments array.
+Each entry has:
+- `source.resourceId` and `source.resourceType` identifying the parent resource
+- `originals[]`, where `originals[index]` maps directly to the source `content[index]` / `presentedForm[index]`
+- `bestEffortFrom` (index into `originals[]`)
+- `bestEffortPlaintext` (preferred plaintext rendition for LLM use)
+
+**Note:** Inline `attachment.data` is stripped from FHIR resources to avoid duplication. The FHIR resources retain metadata (`attachment.url`, `contentType`, etc.) but the actual content is only in `attachments[]`.
 
 **Critical: attachments can easily overwhelm your context window.** A typical patient has 50-200 attachments totaling 300K+ characters. Loading them all at once will consume most of your context. Always use the index-first approach below.
 
 #### Attachment content types and quality
 
-Epic typically produces multiple formats per document:
-- **`text/html`** — Best quality plaintext. Clean, well-structured. Always prefer this.
-- **`text/rtf`** — Same content as HTML but plaintext extraction is worse (formatting artifacts like `SEGOE UI;`, control characters). **Skip RTF when HTML exists for the same `resourceId`.**
-- **`application/xml`** — CDA encounter summaries. Large and noisy (tags stripped but words run together). These often duplicate data already in structured `Observation`/`Condition` resources.
-
-#### Deduplication
-
-Most DocumentReferences produce 2 attachments (HTML + RTF pair) sharing the same `resourceId`. Always deduplicate by `resourceId`, preferring `text/html`:
-
-```javascript
-// Deduplicate: keep only the best attachment per resourceId
-function deduplicateAttachments(attachments) {
-  const byResourceId = new Map();
-  for (const att of attachments) {
-    const existing = byResourceId.get(att.resourceId);
-    if (!existing || contentTypePriority(att.contentType) > contentTypePriority(existing.contentType)) {
-      byResourceId.set(att.resourceId, att);
-    }
-  }
-  return [...byResourceId.values()];
-}
-
-function contentTypePriority(ct) {
-  if (ct === 'text/html') return 3;
-  if (ct === 'application/xml') return 2;
-  if (ct === 'text/rtf') return 1;
-  return 0;
-}
-```
+Most document sources have multiple renditions (often HTML + RTF). Use `bestEffortPlaintext` by default.
 
 ### Working with Attachments: Index-First Approach
 
 **Step 1: Build an index (always do this first)**
 
 ```javascript
-// Build a compact index of all unique attachments
-const uniqueAtts = deduplicateAttachments(data.attachments || []);
-const index = uniqueAtts.map(att => {
+const sources = data.attachments || [];
+const index = sources.map(src => {
+  const best = (
+    typeof src.bestEffortFrom === 'number' &&
+    src.bestEffortFrom >= 0 &&
+    src.bestEffortFrom < (src.originals?.length || 0)
+  ) ? src.originals[src.bestEffortFrom] : null;
+
   // Find the parent DocumentReference for metadata
-  const docRef = data.fhir.DocumentReference?.find(d => d.id === att.resourceId);
+  const docRef = data.fhir.DocumentReference?.find(d => d.id === src.source?.resourceId);
   return {
-    resourceId: att.resourceId,
-    contentType: att.contentType,
-    chars: att.contentPlaintext?.length || 0,
+    resourceId: src.source?.resourceId,
+    resourceType: src.source?.resourceType,
+    bestIndex: src.bestEffortFrom,
+    contentType: best?.contentType || 'unknown',
+    chars: src.bestEffortPlaintext?.length || 0,
     date: docRef?.date || docRef?.context?.period?.start,
     type: docRef?.type?.coding?.[0]?.display || 'Unknown',
     category: docRef?.category?.[0]?.coding?.[0]?.display,
-    preview: (att.contentPlaintext || '').substring(0, 100).replace(/\s+/g, ' ')
+    preview: (src.bestEffortPlaintext || '').substring(0, 100).replace(/\s+/g, ' ')
   };
 });
 
 // Sort by date descending, print summary
 index.sort((a, b) => new Date(b.date) - new Date(a.date));
-console.log(`${index.length} unique documents, ${index.reduce((s, a) => s + a.chars, 0)} total chars`);
+console.log(`${index.length} document sources, ${index.reduce((s, a) => s + a.chars, 0)} total chars`);
 index.forEach(a => console.log(`  ${a.date?.substring(0,10)} | ${a.type} | ${a.chars} chars | ${a.preview.substring(0,60)}...`));
 ```
 
@@ -153,18 +138,18 @@ This index is ~1K tokens — trivial. Use it to decide what to read.
 
 ```javascript
 function searchNotes(searchTerm) {
-  const uniqueAtts = deduplicateAttachments(data.attachments || []);
+  const sources = data.attachments || [];
   const term = searchTerm.toLowerCase();
-  return uniqueAtts.filter(att =>
-    att.contentPlaintext?.toLowerCase().includes(term)
-  ).map(att => {
-    const text = att.contentPlaintext || '';
+  return sources.filter(src =>
+    src.bestEffortPlaintext?.toLowerCase().includes(term)
+  ).map(src => {
+    const text = src.bestEffortPlaintext || '';
     const idx = text.toLowerCase().indexOf(term);
     const start = Math.max(0, idx - 200);
     const end = Math.min(text.length, idx + searchTerm.length + 200);
-    const docRef = data.fhir.DocumentReference?.find(d => d.id === att.resourceId);
+    const docRef = data.fhir.DocumentReference?.find(d => d.id === src.source?.resourceId);
     return {
-      resourceId: att.resourceId,
+      resourceId: src.source?.resourceId,
       date: docRef?.date,
       type: docRef?.type?.coding?.[0]?.display,
       chars: text.length,
@@ -181,10 +166,8 @@ This returns ~400-char context windows per match — enough to evaluate relevanc
 ```javascript
 // Only after identifying which documents matter from search/index
 function readFullNote(resourceId) {
-  // Find best-quality attachment for this resource
-  const candidates = (data.attachments || []).filter(a => a.resourceId === resourceId);
-  candidates.sort((a, b) => contentTypePriority(b.contentType) - contentTypePriority(a.contentType));
-  return candidates[0]?.contentPlaintext || null;
+  const source = (data.attachments || []).find(s => s.source?.resourceId === resourceId);
+  return source?.bestEffortPlaintext || null;
 }
 ```
 
@@ -195,10 +178,10 @@ Patient records vary enormously in size — from a single encounter with a few r
 ```javascript
 // Quick size check — run this first
 const resourceCounts = Object.entries(data.fhir).map(([type, arr]) => [type, arr?.length || 0]).filter(([,n]) => n > 0);
-const uniqueAtts = deduplicateAttachments(data.attachments || []);
-const totalAttChars = uniqueAtts.reduce((s, a) => s + (a.contentPlaintext?.length || 0), 0);
+const sources = data.attachments || [];
+const totalAttChars = sources.reduce((s, src) => s + (src.bestEffortPlaintext?.length || 0), 0);
 console.log('Resources:', Object.fromEntries(resourceCounts));
-console.log(`Attachments: ${uniqueAtts.length} unique, ${totalAttChars} total chars`);
+console.log(`Attachments: ${sources.length} sources, ${totalAttChars} total chars`);
 ```
 
 - **Small records** (< 50K chars of attachments): You can likely read all notes in a single pass

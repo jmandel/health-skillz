@@ -4,6 +4,8 @@ import RecordsPage from './pages/RecordsPage';
 import ConnectPage from './pages/ConnectPage';
 import ProviderSelectPage from './pages/ProviderSelectPage';
 import OAuthCallbackPage from './pages/OAuthCallbackPage';
+import RedactionStudioPage from './pages/RedactionStudioPage';
+import DataBrowserPage from './pages/DataBrowserPage';
 import './index.css';
 
 export default function App() {
@@ -16,6 +18,8 @@ export default function App() {
         <Route path="/records" element={<RecordsPage />} />
         <Route path="/records/add" element={<ProviderSelectPage />} />
         <Route path="/records/callback" element={<OAuthCallbackPage />} />
+        <Route path="/records/redaction" element={<RedactionStudioPage />} />
+        <Route path="/records/browser" element={<DataBrowserPage />} />
 
         {/* AI session flow */}
         <Route path="/connect/:sessionId" element={<ConnectPage />} />

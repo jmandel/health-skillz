@@ -192,8 +192,15 @@ const server = Bun.serve({
     "/": homepage,
     // Records hub
     "/records": homepage,
+    "/records/": homepage,
     "/records/add": homepage,
+    "/records/add/": homepage,
     "/records/callback": homepage,
+    "/records/callback/": homepage,
+    "/records/redaction": homepage,
+    "/records/redaction/": homepage,
+    "/records/browser": homepage,
+    "/records/browser/": homepage,
     // AI session
     "/connect/:sessionId": homepage,
     // OAuth callback (shared)

@@ -3,6 +3,7 @@
 import JSZip from 'jszip';
 import { getSkillTemplate } from './api';
 import { getFhirData, type SavedConnection } from './connections';
+import { redactPayloadWithProfile, type RedactionProfile } from './redaction';
 
 /**
  * Build a skill zip containing the local SKILL.md, references, and
@@ -10,6 +11,7 @@ import { getFhirData, type SavedConnection } from './connections';
  */
 export async function buildLocalSkillZip(
   connections: SavedConnection[],
+  redactionProfile?: RedactionProfile | null,
 ): Promise<Blob> {
   const template = await getSkillTemplate();
   const zip = new JSZip();
@@ -39,6 +41,9 @@ export async function buildLocalSkillZip(
       attachments: cached.attachments,
       fetchedAt: cached.fetchedAt,
     };
+    const payloadToWrite = redactionProfile
+      ? redactPayloadWithProfile(payload, redactionProfile)
+      : payload;
 
     // Sanitise provider name into a safe filename, deduplicating collisions
     let safeName = conn.providerName
@@ -51,7 +56,7 @@ export async function buildLocalSkillZip(
       safeName = `${safeName}-${n}`;
     }
     usedNames.add(safeName);
-    dataDir.file(`${safeName}.json`, JSON.stringify(payload, null, 2));
+    dataDir.file(`${safeName}.json`, JSON.stringify(payloadToWrite, null, 2));
   }
 
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });

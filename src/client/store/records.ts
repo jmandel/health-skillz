@@ -33,6 +33,10 @@ import {
 import { buildLocalSkillZip } from '../lib/skill-builder';
 import type { UploadProgress, ProviderUploadState } from '../components/UploadProgressWidget';
 import {
+  getRedactionContextForAction,
+  redactPayloadWithProfile,
+} from '../lib/redaction';
+import {
   uploadEncryptedChunk,
   finalizeSession as finalizeSess,
   getSessionInfo,
@@ -226,6 +230,40 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
         statusMessage: '',
         loaded: true,
       });
+
+      // Backfill lightweight type/attachment summaries for older cached records
+      // so Data Browser can show content-type pills without waiting for full parse.
+      void (async () => {
+        const targets = conns.filter((conn) =>
+          (conn.dataSizeBytes || 0) > 0 &&
+          (!conn.cachedResourceTypeCounts || typeof conn.cachedAttachmentCount !== 'number'),
+        );
+        for (const conn of targets) {
+          try {
+            const cached = await getFhirData(conn.id);
+            if (!cached) continue;
+            const counts: Record<string, number> = {};
+            for (const [resourceType, resources] of Object.entries(cached.fhir || {})) {
+              if (!Array.isArray(resources) || resources.length === 0) continue;
+              counts[resourceType] = resources.length;
+            }
+            const attachmentCount = Array.isArray(cached.attachments) ? cached.attachments.length : 0;
+            const updated = {
+              ...conn,
+              cachedResourceTypeCounts: counts,
+              cachedAttachmentCount: attachmentCount,
+            };
+            await saveConnection(updated);
+            set((state) => ({
+              connections: state.connections.map((existing) =>
+                existing.id === conn.id ? updated : existing,
+              ),
+            }));
+          } catch {
+            // Ignore backfill failures; this is a non-critical perf optimization.
+          }
+        }
+      })();
     } catch (err) {
       set({
         status: 'error',
@@ -591,6 +629,7 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
 
     const selectedConns = connections.filter(c => selected.has(c.id));
     if (selectedConns.length === 0) return;
+    const redactionForSend = getRedactionContextForAction('send');
 
     // Show upload UI immediately so the browser doesn't feel hung while we prep.
     const initialProviderStates: ProviderUploadState[] = selectedConns.map((conn) => ({
@@ -632,13 +671,16 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
         if (!cached) {
           throw new Error(`Selected record for ${conn.providerName} is missing local data. Refresh and try again.`);
         }
-        const data = {
+        const payload = {
           name: conn.providerName,
           fhirBaseUrl: conn.fhirBaseUrl,
           connectedAt: cached.fetchedAt,
           fhir: cached.fhir,
           attachments: cached.attachments,
         };
+        const data = redactionForSend.shouldApply && redactionForSend.profile
+          ? redactPayloadWithProfile(payload, redactionForSend.profile)
+          : payload;
         const providerKey = await deriveProviderKey(session.sessionId, conn.id);
         const estimatedInputBytes = Math.max(1, conn.dataSizeBytes || 1);
         workItems.push({ conn, data, providerKey });
@@ -787,19 +829,25 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
     const { connections, selected } = get();
     const selectedConns = connections.filter(c => selected.has(c.id));
     if (selectedConns.length === 0) return;
+    const redactionForDownload = getRedactionContextForAction('downloadJson');
 
     const allData: any[] = [];
     for (const conn of selectedConns) {
       const cached = await getFhirData(conn.id);
       if (cached) {
-        allData.push({
+        const payload = {
           provider: conn.providerName,
           patientDisplayName: conn.patientDisplayName || conn.patientId,
           patientBirthDate: conn.patientBirthDate || null,
           fhir: cached.fhir,
           attachments: cached.attachments,
           fetchedAt: cached.fetchedAt,
-        });
+        };
+        allData.push(
+          redactionForDownload.shouldApply && redactionForDownload.profile
+            ? redactPayloadWithProfile(payload, redactionForDownload.profile)
+            : payload
+        );
       }
     }
     const blob = new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' });
@@ -820,11 +868,15 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
     const { connections, selected } = get();
     const selectedConns = connections.filter(c => selected.has(c.id));
     if (selectedConns.length === 0) return;
+    const redactionForSkill = getRedactionContextForAction('downloadSkill');
 
     set({ status: 'sending', statusMessage: 'Building skill zip…', error: null });
 
     try {
-      const blob = await buildLocalSkillZip(selectedConns);
+      const blob = await buildLocalSkillZip(
+        selectedConns,
+        redactionForSkill.shouldApply ? redactionForSkill.profile : null
+      );
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

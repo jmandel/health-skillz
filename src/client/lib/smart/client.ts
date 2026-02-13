@@ -358,7 +358,7 @@ export async function fetchPatientData(
     );
 
     // Strip inline attachment.data from FHIR resources - content is now in result.attachments
-    // This avoids data duplication. The attachments array is the canonical location.
+    // (grouped by source resource). This avoids data duplication.
     for (const resource of attachmentSources) {
       if (resource.resourceType === 'DocumentReference') {
         for (const content of resource.content || []) {

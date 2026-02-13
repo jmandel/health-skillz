@@ -306,23 +306,31 @@ interface ProviderData {
     Location?: Location[];
     Medication?: Medication[];
   };
-  attachments: Attachment[];
+  attachments: AttachmentSource[];
 }
 
-interface Attachment {
-  resourceType: string;       // "DocumentReference" or "DiagnosticReport"
-  resourceId: string;         // FHIR resource ID
-  contentIndex: number;       // Index in content array (DocRef may have multiple)
-  contentType: string;        // MIME type
-  contentPlaintext: string | null;  // Extracted text (for text formats)
-  contentBase64: string | null;     // Raw content, base64 encoded
+interface AttachmentSource {
+  source: {
+    resourceType: string;     // "DocumentReference" or "DiagnosticReport"
+    resourceId: string;       // FHIR resource ID
+  };
+  bestEffortFrom: number | null;    // Index into originals[]
+  bestEffortPlaintext: string | null;
+  originals: AttachmentOriginal[];  // originals[contentIndex] aligns to source content index
+}
+
+interface AttachmentOriginal {
+  contentIndex: number;
+  contentType: string | null;
+  contentPlaintext: string | null;
+  contentBase64: string | null;
 }
 ```
 
 **Design rationale:**
 - Each provider is a separate object (preserves data provenance)
 - FHIR resources grouped by type for easy querying
-- **Attachments are canonical**: Inline `attachment.data` is stripped from FHIR resources to avoid duplication. All attachment content lives in `attachments[]` array, referenced by `resourceId`
+- **Attachments are canonical**: Inline `attachment.data` is stripped from FHIR resources to avoid duplication. All attachment content lives in `attachments[]`, grouped by source resource (`source.resourceType` + `source.resourceId`)
 - Attachments pre-extracted for text search
 - Referenced resources (Practitioner, Organization) fetched and included
 
@@ -357,9 +365,9 @@ const a1c = data.fhir.Observation
   .sort((a,b) => new Date(b.effectiveDateTime) - new Date(a.effectiveDateTime))
   .map(o => ({date: o.effectiveDateTime, value: o.valueQuantity?.value}));
 
-// Search notes for diabetes discussions  
+// Search notes for diabetes discussions
 const notes = data.attachments
-  .filter(a => a.contentPlaintext?.toLowerCase().includes('diabetes'));
+  .filter(a => a.bestEffortPlaintext?.toLowerCase().includes('diabetes'));
 ```
 
 ## Security Considerations

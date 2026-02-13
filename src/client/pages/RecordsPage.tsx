@@ -4,6 +4,13 @@ import { useRecordsStore } from '../store/records';
 import StatusMessage from '../components/StatusMessage';
 import FetchProgressWidget from '../components/FetchProgressWidget';
 import UploadProgressWidget from '../components/UploadProgressWidget';
+import {
+  countEnabledTerms,
+  getAppliedProfile,
+  loadRedactionState,
+  saveRedactionState,
+  type RedactionState,
+} from '../lib/redaction';
 
 function InfoTip({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
@@ -66,8 +73,10 @@ export default function RecordsPage() {
   const removeConnection = useRecordsStore((s) => s.removeConnection);
   const clearError = useRecordsStore((s) => s.clearError);
   const sendToAI = useRecordsStore((s) => s.sendToAI);
+  const downloadJson = useRecordsStore((s) => s.downloadJson);
   const uploadProgress = useRecordsStore((s) => s.uploadProgress);
   const downloadSkillZip = useRecordsStore((s) => s.downloadSkillZip);
+  const [redactionState, setRedactionState] = useState<RedactionState>(() => loadRedactionState());
 
   const dismissConnectionDone = useRecordsStore((s) => s.dismissConnectionDone);
 
@@ -78,6 +87,10 @@ export default function RecordsPage() {
   const total = connections.length;
   const allSel = total > 0 && selCount === total;
   const noneSel = selCount === 0;
+  const appliedRedactionProfile = getAppliedProfile(redactionState);
+  const enabledTermCount = countEnabledTerms(appliedRedactionProfile);
+  const applicableRedactionProfiles = redactionState.profiles.filter((profile) => profile.terms.length > 0);
+  const appliedProfileSelectValue = appliedRedactionProfile?.id || '';
 
   useEffect(() => { if (!loaded) loadConnections(); }, []);
 
@@ -89,6 +102,11 @@ export default function RecordsPage() {
     if (!confirm('Remove this connection? You\u2019ll need to re-authorize.')) return;
     await removeConnection(id);
   }, [removeConnection]);
+
+  const commitRedactionState = useCallback((next: RedactionState) => {
+    saveRedactionState(next);
+    setRedactionState(loadRedactionState());
+  }, []);
 
   if (!loaded) {
     return (
@@ -245,6 +263,65 @@ export default function RecordsPage() {
           />
         )}
 
+        {total > 0 && (
+          <div className="redaction-card">
+            <div className="redaction-head">
+              <div>
+                <div className="section-title" style={{ marginBottom: 2 }}>Redaction</div>
+                <div className="redaction-note">Original records are never modified.</div>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={() => nav('/records/redaction')}>
+                Manage
+              </button>
+            </div>
+            <div className="redaction-row">
+              <label className="redaction-label" htmlFor="redaction-profile-select">Apply</label>
+              <select
+                id="redaction-profile-select"
+                className="redaction-select"
+                value={appliedProfileSelectValue}
+                onChange={(e) => {
+                  commitRedactionState({
+                    ...redactionState,
+                    settings: {
+                      ...redactionState.settings,
+                      appliedProfileId: e.target.value || null,
+                    },
+                  });
+                }}
+              >
+                <option value="">No redaction</option>
+                {applicableRedactionProfiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>
+                    {profile.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="redaction-note">
+              {appliedRedactionProfile
+                ? `Applying "${appliedRedactionProfile.name}" · Active terms: ${enabledTermCount} · Strip attachment base64: ${appliedRedactionProfile.stripAttachmentBase64 ? 'On' : 'Off'}`
+                : 'No redaction will be applied to send or downloads.'}
+            </div>
+          </div>
+        )}
+
+        {total > 0 && (
+          <div className="redaction-card">
+            <div className="redaction-head">
+              <div>
+                <div className="section-title" style={{ marginBottom: 2 }}>Data Browser</div>
+                <div className="redaction-note">
+                  Browse structured FHIR resources and one best attachment rendition per source document across selected connections.
+                </div>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={() => nav('/records/browser')}>
+                Open
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Actions */}
         <div className="actions-row">
           <button className={`btn ${total === 0 ? 'btn-primary' : 'btn-secondary'}`} onClick={handleAdd} disabled={busy}>
@@ -261,6 +338,15 @@ export default function RecordsPage() {
                 : `Send ${selCount} record${selCount !== 1 ? 's' : ''} to AI`}
             </button>
           )}
+          <span className="actions-row-tip">
+            <button
+              className="btn btn-ghost"
+              disabled={noneSel || busy}
+              onClick={downloadJson}
+            >
+              Download JSON
+            </button>
+          </span>
           <span className="actions-row-tip">
             <button
               className="btn btn-ghost"

@@ -21,11 +21,20 @@ The decrypted data contains an array of providers (one per connected health syst
       },
       "attachments": [
         {
-          "resourceType": "DocumentReference",
-          "resourceId": "abc123",
-          "contentType": "text/html",
-          "contentPlaintext": "extracted clinical note text...",
-          "contentBase64": "PGh0bWw+Li4uPC9odG1sPg=="
+          "source": {
+            "resourceType": "DocumentReference",
+            "resourceId": "abc123"
+          },
+          "bestEffortFrom": 0,
+          "bestEffortPlaintext": "extracted clinical note text...",
+          "originals": [
+            {
+              "contentIndex": 0,
+              "contentType": "text/html",
+              "contentPlaintext": "extracted clinical note text...",
+              "contentBase64": "PGh0bWw+Li4uPC9odG1sPg=="
+            }
+          ]
         }
       ]
     }
@@ -156,16 +165,16 @@ function searchNotes(provider, terms) {
   const termList = Array.isArray(terms) ? terms : [terms];
   
   return provider.attachments?.filter(att => {
-    const text = (att.contentPlaintext || '').toLowerCase();
+    const text = (att.bestEffortPlaintext || '').toLowerCase();
     return termList.some(t => text.includes(t.toLowerCase()));
   }).map(att => {
-    const text = att.contentPlaintext || '';
+    const text = att.bestEffortPlaintext || '';
     // Find context around first match
     for (const term of termList) {
       const idx = text.toLowerCase().indexOf(term.toLowerCase());
       if (idx !== -1) {
         return {
-          docId: att.resourceId,
+          docId: att.source?.resourceId,
           context: text.substring(
             Math.max(0, idx - 150),
             Math.min(text.length, idx + term.length + 150)
