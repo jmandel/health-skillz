@@ -10,9 +10,11 @@ const AI_MESSAGE = `Please download the Health Record Assistant skill from ${SKI
 export default function HomePage() {
   const [copied, setCopied] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [copyFlashToggle, setCopyFlashToggle] = useState(false);
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(AI_MESSAGE).then(() => {
+      setCopyFlashToggle((prev) => !prev);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
@@ -61,7 +63,12 @@ export default function HomePage() {
                   <p className="transfer-copy-intro">
                     Paste this into your AI. This avoids manual transfer and can bypass some upload-size limits.
                   </p>
-                  <div className="copy-box copy-box-quote" onClick={handleCopy}>
+                  <div
+                    className={`copy-box copy-box-quote ${
+                      copyFlashToggle ? 'copy-box-quote-flash-a' : 'copy-box-quote-flash-b'
+                    }`}
+                    onClick={handleCopy}
+                  >
                     {AI_MESSAGE}
                   </div>
                   <div className="copy-box-hint" onClick={handleCopy} style={{ cursor: 'pointer' }}>

@@ -1348,7 +1348,47 @@ code {
 .copy-box-quote::after {
   content: "”";
   right: 8px;
-  bottom: 8px;
+  top: 6px;
+}
+
+@keyframes quoteFlashPulseA {
+  0% {
+    background: #dbeafe;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.28);
+  }
+  50% {
+    background: #bfdbfe;
+  }
+  100% {
+    background: #f8fafc;
+    border-color: #dbe3ef;
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+  }
+}
+
+@keyframes quoteFlashPulseB {
+  0% {
+    background: #dbeafe;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.28);
+  }
+  50% {
+    background: #bfdbfe;
+  }
+  100% {
+    background: #f8fafc;
+    border-color: #dbe3ef;
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+  }
+}
+
+.copy-box-quote-flash-a {
+  animation: quoteFlashPulseA 820ms ease-out;
+}
+
+.copy-box-quote-flash-b {
+  animation: quoteFlashPulseB 820ms ease-out;
 }
 
 /* Step badges */
