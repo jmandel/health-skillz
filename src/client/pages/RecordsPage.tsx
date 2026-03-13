@@ -92,8 +92,20 @@ export default function RecordsPage() {
   const enabledTermCount = countEnabledTerms(appliedRedactionProfile);
   const applicableRedactionProfiles = redactionState.profiles.filter((profile) => profile.terms.length > 0);
   const appliedProfileSelectValue = appliedRedactionProfile?.id || '';
+  const attemptedAutoCloseRef = useRef(false);
 
   useEffect(() => { if (!loaded) loadConnections(); }, []);
+
+  useEffect(() => {
+    if (!isSession || !isFinalized || attemptedAutoCloseRef.current) return;
+    attemptedAutoCloseRef.current = true;
+
+    const closeTimer = window.setTimeout(() => {
+      window.close();
+    }, 150);
+
+    return () => window.clearTimeout(closeTimer);
+  }, [isFinalized, isSession]);
 
   const handleAdd = useCallback(() => {
     nav(session ? `/records/add?session=${session.sessionId}` : '/records/add');

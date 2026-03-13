@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { searchBrands, collapseBrands } from '../lib/brands/loader';
 import type { BrandItem } from '../lib/brands/types';
-import { useRecordsStore } from '../store/records';
 import { useBrandsStore } from '../store/brands';
 import { launchOAuth } from '../lib/smart/launch';
 import ProviderSearch from '../components/ProviderSearch';
@@ -103,14 +102,12 @@ export default function ProviderSelectPage() {
     setError(null);
 
     try {
-      const storeSession = useRecordsStore.getState().session;
       await launchOAuth({
         fhirBaseUrl: endpoint.url,
         clientId: vendorConfig.clientId,
         scopes: vendorConfig.scopes,
         redirectUri: vendorConfig.redirectUrl || `${window.location.origin}/connect/callback`,
         sessionId: effectiveSessionId,
-        publicKeyJwk: storeSession?.publicKeyJwk || null,
         providerName: selectedItem.displayName,
       });
     } catch (err) {

@@ -26,6 +26,7 @@ import {
   loadUploadAttemptId,
   clearUploadAttemptId,
 } from '../lib/storage';
+import { resolveSessionPublicKey } from '../lib/session-bootstrap';
 import { fetchPatientData, type FetchProgress } from '../lib/smart/client';
 import {
   encryptAndUploadStreaming,
@@ -286,6 +287,7 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
   // -----------------------------------------------------------------------
   initSession: async (sessionId: string) => {
     try {
+      const publicKeyJwk = resolveSessionPublicKey(sessionId, window.location.hash);
       const info = await getSessionInfo(sessionId);
       // Restore persisted token so uploads/finalize survive page reloads.
       // If server already has upload state and token is missing locally,
@@ -314,7 +316,7 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
       set({
         session: {
           sessionId,
-          publicKeyJwk: info.publicKey,
+          publicKeyJwk,
           finalizeToken: token,
           sessionStatus: info.status,
           pendingChunks: info.pendingChunks ?? null,
@@ -508,7 +510,6 @@ export const useRecordsStore = create<RecordsState & RecordsActions>((set, get) 
         scopes: vendorConfig.scopes,
         redirectUri: vendorConfig.redirectUrl || `${window.location.origin}/connect/callback`,
         sessionId: session?.sessionId || 'local_' + crypto.randomUUID(),
-        publicKeyJwk: session?.publicKeyJwk || null,
         providerName: conn.providerName,
       });
     } catch (err) {

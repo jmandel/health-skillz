@@ -10,7 +10,6 @@ export interface PendingChunkInfo {
 
 export interface SessionInfo {
   sessionId: string;
-  publicKey: JsonWebKey;
   status: string;
   providerCount: number;
   /** Per-provider pending chunk state, keyed by providerKey. */

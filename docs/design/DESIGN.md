@@ -66,13 +66,13 @@ Unknown frontend paths are redirected client-side to `/`.
 ### Session creation
 
 1. AI generates ECDH P-256 keypair.
-2. AI calls `POST /api/session` with `publicKey` (JWK).
-3. Server creates `sessionId` and stores public key in SQLite.
-4. AI gives user `userUrl` (`/connect/:sessionId`).
+2. AI calls `POST /api/session` to create an empty session envelope.
+3. Server creates `sessionId` but does not receive or store the recipient public key.
+4. AI writes a local session descriptor file containing the keypair and gives the user a `userUrl` whose fragment bootstraps the public key in the browser.
 
 ### Browser claim and upload attempt
 
-1. Browser opens `/connect/:sessionId` and calls `GET /api/session/:sessionId`.
+1. Browser opens `/connect/:sessionId#hs_session=...`, validates the fragment bootstrap, stores the public key in `sessionStorage`, and calls `GET /api/session/:sessionId`.
 2. Browser creates/loads a per-session `finalizeToken` in `sessionStorage`.
 3. On send, browser derives deterministic per-provider keys (`SHA-256(sessionId:connectionId)`, first 8 bytes hex).
 4. Browser starts an upload attempt via `POST /api/upload/start/:sessionId` with:
@@ -342,13 +342,12 @@ All JSON endpoints include CORS/security headers.
 
 ### `POST /api/session`
 
-Create session. Requires `publicKey` JWK.
+Create session. No key material is sent to the server.
 
 Request:
 
 ```json
 {
-  "publicKey": { "kty": "EC", "crv": "P-256", "x": "...", "y": "..." },
   "simulateError": "500"
 }
 ```
@@ -367,14 +366,13 @@ Response:
 
 ### `GET /api/session/:sessionId`
 
-Returns session metadata used by browser.
+Returns session metadata used by browser. The browser gets the recipient public key from the URL fragment or sessionStorage, not from this endpoint.
 
 Response:
 
 ```json
 {
   "sessionId": "...",
-  "publicKey": { "kty": "EC", "crv": "P-256", "x": "...", "y": "..." },
   "status": "pending",
   "providerCount": 0,
   "pendingChunks": {

@@ -57,9 +57,10 @@ with shell access.
    read it:
    > Read SKILL.md and help me connect my health records.
 
-Codex CLI can run the same `bun scripts/create-session.ts` and
-`bun scripts/finalize-session.ts` scripts. It has full network access by
-default.
+Codex CLI can run the same `bun scripts/create-session.ts ./health-session.json`
+and `bun scripts/finalize-session.ts ./health-session.json ./health-data`
+scripts. The descriptor file keeps the private key local so the agent does not
+need to paste it back into the CLI. Codex has full network access by default.
 
 **Note:** Codex CLI doesn't have a native "skill" concept — you're essentially
 giving it the instructions and scripts as context. The SKILL.md file tells it

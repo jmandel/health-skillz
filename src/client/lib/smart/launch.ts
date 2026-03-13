@@ -15,7 +15,6 @@ export interface LaunchOAuthParams {
   scopes: string;
   redirectUri: string;
   sessionId: string;
-  publicKeyJwk: JsonWebKey | null;
   providerName: string;
 }
 
@@ -31,7 +30,6 @@ export async function launchOAuth(params: LaunchOAuthParams): Promise<never> {
     scopes,
     redirectUri,
     sessionId,
-    publicKeyJwk,
     providerName,
   } = params;
 
@@ -51,7 +49,6 @@ export async function launchOAuth(params: LaunchOAuthParams): Promise<never> {
   // Save OAuth state keyed by state nonce (survives cross-origin redirect)
   saveOAuthState(state, {
     sessionId,
-    publicKeyJwk,
     codeVerifier: pkce.codeVerifier,
     tokenEndpoint,
     fhirBaseUrl,

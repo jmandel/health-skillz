@@ -5,7 +5,6 @@ const OAUTH_KEY_PREFIX = 'health_skillz_oauth_';
 
 export interface OAuthState {
   sessionId: string;
-  publicKeyJwk: JsonWebKey | null;
   codeVerifier: string;
   tokenEndpoint: string;
   fhirBaseUrl: string;
@@ -40,6 +39,7 @@ export function clearOAuthState(stateNonce: string): void {
 const FINALIZE_TOKEN_PREFIX = 'health_skillz_finalize_';
 const SESSION_SELECTION_PREFIX = 'health_skillz_selected_';
 const SESSION_ATTEMPT_PREFIX = 'health_skillz_attempt_';
+const SESSION_PUBLIC_KEY_PREFIX = 'health_skillz_public_key_';
 
 export function saveFinalizeToken(sessionId: string, token: string): void {
   sessionStorage.setItem(FINALIZE_TOKEN_PREFIX + sessionId, token);
@@ -51,6 +51,21 @@ export function loadFinalizeToken(sessionId: string): string | null {
 
 export function clearFinalizeToken(sessionId: string): void {
   sessionStorage.removeItem(FINALIZE_TOKEN_PREFIX + sessionId);
+}
+
+export function saveSessionPublicKey(sessionId: string, publicKeyJwk: JsonWebKey): void {
+  sessionStorage.setItem(SESSION_PUBLIC_KEY_PREFIX + sessionId, JSON.stringify(publicKeyJwk));
+}
+
+export function loadSessionPublicKey(sessionId: string): JsonWebKey | null {
+  const raw = sessionStorage.getItem(SESSION_PUBLIC_KEY_PREFIX + sessionId);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed as JsonWebKey : null;
+  } catch {
+    return null;
+  }
 }
 
 // === Session-scoped selection persistence ===

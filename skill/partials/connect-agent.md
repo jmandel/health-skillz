@@ -10,20 +10,21 @@ curl -fsSL https://bun.sh/install | bash
 ### Step 1: Create a Session
 
 ```bash
-bun scripts/create-session.ts
+bun scripts/create-session.ts ./health-session.json
 ```
 
 Output:
 ```json
 {
   "sessionId": "abc123...",
-  "userUrl": "https://health-skillz.exe.xyz/connect/abc123...",
+  "descriptorPath": "/abs/path/health-session.json",
+  "userUrl": "https://health-skillz.exe.xyz/connect/abc123...#hs_session=...",
   "pollUrl": "https://health-skillz.exe.xyz/api/poll/abc123...",
-  "privateKeyJwk": { "kty": "EC", "crv": "P-256", "d": "...", ... }
+  "createdAt": "2026-03-13T12:34:56.000Z"
 }
 ```
 
-**Save the `privateKeyJwk`** - you'll need it to decrypt the data.
+The descriptor file contains the private key and session metadata. Keep it local and reuse the same file when you finalize.
 
 ### Step 2: Show the User a Link
 
@@ -38,7 +39,7 @@ Present `userUrl` to the user. Keep the message simple - the link destination ex
 Once the user has connected their provider(s) and clicked "Done - Send to AI":
 
 ```bash
-bun scripts/finalize-session.ts <sessionId> '<privateKeyJwk>' ./health-data
+bun scripts/finalize-session.ts ./health-session.json ./health-data
 ```
 
 This script:

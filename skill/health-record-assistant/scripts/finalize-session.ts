@@ -3,7 +3,7 @@
 // v3 payloads use a disk-queue strategy with bounded concurrent chunk downloads.
 //
 // Usage:
-// bun scripts/finalize-session.ts <sessionId> '<privateKeyJwk>' <outputDir> [options]
+// bun scripts/finalize-session.ts <descriptorPath> <outputDir> [options]
 //
 // Options:
 // --prefetch-chunks <n>      Number of encrypted chunks to keep downloading ahead (default: 8)
@@ -15,9 +15,9 @@
 // Environment:
 // FINALIZE_INSTRUMENT=1      Enable instrumentation without --instrument
 
-import { mkdirSync, renameSync } from 'fs';
+import { mkdirSync, readFileSync, renameSync } from 'fs';
 import { open, rm } from 'fs/promises';
-import { join } from 'path';
+import { join, resolve } from 'path';
 
 const BASE_URL = '{{BASE_URL}}';
 
@@ -45,7 +45,10 @@ interface ProviderWriteResult {
 function usageAndExit(message?: string): never {
   if (message) console.error(message);
   console.error(
-    'Usage: bun scripts/finalize-session.ts <sessionId> <privateKeyJwk> <outputDir> [--prefetch-chunks N] [--max-attempts N] [--poll-timeout-seconds N] [--spool-dir PATH] [--instrument]'
+    'Usage: bun scripts/finalize-session.ts <descriptorPath> <outputDir> [--prefetch-chunks N] [--max-attempts N] [--poll-timeout-seconds N] [--spool-dir PATH] [--instrument]'
+  );
+  console.error(
+    'Legacy usage is still supported: bun scripts/finalize-session.ts <sessionId> <privateKeyJwk> <outputDir> [...]'
   );
   process.exit(1);
 }
@@ -66,23 +69,82 @@ function parseBoolEnv(raw: string | undefined): boolean {
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 }
 
+function parsePrivateKeyJwk(raw: string): JsonObject {
+  try {
+    const parsed = JSON.parse(raw) as JsonObject;
+    if (!parsed || typeof parsed !== 'object') {
+      usageAndExit('privateKeyJwk must be a JSON object.');
+    }
+    return parsed;
+  } catch {
+    usageAndExit('privateKeyJwk must be valid JSON.');
+  }
+}
+
+function loadDescriptorFile(descriptorPath: string): {
+  descriptorPath: string;
+  sessionId: string;
+  privateKeyJwk: JsonObject;
+} {
+  const resolved = resolve(descriptorPath);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(resolved, 'utf-8'));
+  } catch {
+    usageAndExit(`Failed to read descriptor file: ${resolved}`);
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    usageAndExit(`Descriptor file is invalid: ${resolved}`);
+  }
+
+  const descriptor = parsed as { sessionId?: unknown; privateKeyJwk?: unknown };
+  if (typeof descriptor.sessionId !== 'string' || !descriptor.sessionId.trim()) {
+    usageAndExit(`Descriptor file is missing sessionId: ${resolved}`);
+  }
+  if (!descriptor.privateKeyJwk || typeof descriptor.privateKeyJwk !== 'object') {
+    usageAndExit(`Descriptor file is missing privateKeyJwk: ${resolved}`);
+  }
+
+  return {
+    descriptorPath: resolved,
+    sessionId: descriptor.sessionId,
+    privateKeyJwk: descriptor.privateKeyJwk as JsonObject,
+  };
+}
+
 function parseCli(argv: string[]): {
   sessionId: string;
   privateKeyJwk: JsonObject;
   outputDir: string;
   options: CliOptions;
+  descriptorPath: string | null;
 } {
-  const sessionId = argv[2];
-  const privateKeyJwkStr = argv[3];
-  const outputDir = argv[4];
+  const firstArg = argv[2];
+  const secondArg = argv[3];
+  const thirdArg = argv[4];
 
-  if (!sessionId || !privateKeyJwkStr || !outputDir) usageAndExit();
+  if (!firstArg || !secondArg) usageAndExit();
 
+  let sessionId: string;
   let privateKeyJwk: JsonObject;
-  try {
-    privateKeyJwk = JSON.parse(privateKeyJwkStr) as JsonObject;
-  } catch {
-    usageAndExit('privateKeyJwk must be valid JSON.');
+  let outputDir: string;
+  let extraArgs: string[];
+  let descriptorPath: string | null = null;
+
+  if (secondArg.trim().startsWith('{')) {
+    if (!thirdArg) usageAndExit();
+    sessionId = firstArg;
+    privateKeyJwk = parsePrivateKeyJwk(secondArg);
+    outputDir = thirdArg;
+    extraArgs = argv.slice(5);
+  } else {
+    const descriptor = loadDescriptorFile(firstArg);
+    sessionId = descriptor.sessionId;
+    privateKeyJwk = descriptor.privateKeyJwk;
+    outputDir = secondArg;
+    extraArgs = argv.slice(4);
+    descriptorPath = descriptor.descriptorPath;
   }
 
   const options: CliOptions = {
@@ -93,7 +155,6 @@ function parseCli(argv: string[]): {
     instrument: parseBoolEnv(process.env.FINALIZE_INSTRUMENT)
   };
 
-  const extraArgs = argv.slice(5);
   for (let i = 0; i < extraArgs.length; i++) {
     const arg = extraArgs[i];
     const takeValue = (flag: string): string => {
@@ -124,7 +185,7 @@ function parseCli(argv: string[]): {
     }
   }
 
-  return { sessionId, privateKeyJwk, outputDir, options };
+  return { sessionId, privateKeyJwk, outputDir, options, descriptorPath };
 }
 
 function toBase64Bytes(input: string): Uint8Array {
@@ -430,10 +491,16 @@ async function extractProviderName(filePath: string): Promise<string | null> {
   }
 }
 
-const { sessionId, privateKeyJwk, outputDir, options } = parseCli(process.argv);
+const { sessionId, privateKeyJwk, outputDir, options, descriptorPath } = parseCli(process.argv);
 
 mkdirSync(outputDir, { recursive: true });
 mkdirSync(options.spoolDir, { recursive: true });
+
+logInstrumentation('start', options.instrument, {
+  sessionId,
+  outputDir,
+  descriptorPath
+});
 
 const meta = await pollUntilReady(sessionId, options);
 logInstrumentation('poll_ready', options.instrument, { providerCount: meta.providerCount || 0 });

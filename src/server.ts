@@ -74,7 +74,6 @@ db.run(`
     created_at INTEGER DEFAULT (unixepoch()),
     providers TEXT DEFAULT '[]',
     status TEXT DEFAULT 'pending',
-    public_key TEXT,
     encrypted_data TEXT,
     finalize_token TEXT
   )
@@ -83,7 +82,6 @@ db.run(`
 // Migrations
 const migrations = [
   "ALTER TABLE sessions ADD COLUMN providers TEXT DEFAULT '[]'",
-  "ALTER TABLE sessions ADD COLUMN public_key TEXT",
   "ALTER TABLE sessions ADD COLUMN encrypted_data TEXT",
   "ALTER TABLE sessions ADD COLUMN finalize_token TEXT",
   "ALTER TABLE sessions ADD COLUMN simulate_error TEXT",
@@ -277,28 +275,17 @@ const server = Bun.serve({
 
     // API: Create session
     if (path === "/api/session" && req.method === "POST") {
-      let publicKey: string | null = null;
       let simulateError: string | null = null;
       try {
-        const body = await req.json() as { publicKey?: any; simulateError?: string };
-        if (body.publicKey) {
-          publicKey = JSON.stringify(body.publicKey);
-        }
+        const body = await req.json() as { simulateError?: string };
         // Optional: simulate errors for testing (500, timeout, badresp, disconnect)
         if (body.simulateError && ['500', 'timeout', 'badresp', 'disconnect'].includes(body.simulateError)) {
           simulateError = body.simulateError;
         }
       } catch (e) {}
 
-      if (!publicKey) {
-        return Response.json({
-          error: "public_key_required",
-          error_description: "E2E encryption required. Provide publicKey (ECDH P-256 JWK)."
-        }, { status: 400, headers: corsHeaders });
-      }
-
       const sessionId = generateSessionId();
-      db.run("INSERT INTO sessions (id, public_key, simulate_error) VALUES (?, ?, ?)", [sessionId, publicKey, simulateError]);
+      db.run("INSERT INTO sessions (id, simulate_error) VALUES (?, ?)", [sessionId, simulateError]);
       console.log(`Created session: ${sessionId}${simulateError ? ` (simulating ${simulateError} error)` : ''}`);
 
       return Response.json({
@@ -718,7 +705,7 @@ const server = Bun.serve({
     // API: Get session info
     if (path.startsWith("/api/session/") && req.method === "GET") {
       const sessionId = path.replace("/api/session/", "");
-      const row = db.query("SELECT status, public_key, encrypted_data, attempt_meta, finalize_token FROM sessions WHERE id = ?").get(sessionId) as any;
+      const row = db.query("SELECT status, encrypted_data, attempt_meta, finalize_token FROM sessions WHERE id = ?").get(sessionId) as any;
       if (!row) return new Response("Session not found", { status: 404, headers: corsHeaders });
 
       const encryptedData = row.encrypted_data ? JSON.parse(row.encrypted_data) : [];
@@ -742,7 +729,6 @@ const server = Bun.serve({
       
       return Response.json({
         sessionId,
-        publicKey: row.public_key ? JSON.parse(row.public_key) : null,
         status: row.status,
         providerCount: encryptedData.length,
         pendingChunks,
