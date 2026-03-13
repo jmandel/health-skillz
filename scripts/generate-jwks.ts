@@ -1,13 +1,17 @@
 #!/usr/bin/env bun
 /**
- * Generate an EC P-384 key pair for signing OAuth client assertions.
+ * Generate key pairs for signing OAuth client assertions.
  * Writes:
  *   data/jwks.json       — public-only JWKS (served at .well-known/jwks.json)
  *   data/jwks-intentionally-publishing-private-keys-which-are-not-sensitive-in-this-architecture.json
- *                         — full JWKS including private key "d" parameter
+ *                         — full JWKS including private parameters
  *
- * The private key is NOT secret for this use case: it ships to end-user
+ * The private keys are NOT secret for this use case: they ship to end-user
  * browsers that sign client_assertion JWTs for confidential-client OAuth.
+ *
+ * Keys generated:
+ *   - EC P-384  (alg: ES384)
+ *   - RSA 2048  (alg: RS256)
  */
 import { generateKeyPairSync, randomUUID } from "crypto";
 import { mkdirSync, writeFileSync, existsSync } from "fs";
@@ -24,30 +28,49 @@ if (existsSync(fullPath)) {
 
 mkdirSync(outDir, { recursive: true });
 
-const { publicKey, privateKey } = generateKeyPairSync("ec", {
-  namedCurve: "P-384",
-});
+// --- EC P-384 key (ES384) ---
+const ec = generateKeyPairSync("ec", { namedCurve: "P-384" });
+const ecKid = randomUUID();
 
-const kid = randomUUID();
-
-const privJwk = {
-  ...privateKey.export({ format: "jwk" }),
-  kid,
+const ecPrivJwk = {
+  ...ec.privateKey.export({ format: "jwk" }),
+  kid: ecKid,
   alg: "ES384",
   use: "sig",
   key_ops: ["sign"],
 };
 
-const pubJwk = { ...privJwk };
-delete (pubJwk as any).d; // strip private component
-pubJwk.key_ops = ["verify"];
+const ecPubJwk = { ...ecPrivJwk };
+delete (ecPubJwk as any).d;
+ecPubJwk.key_ops = ["verify"];
 
-const fullJwks = { keys: [privJwk] };
-const pubJwks = { keys: [pubJwk] };
+// --- RSA 2048 key (RS256) ---
+const rsa = generateKeyPairSync("rsa", { modulusLength: 2048 });
+const rsaKid = randomUUID();
+
+const rsaPrivJwk = {
+  ...rsa.privateKey.export({ format: "jwk" }),
+  kid: rsaKid,
+  alg: "RS256",
+  use: "sig",
+  key_ops: ["sign"],
+};
+
+const rsaPubJwk = { ...rsaPrivJwk };
+// Strip private RSA components
+for (const k of ["d", "p", "q", "dp", "dq", "qi"]) {
+  delete (rsaPubJwk as any)[k];
+}
+rsaPubJwk.key_ops = ["verify"];
+
+// --- Write JWKS ---
+const fullJwks = { keys: [ecPrivJwk, rsaPrivJwk] };
+const pubJwks = { keys: [ecPubJwk, rsaPubJwk] };
 
 writeFileSync(pubPath, JSON.stringify(pubJwks, null, 2) + "\n");
 writeFileSync(fullPath, JSON.stringify(fullJwks, null, 2) + "\n");
 
-console.log(`Generated EC P-384 key pair (kid: ${kid})`);
-console.log(`  Full (with private key): ${fullPath}`);
-console.log(`  Public only:             ${pubPath}`);
+console.log(`Generated EC P-384 key pair  (kid: ${ecKid})`);
+console.log(`Generated RSA 2048 key pair  (kid: ${rsaKid})`);
+console.log(`  Full (with private keys): ${fullPath}`);
+console.log(`  Public only:              ${pubPath}`);
