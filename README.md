@@ -1,48 +1,33 @@
 # Health Skillz
 
-A Claude Skill for analyzing personal health records via SMART on FHIR.
+Health Skillz helps people collect SMART on FHIR records from patient portals, review/export them locally, and optionally share them with AI using end-to-end encrypted upload.
+
+## Documentation
+
+- Design and architecture: `docs/design/DESIGN.md`
+- Environment/runbook notes: `AGENTS.md`
+
+This README intentionally stays high-level. API contracts, data structures, security model, and protocol details are documented in `docs/design/DESIGN.md`.
 
 ## Try It Now
 
-A live instance is running at **[health-skillz.joshuamandel.com](https://health-skillz.joshuamandel.com)**. To use it:
+A live instance is available at **[health-skillz.joshuamandel.com](https://health-skillz.joshuamandel.com)**.
 
-1. **Download the skill:** [health-record-assistant.zip](https://health-skillz.joshuamandel.com/skill.zip)
-2. **Install in Claude:** Settings → Skills → Upload the zip file
-3. **Ask Claude:** "Can you look at my health records?"
+1. Download the skill: [health-record-assistant.zip](https://health-skillz.joshuamandel.com/skill.zip)
+2. Install in Claude: Settings -> Skills -> Upload zip
+3. Ask: "Can you look at my health records?"
 
-Claude will create a secure session and give you a link to connect your patient portal. Currently supports **Epic** health systems (most major US hospitals).
+Epic sandbox test credentials:
 
-**For testing**, use Epic's sandbox:
 - Username: `fhircamila`
 - Password: `epicepic1`
 
-## What It Does
+## Local Development
 
-- **Full data sync**: Pulls all your FHIR resources—labs, meds, conditions, procedures, immunizations, encounters
-- **Clinical notes**: Extracts full text from visit notes, discharge summaries, and other documents
-- **Multi-provider**: Connect multiple health systems in one session for comprehensive analysis
-- **End-to-end encrypted**: Data is encrypted in your browser before transmission; only Claude can decrypt it
-- **Download your data**: Get a complete JSON export of your records
+### Prerequisites
 
-## How It Works
-
-```
-1. You: "Can you look at my health records?"
-
-2. Claude: Creates encrypted session, shows you a link
-
-3. You: Click link → sign into patient portal → authorize → click "Done"
-
-4. Claude: Decrypts data, explores it, answers your questions
-```
-
-Claude analyzes your data iteratively—reading notes, querying structured data, applying clinical reasoning—rather than running blind analysis in a sandbox.
-
----
-
-## For Developers
-
-Want to deploy your own instance? Read on.
+- Bun
+- A SMART on FHIR client registration (or sandbox client IDs)
 
 ### Quick Start
 
@@ -50,125 +35,73 @@ Want to deploy your own instance? Read on.
 git clone https://github.com/jmandel/health-skillz
 cd health-skillz
 
-# Configure
-cp config.json.example config.json
-# Edit config.json with your SMART on FHIR client IDs
-
-# Install & Setup
 bun install
-bun run setup          # Downloads Epic endpoint directory + builds skill zip
+cp config.json.example config.local.json
+# Edit config.local.json with your base URL and client IDs
+
+bun run setup
 mkdir -p static data
-ln -sf "$(pwd)/brands" static/brands
+ln -snf "$(pwd)/brands" static/brands
 
-# Run
-bun run dev            # Development with hot reload
-bun run start          # Production
-
-# Override port/base URL with environment variables:
-# PORT=3005 BASE_URL=http://localhost:3005 bun run dev
+CONFIG_PATH=./config.local.json bun run dev
 ```
 
-### Configuration
+Health check:
 
-Edit `config.json` (production) or create `config.local.json` (local dev):
-
-```json
-{
-  "server": {
-    "port": 8000,
-    "baseURL": "https://your-domain.com"
-  },
-  "brands": [
-    {
-      "name": "epic-sandbox",
-      "file": "./brands/epic-sandbox.json",
-      "clientId": "YOUR_SANDBOX_CLIENT_ID",
-      "scopes": "patient/*.rs",
-      "redirectURL": "https://your-domain.com/ehr-connect/callback"
-    },
-    {
-      "name": "epic-prod",
-      "file": "./brands/epic-prod.json",
-      "clientId": "YOUR_PROD_CLIENT_ID",
-      "scopes": "patient/*.rs",
-      "redirectURL": "https://your-domain.com/ehr-connect/callback"
-    }
-  ]
-}
+```bash
+curl -sS http://localhost:8000/health
 ```
 
-**Key fields:**
-- `server.port` — HTTP port (also overridable via `PORT` env var)
-- `server.baseURL` — Public URL (also overridable via `BASE_URL` env var)
-- `brands[].redirectURL` — OAuth callback URL registered with the EHR vendor. Defaults to `${baseURL}/connect/callback` if omitted. Must exactly match what's registered in your SMART on FHIR app.
+If you use a different port, update the URL accordingly.
 
-To use a local config: `CONFIG_PATH=./config.local.json bun run dev`
+## Configuration (High-Level)
 
-### Registering a SMART on FHIR App
+The server reads `CONFIG_PATH` (defaults to `./config.json`).
 
-To use with real EHRs, register your app with each vendor:
+Minimum fields you should verify in the selected config file:
 
-1. **Epic**: https://fhir.epic.com/Developer/Apps
-2. Set redirect URI to: `https://your-domain.com/connect/callback`
-3. Request scopes: `patient/*.rs`
-4. Add the client ID to your config.json
+1. `server.port`
+2. `server.baseURL`
+3. `brands[].clientId`
+4. `brands[].redirectURL` (or default `${baseURL}/connect/callback`)
 
-Epic sandbox apps are approved instantly. Production apps require a brief review.
+Run examples:
 
-### Project Structure
-
-```
-health-skillz/
-├── src/
-│   ├── server.ts           # Bun server with API routes
-│   ├── index.html          # HTML entry point
-│   └── client/             # React frontend
-│       ├── App.tsx         # React Router setup
-│       ├── pages/          # HomePage, ConnectPage, ProviderSelectPage, OAuthCallbackPage
-│       ├── components/     # ProviderSearch, ProviderCard, StatusMessage
-│       ├── lib/            # SMART OAuth, FHIR client, crypto, storage
-│       └── store/          # Zustand state management
-├── scripts/
-│   ├── download-brands.ts  # Fetch Epic endpoint directory
-│   └── package-skill.ts    # Package Claude skill zip
-├── skill/
-│   └── health-record-assistant/
-│       ├── SKILL.md            # Claude skill instructions
-│       ├── scripts/            # create-session.mjs, finalize-session.mjs
-│       └── references/         # FHIR-GUIDE.md
-├── static/brands/          # Epic endpoint directory JSON
-└── config.json             # Server + SMART client configuration
+```bash
+CONFIG_PATH=./config.local.json bun run dev
+CONFIG_PATH=./config.local.json bun run start
 ```
 
-### API Endpoints
+## SMART App Registration
 
-**Called by Claude (skill scripts):**
+For Epic:
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/session` | POST | Create session (sends ECDH public key) |
-| `/api/poll/{id}` | GET | Long-poll for encrypted health data |
+1. Register at <https://fhir.epic.com/Developer/Apps>
+2. Set redirect URI to your deployed callback (typically `${baseURL}/connect/callback`)
+3. Request scopes like `patient/*.rs`
+4. Put the issued client ID in your config
 
-**Called by Browser (React app):**
+## Common Commands
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/session/{id}` | GET | Get session info + vendor config + public key |
-| `/api/receive-ehr` | POST | Send encrypted EHR data to server |
-| `/api/finalize/{id}` | POST | Mark session complete (user clicked "Done") |
+```bash
+bun run dev            # watch mode
+bun run start          # production-style local run
+bun run build:brands   # fetch/build provider directory assets
+bun run build:skill    # package skill zip
+bun run generate-jwks  # generate JWKS files
+bun run setup          # brands + skill + jwks
+```
 
-**Other:**
+## Project Layout (High-Level)
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/skill.zip` | GET | Download packaged Claude skill |
-
-### Architecture
-
-- **Bun fullstack**: Server + React bundled together
-- **E2E encryption**: ECDH key exchange, AES-256-GCM; server never sees plaintext
-- **SMART on FHIR**: OAuth + FHIR fetching happens entirely client-side
-- **No intermediaries**: Direct connection from browser to EHR FHIR server
+```text
+src/        Bun server + React client
+skill/      Skill templates, scripts, references
+scripts/    Build and maintenance scripts
+docs/       Design and planning docs
+static/     Served static assets (e.g., brands)
+data/       Local runtime data (SQLite, generated files)
+```
 
 ## License
 

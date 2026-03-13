@@ -139,7 +139,7 @@ You forgot to enable external connections. Go to **Settings → Profile → Anal
 Install Bun first: `curl -fsSL https://bun.sh/install | bash`
 
 **Scripts time out / hang on "polling":**
-Make sure you completed the sign-in at the link the AI showed you, then clicked **"Done — Send to AI"** on the connection page.
+Make sure you completed sign-in at the link the AI showed you, selected records, and clicked **"Send ... to AI"** on the session page.
 
 **Skill doesn't appear after upload in Claude.ai:**
 The zip must contain a folder with a `SKILL.md` at the top level (e.g. `health-record-assistant/SKILL.md`). Re-download if needed.

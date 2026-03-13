@@ -413,3 +413,108 @@ All four return the same server-side error. To confirm it wasn't a script issue,
 Same error through the UI. These four organizations simply won't accept the registration — it's a server-side issue on Epic's end, not a script bug. All four are newer organizations (OrgIds in the 30,000s, ECMIds in the 1300s–1400s), suggesting their Epic environments may not be fully provisioned to accept client registrations yet.
 
 The script will pick them up on a future re-run since they still show `Approved === 0`.
+
+---
+
+## The JWK Set URL Problem: "Recommended" but Broken
+
+### Discovery
+
+After activating all 496 orgs using the "JWK Set URL (Recommended)" option, we discovered that token requests were failing at some organizations with `invalid_client`. Working with Cooper Thompson from Epic, we debugged the issue at UnityPoint Health.
+
+The root cause: **many Epic customer organizations have restrictive outbound network policies** that prevent their servers from making outbound HTTPS requests. When an app registers with a JWK Set URL, the organization's Epic server needs to fetch that URL to validate JWT signatures. If the server can't reach the URL, signature validation fails silently and the token request returns `invalid_client` with no further detail.
+
+Cooper estimated roughly 80% of Epic customers allow outbound JKU fetching, meaning **~20% of organizations may silently fail** when an app uses the "Recommended" JWK Set URL option.
+
+### The Fix: Direct JWKS Upload
+
+The management modal has a second option under "Other" → "JSON Web Key Set (JWKS)" that lets you paste the key material directly. This embeds the public keys in the organization's configuration, eliminating the need for outbound requests entirely.
+
+At the API level, this is just two additional parameters on the same `ApproveDownload` endpoint:
+- `TestJWKS` — the JWKS JSON string for non-production
+- `ProdJWKS` — the JWKS JSON string for production
+
+When these are empty (JWK Set URL mode), Epic uses the app-level JWK Set URL. When populated, it stores the keys directly.
+
+**Bonus discovery:** With direct JWKS, you can activate both non-production and production in a **single API call** by setting `NonProdOnly=false, ProdOnly=false` and populating both `TestJWKS` and `ProdJWKS`. This halves the number of API calls needed.
+
+### Key Filtering
+
+The app's JWKS at `/.well-known/jwks.json` contains 3 keys: one ES384 (elliptic curve) and two RSA (RS256, RS384). Epic only supports RSA algorithms for JWT signatures, so the script filters to `kty === 'RSA'` before uploading.
+
+### The Irony
+
+The management modal labels "JWK Set URL" as **(Recommended)** and selecting "Other" triggers a warning: *"We recommend using a JWK Set URL instead of these options."* But the recommended option fails at a significant fraction of organizations due to their network policies. The non-recommended option — direct JWKS upload — is the one that actually works reliably everywhere.
+
+### Script Update
+
+Updated `epic-activate-all.js` to prompt for mode on startup:
+- **Mode 1: JWK Set URL** — original behavior, empty `TestJWKS`/`ProdJWKS`, 2 calls per org
+- **Mode 2: Direct JWKS** (new default) — fetches JWKS from the app, filters to RSA keys, uploads inline, 1 call per org
+
+In mode 2, the script fetches `https://health-skillz.joshuamandel.com/.well-known/jwks.json`, filters to RSA keys, and sends the filtered JWKS as both `TestJWKS` and `ProdJWKS` in each `ApproveDownload` call.
+
+The script also now accepts a JWKS URL directly as input (instead of just "1" or "2"), and when it detects already-activated orgs, prompts whether to re-activate them — useful for switching from JWK Set URL to direct JWKS across all orgs.
+
+### The .NET Serialization Bug
+
+After re-activating all orgs with direct JWKS via the script, we noticed that re-opening the management modal for an org showed the stored JWKS with **PascalCase property names** (`Kty` instead of `kty`, `N` instead of `n`) and leaked .NET internal properties (`CryptoProviderFactory`, `HasPrivateKey`, `KeySize`). The UI's own validator then complained: *"JWKS key #1 is missing 'kty' property"* — because it was looking for lowercase `kty` in its own PascalCase-mangled output.
+
+Initially we thought this was a compact-vs-pretty-printed JSON issue: our script was sending compact JSON (`JSON.stringify(jwks)`) while the UI sends pretty-printed JSON (2-space indentation, newlines). We changed the script to use `JSON.stringify(jwks, null, 2)` to match the UI. When we immediately re-opened the modal after saving through the UI, the JWKS looked correct — lowercase properties, no .NET internals.
+
+**But this turned out to be an illusion.** After a full page reload, the UI shows the PascalCase/.NET-mangled version even for keys pasted manually through the form. The sequence:
+
+1. Paste JWKS into UI form → Save → Confirm
+2. Immediately re-open the modal → JWKS looks correct (lowercase `kty`, clean)
+3. Reload the page → re-open the modal → PascalCase `Kty`, leaked .NET fields, validation error
+
+The UI is caching the client-side value on immediate re-open, masking the server-side problem. After reload, what the server actually stored comes through — and it's always .NET-mangled regardless of input formatting. This is a server-side bug in Epic's storage layer: all JWKS submissions get deserialized into .NET `JsonWebKey` objects and re-serialized with PascalCase property names and internal fields like `CryptoProviderFactory`, `HasPrivateKey`, `KeySize`, `AdditionalData`.
+
+The keys still work for signature validation despite the mangled storage — UnityPoint was proof of that. But Epic's own UI can't display what its own backend stored without showing a validation error.
+
+### Single-Call vs Two-Call Activation
+
+We also discovered that the "single call for both environments" optimization (sending both `TestJWKS` and `ProdJWKS` with `NonProdOnly=false, ProdOnly=false`) may trigger different server behavior than sending them separately. Comparing two captured API requests:
+
+- **Prod-only call** (manual form save, `ProdOnly=true`, only `ProdJWKS` populated): stored JWKS displays correctly on immediate re-open
+- **Combined call** (script, `ProdOnly=false`, both `TestJWKS` and `ProdJWKS` populated): stored JWKS shows mangled on immediate re-open
+
+The JWKS content was byte-for-byte identical between the two requests — same encoding, same pretty-printing. The only differences were the flag combination and TestJWKS presence. The combined code path appears to use different deserialization logic on the server side. Reverting to two separate calls per org (one nonprod, one prod) may be the safer approach even in direct JWKS mode.
+
+### New Orgs Appearing
+
+Running the updated script the next day showed **502 orgs** (up from 500). The two new additions:
+
+| OrgId | Name | Status | Notes |
+|---|---|---|---|
+| 392 | Brown University Health | Approved=1 | Previously "Lifespan" in the Brands bundle — same OrgId, renamed. Was one of our 4 "Brands-only" orgs yesterday. |
+| 32586 | eleHealth | Approved=0 | Brand new org, high OrgId. |
+
+This answers the lifecycle question: **the org list does update over time — it's not a frozen snapshot.** Auto-sync continues to deliver new organizations after initial registration. Brown University Health's appearance also confirms that the Brands-only orgs weren't permanently excluded — they just hadn't been delivered yet.
+
+### Current Status
+
+After re-activating all 502 orgs with direct JWKS upload, one of the two test sites (UnityPoint) is now working — the token exchange succeeds and we can fetch patient data. The other test site (UW Health) is still returning `invalid_client`. Epic's configuration changes can take up to 12 hours to propagate to customer sites, so this may just be a timing issue. Waiting to confirm.
+
+### JWKS Endpoint Traffic After Switching to Direct Upload
+
+After switching all orgs to direct JWKS upload, the server logs for `jwks.json` still show heavy traffic — dozens of distinct organizations hitting the endpoint within a single hour. The traffic reveals how Epic's JWKS fetching architecture actually works:
+
+**The fetch happens from each customer's own infrastructure, not from Epic centrally.** The logs show requests from individual health systems' own IP ranges:
+
+| Source | IPs | Hits (1 hr) | Notes |
+|---|---|---|---|
+| Epic Hosting | ~20 different IPs (170.133.x, 208.56.x, 45.42.x, 68.65.x) | ~25 | Orgs hosted by Epic |
+| Hennepin County Medical Center | 198.204.66.x | 9 | Self-hosted |
+| HonorHealth | 167.94.2.14 | 8 | Self-hosted |
+| Kaiser Foundation Health Plan | 162.119.x.x | 8 | Self-hosted, 4 different IPs |
+| Children's Hospital Colorado | 66.128.217.51 | 5 | Self-hosted |
+| Nationwide Children's Hospital | 69.24.144.x | 7 | Self-hosted, 4 IPs |
+| University of Washington | 205.175.124.x | 6 | Self-hosted, 3 IPs |
+| Forcepoint (web security proxy) | 208.87.x.x | 9 | Orgs routing through security appliances |
+| Comcast Cable Communications | various | 7 | Network exit points |
+| Maastricht UMC+ (Netherlands) | 145.29.254.43 | 4 | International |
+
+This perfectly explains the outbound traffic problem: each hospital's own servers make the outbound HTTPS request to fetch the JWKS. If that hospital's network policy blocks arbitrary outbound HTTPS, the fetch fails silently. It's not a central Epic service that could be whitelisted once — it's distributed across every customer's infrastructure.
+
+The traffic is also happening **after** we switched to direct JWKS upload, which means either: (a) config changes are still propagating, (b) Epic fetches the JWK Set URL regardless of whether direct keys are stored (perhaps to keep them in sync), or (c) the fetch is triggered by the configuration change itself. If (b), then direct JWKS upload provides a fallback for signature validation when the URL is unreachable, rather than fully replacing URL-based fetching.

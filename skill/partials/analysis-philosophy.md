@@ -24,7 +24,7 @@ When exploring a topic:
 
 Patient records vary enormously — from a single encounter to decades of history with hundreds of notes. Attachments can easily total 300K+ characters, overwhelming your context.
 
-- **Always deduplicate attachments first** — Epic produces HTML + RTF pairs for the same document; prefer HTML (see deduplication code in examples below)
+- **Use one note per source** — `attachments[]` is already grouped by source document; start from `bestEffortPlaintext` for each source
 - **Index before reading** — build a compact list of documents (date, type, size, preview) to understand what's there
 - **Search, then read selectively** — keyword search with context snippets, then read full text only for documents that matter
 - **Use structured data for structured questions** — lab values, med lists, and allergy lists are more efficient to query from FHIR resources than to extract from note text

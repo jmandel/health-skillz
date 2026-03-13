@@ -4,6 +4,8 @@
 // Uses a SEPARATE IndexedDB database from session storage so that
 // clearing session data doesn't blow away saved connections.
 
+import type { ProcessedAttachment } from './smart/attachments';
+
 export interface SavedConnection {
   /** Unique ID for this connection (crypto.randomUUID()) */
   id: string;
@@ -19,6 +21,8 @@ export interface SavedConnection {
   patientId: string;
   /** Refresh token (rolling — MUST be updated after each use) */
   refreshToken: string;
+  /** Whether this connection can be refreshed without re-auth */
+  canRefresh?: boolean;
   /** Scopes that were granted */
   scopes: string;
   /** When the connection was first established */
@@ -37,6 +41,10 @@ export interface SavedConnection {
   patientDisplayName?: string | null;
   /** Patient birth date extracted from FHIR Patient resource (YYYY-MM-DD) */
   patientBirthDate?: string | null;
+  /** Cached resource-type counts for fast browser startup */
+  cachedResourceTypeCounts?: Record<string, number> | null;
+  /** Cached attachment count for fast browser startup */
+  cachedAttachmentCount?: number | null;
 }
 
 /** FHIR data cached for a connection. Stored separately from metadata because it can be huge. */
@@ -45,8 +53,8 @@ export interface CachedFhirData {
   connectionId: string;
   /** The FHIR resources, keyed by resource type */
   fhir: Record<string, any[]>;
-  /** Extracted attachments */
-  attachments: any[];
+  /** Extracted attachments grouped by source resource */
+  attachments: ProcessedAttachment[];
   /** When this data was fetched */
   fetchedAt: string; // ISO 8601
 }
@@ -164,6 +172,7 @@ export async function updateConnectionToken(
       }
 
       conn.refreshToken = newRefreshToken;
+      conn.canRefresh = true;
       conn.lastRefreshedAt = new Date().toISOString();
       conn.status = 'active';
       // Clear any previous error on successful refresh
@@ -243,16 +252,15 @@ export async function deleteConnection(id: string): Promise<void> {
   });
 }
 
-/** Delete ALL connections. Nuclear option. */
+/** Delete ALL connections and their cached FHIR data. Nuclear option. */
 export async function deleteAllConnections(): Promise<void> {
   const db = await openConnectionsDB();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(CONNECTIONS_STORE, 'readwrite');
-    const store = tx.objectStore(CONNECTIONS_STORE);
-    const request = store.clear();
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve();
-    tx.oncomplete = () => db.close();
+    const tx = db.transaction([CONNECTIONS_STORE, FHIR_DATA_STORE], 'readwrite');
+    tx.objectStore(CONNECTIONS_STORE).clear();
+    tx.objectStore(FHIR_DATA_STORE).clear();
+    tx.onerror = () => reject(tx.error);
+    tx.oncomplete = () => { db.close(); resolve(); };
   });
 }
 
@@ -296,7 +304,7 @@ export async function findConnectionByEndpoint(
 export async function saveFhirData(
   connectionId: string,
   fhir: Record<string, any[]>,
-  attachments: any[],
+  attachments: ProcessedAttachment[],
 ): Promise<void> {
   const now = new Date().toISOString();
   const data: CachedFhirData = {
@@ -308,6 +316,12 @@ export async function saveFhirData(
 
   // Estimate size (rough but good enough for UI)
   const sizeEstimate = JSON.stringify(data).length;
+  const resourceTypeCounts: Record<string, number> = {};
+  for (const [resourceType, resources] of Object.entries(fhir || {})) {
+    if (!Array.isArray(resources) || resources.length === 0) continue;
+    resourceTypeCounts[resourceType] = resources.length;
+  }
+  const attachmentCount = attachments.length;
 
   const db = await openConnectionsDB();
   return new Promise((resolve, reject) => {
@@ -325,6 +339,8 @@ export async function saveFhirData(
       if (conn) {
         conn.lastFetchedAt = now;
         conn.dataSizeBytes = sizeEstimate;
+        conn.cachedResourceTypeCounts = resourceTypeCounts;
+        conn.cachedAttachmentCount = attachmentCount;
         connStore.put(conn);
       }
     };
@@ -367,6 +383,8 @@ export async function clearFhirData(connectionId: string): Promise<void> {
       if (conn) {
         conn.lastFetchedAt = null;
         conn.dataSizeBytes = null;
+        conn.cachedResourceTypeCounts = null;
+        conn.cachedAttachmentCount = null;
         connStore.put(conn);
       }
     };

@@ -2,6 +2,16 @@ import { useEffect, useCallback, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useRecordsStore } from '../store/records';
 import StatusMessage from '../components/StatusMessage';
+import FetchProgressWidget from '../components/FetchProgressWidget';
+import UploadProgressWidget from '../components/UploadProgressWidget';
+import RecordsHeaderBar from '../components/RecordsHeaderBar';
+import {
+  countEnabledTerms,
+  getAppliedProfile,
+  loadRedactionState,
+  saveRedactionState,
+  type RedactionState,
+} from '../lib/redaction';
 
 function InfoTip({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
@@ -60,9 +70,16 @@ export default function RecordsPage() {
   const selectNone = useRecordsStore((s) => s.selectNone);
   const toggleSelected = useRecordsStore((s) => s.toggleSelected);
   const refreshConnection = useRecordsStore((s) => s.refreshConnection);
+  const reconnectConnection = useRecordsStore((s) => s.reconnectConnection);
   const removeConnection = useRecordsStore((s) => s.removeConnection);
   const clearError = useRecordsStore((s) => s.clearError);
   const sendToAI = useRecordsStore((s) => s.sendToAI);
+  const downloadJson = useRecordsStore((s) => s.downloadJson);
+  const uploadProgress = useRecordsStore((s) => s.uploadProgress);
+  const downloadSkillZip = useRecordsStore((s) => s.downloadSkillZip);
+  const [redactionState, setRedactionState] = useState<RedactionState>(() => loadRedactionState());
+
+  const dismissConnectionDone = useRecordsStore((s) => s.dismissConnectionDone);
 
   const isSession = Boolean(session);
   const isFinalized = session?.sessionStatus === 'finalized';
@@ -71,6 +88,10 @@ export default function RecordsPage() {
   const total = connections.length;
   const allSel = total > 0 && selCount === total;
   const noneSel = selCount === 0;
+  const appliedRedactionProfile = getAppliedProfile(redactionState);
+  const enabledTermCount = countEnabledTerms(appliedRedactionProfile);
+  const applicableRedactionProfiles = redactionState.profiles.filter((profile) => profile.terms.length > 0);
+  const appliedProfileSelectValue = appliedRedactionProfile?.id || '';
 
   useEffect(() => { if (!loaded) loadConnections(); }, []);
 
@@ -83,6 +104,11 @@ export default function RecordsPage() {
     await removeConnection(id);
   }, [removeConnection]);
 
+  const commitRedactionState = useCallback((next: RedactionState) => {
+    saveRedactionState(next);
+    setRedactionState(loadRedactionState());
+  }, []);
+
   if (!loaded) {
     return (
       <div className="page-top">
@@ -93,8 +119,32 @@ export default function RecordsPage() {
     );
   }
 
+  if (isSession && isFinalized) {
+    return (
+      <div className="page-top">
+        <div className="panel panel-wide">
+          <div className="page-title">Share records with AI</div>
+          <div className="page-subtitle">
+            End-to-end encrypted — only the requesting AI can decrypt.
+          </div>
+
+          <div className="session-done-callout" role="status" aria-live="polite">
+            <div className="session-done-title">All set. Records already sent to AI.</div>
+            <div className="session-done-sub">You can close this page.</div>
+          </div>
+
+          <div className="actions-row">
+            <a href="/" className="btn btn-secondary">About Health Skillz</a>
+            <a href="/records" className="btn btn-secondary">My Health Records</a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="page-top">
+    <div className={`page-top${!isSession ? ' with-records-nav' : ''}`}>
+      {!isSession && <RecordsHeaderBar current="records" />}
       <div className="panel panel-wide">
         <div className="page-title">
           {isSession ? 'Share records with AI' : 'My Health Records'}
@@ -110,139 +160,209 @@ export default function RecordsPage() {
           </div>
         )}
 
-        {/* Global messages */}
+        {/* Global error bar (top of page) */}
         {status === 'error' && error && (
           <div className="alert alert-error" style={{ marginBottom: 12 }}>
             {error}
             <button className="link" onClick={clearError} style={{ marginLeft: 8 }}>Dismiss</button>
           </div>
         )}
-        {statusMessage && status !== 'error' && status !== 'idle' && (
+
+
+        {/* Toolbar */}
+        {total > 1 && (
+          <div className="toolbar">
+            <button className="link" disabled={busy || allSel} onClick={selectAll}>Select all</button>
+            <span className="sep">·</span>
+            <button className="link" disabled={busy || noneSel} onClick={selectNone}>None</button>
+          </div>
+        )}
+
+        <div className="records-top-actions">
+          <button className={`btn ${total === 0 ? 'btn-primary' : 'btn-secondary'}`} onClick={handleAdd} disabled={busy}>
+            Connect to new provider
+          </button>
+        </div>
+
+        {/* List */}
+        {total > 0 && (
+          <div className="conn-list">
+            {connections.map((c) => {
+              const cs = connectionState[c.id];
+              const refreshing = cs?.refreshing ?? false;
+              const err = cs?.error ?? null;
+              const done = cs?.doneMessage ?? null;
+              const checked = selected.has(c.id);
+              const prog = cs?.refreshProgress;
+              const isFailed = c.status === 'expired' || c.status === 'error';
+              const canRefresh = c.canRefresh !== false && Boolean(c.refreshToken?.trim());
+              const showReconnect = isFailed || !canRefresh;
+
+              return (
+                <label key={c.id} className={`conn-card${checked ? ' selected' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={busy}
+                    onChange={() => toggleSelected(c.id)}
+                  />
+                  <div className="conn-body">
+                    <div className="conn-name">
+                      <span className={`status-dot status-dot-${c.status}`} />
+                      {c.patientDisplayName || c.patientId}
+                      {c.patientBirthDate && (
+                        <span className="conn-dob">DOB {c.patientBirthDate}</span>
+                      )}
+                    </div>
+                    <div className="conn-meta">
+                      {c.providerName} · {fmtSize(c.dataSizeBytes)} · {timeAgo(c.lastFetchedAt)}
+                      {!canRefresh ? ' · reconnect required for refresh' : ''}
+                    </div>
+                    {(refreshing || done) && prog && (
+                      <FetchProgressWidget progress={prog} />
+                    )}
+                    {(c.lastError || err) && (
+                      <div className="conn-error">{err || c.lastError}</div>
+                    )}
+                    <div className="conn-actions">
+                      {showReconnect ? (
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          disabled={refreshing || busy}
+                          onClick={e => { e.preventDefault(); e.stopPropagation(); reconnectConnection(c.id); }}
+                        >
+                          Reconnect
+                        </button>
+                      ) : (
+                        <button
+                          className={`btn btn-sm${done ? ' btn-success' : ' btn-secondary'}`}
+                          disabled={refreshing || busy}
+                          onClick={e => { e.preventDefault(); e.stopPropagation(); done ? dismissConnectionDone(c.id) : refreshConnection(c.id); }}
+                        >
+                          {refreshing ? 'Refreshing…' : done ? '✓ Updated' : 'Refresh'}
+                        </button>
+                      )}
+                      {!isSession && (
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          disabled={busy}
+                          onClick={e => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            nav(`/records/browser?source=${encodeURIComponent(c.id)}`);
+                          }}
+                        >
+                          Browse
+                        </button>
+                      )}
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        disabled={refreshing || busy}
+                        onClick={e => { e.preventDefault(); e.stopPropagation(); handleRemove(c.id); }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        )}
+
+        {total === 0 && (
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+            No connections yet.
+          </p>
+        )}
+
+        {/* Action status bar (near the buttons that trigger it) */}
+        {uploadProgress && (status === 'sending' || status === 'done') && (
+          <UploadProgressWidget progress={uploadProgress} />
+        )}
+        {statusMessage && !uploadProgress && status !== 'error' && status !== 'idle' && (
           <StatusMessage
             status={status === 'done' ? 'success' : 'loading'}
             message={statusMessage}
           />
         )}
 
-        {/* Empty */}
-        {total === 0 ? (
-          <div style={{ textAlign: 'center', padding: '32px 0' }}>
-            <p style={{ color: 'var(--text-secondary)', marginBottom: 16, fontSize: '0.9rem' }}>
-              No connections yet.
-            </p>
-            <button className="btn btn-primary" onClick={handleAdd}>Add connection</button>
-          </div>
-        ) : (
-          <>
-            {/* Toolbar */}
-            {total > 1 && (
-              <div className="toolbar">
-                <button className="link" disabled={busy || allSel} onClick={selectAll}>Select all</button>
-                <span className="sep">·</span>
-                <button className="link" disabled={busy || noneSel} onClick={selectNone}>None</button>
+        {total > 0 && (
+          <div className="redaction-card">
+            <div className="redaction-head">
+              <div>
+                <div className="section-title" style={{ marginBottom: 2 }}>Redaction</div>
+                <div className="redaction-note">Original records are never modified.</div>
               </div>
-            )}
-
-            {/* List */}
-            <div className="conn-list">
-              {connections.map((c) => {
-                const cs = connectionState[c.id];
-                const refreshing = cs?.refreshing ?? false;
-                const err = cs?.error ?? null;
-                const checked = selected.has(c.id);
-                const prog = cs?.refreshProgress;
-
-                return (
-                  <label key={c.id} className={`conn-card${checked ? ' selected' : ''}`}>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      disabled={busy}
-                      onChange={() => toggleSelected(c.id)}
-                    />
-                    <div className="conn-body">
-                      <div className="conn-name">
-                        <span className={`status-dot status-dot-${c.status}`} />
-                        {c.patientDisplayName || c.patientId}
-                        {c.patientBirthDate && (
-                          <span className="conn-dob">DOB {c.patientBirthDate}</span>
-                        )}
-                      </div>
-                      <div className="conn-meta">
-                        {c.providerName} · {fmtSize(c.dataSizeBytes)} · {timeAgo(c.lastFetchedAt)}
-                      </div>
-                      {refreshing && prog && (
-                        <div className="conn-progress">
-                          {prog.phase}: {prog.completed}/{prog.total}
-                          {prog.detail ? ` — ${prog.detail}` : ''}
-                        </div>
-                      )}
-                      {(c.lastError || err) && (
-                        <div className="conn-error">{err || c.lastError}</div>
-                      )}
-                      <div className="conn-actions">
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          disabled={refreshing || busy}
-                          onClick={e => { e.preventDefault(); e.stopPropagation(); refreshConnection(c.id); }}
-                        >
-                          {refreshing ? 'Refreshing…' : 'Refresh'}
-                        </button>
-                        <button
-                          className="btn btn-ghost btn-sm"
-                          disabled={refreshing || busy}
-                          onClick={e => { e.preventDefault(); e.stopPropagation(); handleRemove(c.id); }}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-                  </label>
-                );
-              })}
-            </div>
-
-            <div style={{ textAlign: 'center', marginTop: 12 }}>
-              <button className="btn btn-secondary" onClick={handleAdd} disabled={busy}>
-                Add connection
+              <button className="btn btn-ghost btn-sm" onClick={() => nav('/records/redaction')}>
+                Manage
               </button>
             </div>
-
-            <hr className="divider" />
-
-            {/* Actions */}
-            <div className="action-bar">
-              {isSession && !isFinalized && (
-                <button
-                  className="btn btn-primary btn-full"
-                  disabled={noneSel || busy}
-                  onClick={sendToAI}
-                >
-                  {busy && status === 'sending'
-                    ? 'Encrypting & sending…'
-                    : `Send ${selCount} record${selCount !== 1 ? 's' : ''} to AI`}
-                </button>
-              )}
-              {isSession && isFinalized && (
-                <p className="text-success" style={{ textAlign: 'center', padding: '8px 0' }}>
-                  ✓ Records sent to AI — you can close this page.
-                </p>
-              )}
-              <div className="action-stack">
-                <div className="action-line">
-                  <button
-                    className="btn btn-secondary"
-                    disabled={noneSel || busy}
-                    onClick={() => { window.location.href = '/skill.zip'; }}
-                  >
-                    {noneSel ? 'Download AI Skill' : `Download AI Skill with ${selCount} record${selCount !== 1 ? 's' : ''}`}
-                  </button>
-                  <InfoTip text="Downloads a zip with AI agent scripts plus your selected health records. Give this to any AI to analyze your data without web access." />
-                </div>
-              </div>
+            <div className="redaction-row">
+              <label className="redaction-label" htmlFor="redaction-profile-select">Apply</label>
+              <select
+                id="redaction-profile-select"
+                className="redaction-select"
+                value={appliedProfileSelectValue}
+                onChange={(e) => {
+                  commitRedactionState({
+                    ...redactionState,
+                    settings: {
+                      ...redactionState.settings,
+                      appliedProfileId: e.target.value || null,
+                    },
+                  });
+                }}
+              >
+                <option value="">No redaction</option>
+                {applicableRedactionProfiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>
+                    {profile.name}
+                  </option>
+                ))}
+              </select>
             </div>
-          </>
+            <div className="redaction-note">
+              {appliedRedactionProfile
+                ? `Applying "${appliedRedactionProfile.name}" · Active terms: ${enabledTermCount} · Strip attachment base64: ${appliedRedactionProfile.stripAttachmentBase64 ? 'On' : 'Off'}`
+                : 'No redaction will be applied to send or downloads.'}
+            </div>
+          </div>
         )}
+
+        {/* Actions */}
+        <div className="actions-row">
+          {isSession && !isFinalized && (
+            <button
+              className="btn btn-primary"
+              disabled={noneSel || busy}
+              onClick={sendToAI}
+            >
+              {busy && status === 'sending'
+                ? 'Encrypting & sending…'
+                : `Send ${selCount} record${selCount !== 1 ? 's' : ''} to AI`}
+            </button>
+          )}
+          <span className="actions-row-tip">
+            <button
+              className="btn btn-ghost"
+              disabled={noneSel || busy}
+              onClick={downloadJson}
+            >
+              Download JSON
+            </button>
+          </span>
+          <span className="actions-row-tip">
+            <button
+              className="btn btn-ghost"
+              disabled={noneSel || busy}
+              onClick={downloadSkillZip}
+            >
+              {`Download AI Skill with ${selCount} record${selCount !== 1 ? 's' : ''}`}
+            </button>
+            <InfoTip text="Builds a zip with AI instructions plus your selected health records bundled in. Give this to any AI to analyze your data — no web access needed." />
+          </span>
+        </div>
       </div>
     </div>
   );

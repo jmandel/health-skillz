@@ -404,47 +404,6 @@ async function decryptV3ProviderToFile(
   }
 }
 
-async function decryptLegacyProviderToFile(
-  privateKey: CryptoKey,
-  providerMeta: any,
-  outputPath: string
-): Promise<ProviderWriteResult> {
-  const encrypted = providerMeta;
-  const t0 = performance.now();
-
-  const ephemeralPublicKey = await crypto.subtle.importKey(
-    'jwk',
-    encrypted.ephemeralPublicKey,
-    { name: 'ECDH', namedCurve: 'P-256' },
-    false,
-    []
-  );
-  const sharedSecret = await crypto.subtle.deriveBits(
-    { name: 'ECDH', public: ephemeralPublicKey },
-    privateKey,
-    256
-  );
-  const aesKey = await crypto.subtle.importKey('raw', sharedSecret, { name: 'AES-GCM' }, false, ['decrypt']);
-  const iv = typeof encrypted.iv === 'string' ? toBase64Bytes(encrypted.iv) : new Uint8Array(encrypted.iv);
-  const ciphertext =
-    typeof encrypted.ciphertext === 'string'
-      ? toBase64Bytes(encrypted.ciphertext)
-      : new Uint8Array(encrypted.ciphertext);
-
-  const decrypted = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, ciphertext));
-
-  let bytesWritten = 0;
-  if (encrypted.version === 2) {
-    const decompressed = new Blob([decrypted]).stream().pipeThrough(new DecompressionStream('gzip'));
-    bytesWritten = await writeStreamToFile(decompressed, outputPath);
-  } else {
-    bytesWritten = await writeBytesToFile(decrypted, outputPath);
-  }
-
-  const elapsedMs = performance.now() - t0;
-  return { tempPath: outputPath, bytesWritten, chunkCount: 1, elapsedMs };
-}
-
 function slugify(name: string): string {
   return name
     .toLowerCase()
@@ -505,9 +464,7 @@ for (const providerMeta of meta.providers || []) {
   logInstrumentation('provider_start', options.instrument, { providerIndex });
 
   const writeResult =
-    providerMeta.version === 3 && providerMeta.chunks
-      ? await decryptV3ProviderToFile(sessionId, privateKey, providerMeta, tempPath, options)
-      : await decryptLegacyProviderToFile(privateKey, providerMeta, tempPath);
+    await decryptV3ProviderToFile(sessionId, privateKey, providerMeta, tempPath, options);
 
   const providerName =
     (await extractProviderName(writeResult.tempPath)) || `provider-${providerIndex + 1}`;

@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useRecordsStore } from '../store/records';
-import { loadOAuthState, clearOAuthState } from '../lib/storage';
-import { exchangeCodeForToken } from '../lib/smart/oauth';
 import StatusMessage from '../components/StatusMessage';
+import FetchProgressWidget from '../components/FetchProgressWidget';
 
 /**
  * Module-level set of state nonces we've already started processing.
@@ -22,10 +21,9 @@ export default function OAuthCallbackPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const statusMessage = useRecordsStore((s) => s.statusMessage);
-  const storeStatus = useRecordsStore((s) => s.status);
-  const saveNewConnection = useRecordsStore((s) => s.saveNewConnection);
+  const completeOAuthAuthorization = useRecordsStore((s) => s.completeOAuthAuthorization);
+  const connectionState = useRecordsStore((s) => s.connectionState);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [phase, setPhase] = useState<'exchanging' | 'fetching' | 'done'>('exchanging');
   const startedRef = useRef(false);
 
   // The state nonce from the query string
@@ -42,82 +40,36 @@ export default function OAuthCallbackPage() {
     const errorParam = searchParams.get('error');
     const errorDesc = searchParams.get('error_description');
 
-    if (errorParam) {
-      setErrorMsg(errorDesc || errorParam);
-      return;
-    }
-    if (!code || !stateNonce) {
-      setErrorMsg('Missing authorization code or state parameter.');
-      return;
-    }
-
-    const oauth = loadOAuthState(stateNonce);
-    if (!oauth) {
-      setErrorMsg('OAuth session not found. This link may have already been used.');
-      return;
-    }
-
-    // Clear immediately to prevent replay
-    clearOAuthState(stateNonce);
-
-    const process = async () => {
+    void (async () => {
       try {
-        // 1. Exchange code for token
-        setPhase('exchanging');
-        const tokenResponse = await exchangeCodeForToken(
+        const result = await completeOAuthAuthorization({
           code,
-          oauth.tokenEndpoint,
-          oauth.clientId,
-          oauth.redirectUri,
-          oauth.codeVerifier,
-        );
-
-        const patientId = tokenResponse.patient;
-        if (!patientId) {
-          throw new Error('No patient ID in token response. The server may not have returned patient context.');
-        }
-
-        // 2. Fetch FHIR data and save connection (this can take 30s+)
-        //    Progress is reported via store.statusMessage
-        setPhase('fetching');
-        await saveNewConnection({
-          providerName: oauth.providerName,
-          fhirBaseUrl: oauth.fhirBaseUrl,
-          tokenEndpoint: oauth.tokenEndpoint,
-          clientId: oauth.clientId,
-          patientId,
-          refreshToken: tokenResponse.refresh_token || '',
-          scopes: tokenResponse.scope || '',
-          accessToken: tokenResponse.access_token,
+          stateNonce,
+          errorParam,
+          errorDescription: errorDesc,
         });
-
-        // 3. All done — redirect
-        setPhase('done');
-
-        const sessionId = oauth.sessionId;
-        if (sessionId && !sessionId.startsWith('local_')) {
-          navigate(`/connect/${sessionId}`, { replace: true });
-        } else {
-          navigate('/records', { replace: true });
+        if (result.error) {
+          setErrorMsg(result.error);
+          return;
         }
-      } catch (err) {
-        console.error('[OAuthCallback] Error:', err);
-        setErrorMsg(err instanceof Error ? err.message : String(err));
+        if (result.redirectTo) {
+          navigate(result.redirectTo, { replace: true });
+          return;
+        }
+        setErrorMsg('Failed to determine redirect target.');
       } finally {
         // Allow reprocessing if user manually navigates back
         if (stateNonce) processingStates.delete(stateNonce);
       }
-    };
+    })();
+  }, [completeOAuthAuthorization, navigate, searchParams, stateNonce]);
 
-    process();
-  }, []); // empty deps — run once on mount
+  // Find active fetch progress from any connection being refreshed
+  const activeFetchProgress = Object.values(connectionState).find(
+    cs => cs.refreshing && cs.refreshProgress
+  )?.refreshProgress ?? null;
 
-  // Derive display message from phase + store
-  const displayStatus = phase === 'exchanging'
-    ? 'Completing authorization…'
-    : phase === 'done'
-      ? 'Done! Redirecting…'
-      : statusMessage || 'Fetching health records…';
+  const displayStatus = statusMessage || 'Retrieving health records…';
 
   return (
     <div className="page-centered">
@@ -131,12 +83,15 @@ export default function OAuthCallbackPage() {
               Back to records
             </button>
           </>
+        ) : activeFetchProgress ? (
+          <>
+            <FetchProgressWidget progress={activeFetchProgress} />
+            <p className="security-info">This can take a while for large records.</p>
+          </>
         ) : (
           <>
-            <StatusMessage status={phase === 'done' ? 'success' : 'loading'} message={displayStatus} />
-            {phase !== 'done' && (
-              <p className="security-info">This may take up to a minute.</p>
-            )}
+            <StatusMessage status="loading" message={displayStatus} />
+            <p className="security-info">This can take a while for large records.</p>
           </>
         )}
       </div>

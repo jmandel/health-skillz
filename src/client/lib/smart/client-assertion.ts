@@ -14,14 +14,45 @@ interface JWKSResponse {
   keys: JsonWebKey[];
 }
 
+interface SigningKeyInfo {
+  key: CryptoKey;
+  kid: string;
+  alg: string;
+}
+
 // Cache the imported signing key
-let cachedSigningKey: { key: CryptoKey; kid: string } | null = null;
+let cachedSigningKey: SigningKeyInfo | null = null;
+
+// Map JWA alg to WebCrypto import/sign params
+const algMap: Record<string, { import: AlgorithmIdentifier | RsaHashedImportParams | EcKeyImportParams; sign: AlgorithmIdentifier | RsaPssParams | EcdsaParams }> = {
+  RS256: {
+    import: { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+    sign: { name: 'RSASSA-PKCS1-v1_5' },
+  },
+  RS384: {
+    import: { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-384' },
+    sign: { name: 'RSASSA-PKCS1-v1_5' },
+  },
+  ES256: {
+    import: { name: 'ECDSA', namedCurve: 'P-256' },
+    sign: { name: 'ECDSA', hash: 'SHA-256' },
+  },
+  ES384: {
+    import: { name: 'ECDSA', namedCurve: 'P-384' },
+    sign: { name: 'ECDSA', hash: 'SHA-384' },
+  },
+  ES512: {
+    import: { name: 'ECDSA', namedCurve: 'P-521' },
+    sign: { name: 'ECDSA', hash: 'SHA-512' },
+  },
+};
 
 /**
- * Fetch the private JWKS and import the signing key into WebCrypto.
+ * Fetch the private JWKS and import the first signing key into WebCrypto.
+ * Keys are sorted RS* first in the JWKS, so the first key is preferred.
  * Cached after first call.
  */
-async function getSigningKey(): Promise<{ key: CryptoKey; kid: string }> {
+async function getSigningKey(): Promise<SigningKeyInfo> {
   if (cachedSigningKey) return cachedSigningKey;
 
   const resp = await fetch(PRIVATE_JWKS_PATH);
@@ -33,33 +64,27 @@ async function getSigningKey(): Promise<{ key: CryptoKey; kid: string }> {
   if (!jwk) throw new Error('No keys in private JWKS');
 
   const kid = (jwk as any).kid as string;
-  const alg = (jwk as any).alg as string; // "ES384"
+  const alg = (jwk as any).alg as string;
 
-  // Map JWA alg to WebCrypto params
-  const algMap: Record<string, { name: string; namedCurve: string; hash: string }> = {
-    ES256: { name: 'ECDSA', namedCurve: 'P-256', hash: 'SHA-256' },
-    ES384: { name: 'ECDSA', namedCurve: 'P-384', hash: 'SHA-384' },
-    ES512: { name: 'ECDSA', namedCurve: 'P-521', hash: 'SHA-512' },
-  };
   const params = algMap[alg];
   if (!params) throw new Error(`Unsupported algorithm: ${alg}`);
 
   const key = await crypto.subtle.importKey(
     'jwk',
     jwk,
-    { name: params.name, namedCurve: params.namedCurve },
-    false, // not extractable
+    params.import,
+    false,
     ['sign']
   );
 
-  cachedSigningKey = { key, kid };
+  cachedSigningKey = { key, kid, alg };
   return cachedSigningKey;
 }
 
 /**
  * Create a signed JWT client_assertion for the given token endpoint.
  *
- * JWT claims per Epic docs:
+ * JWT claims per SMART spec:
  *   iss = sub = clientId
  *   aud = tokenEndpoint
  *   jti = random unique id
@@ -70,16 +95,12 @@ export async function createClientAssertion(
   clientId: string,
   tokenEndpoint: string
 ): Promise<string> {
-  const { key, kid } = await getSigningKey();
+  const { key, kid, alg } = await getSigningKey();
 
   const now = Math.floor(Date.now() / 1000);
   const jti = crypto.randomUUID();
 
-  const header = {
-    alg: 'ES384',
-    typ: 'JWT',
-    kid,
-  };
+  const header = { alg, typ: 'JWT', kid };
 
   const payload = {
     iss: clientId,
@@ -95,16 +116,14 @@ export async function createClientAssertion(
   const payloadB64 = base64UrlEncodeJSON(payload);
   const signingInput = `${headerB64}.${payloadB64}`;
 
+  const params = algMap[alg];
   const signature = await crypto.subtle.sign(
-    { name: 'ECDSA', hash: 'SHA-384' },
+    params.sign,
     key,
     new TextEncoder().encode(signingInput)
   );
 
-  // ECDSA signature from WebCrypto is IEEE P1363 format (r || s, raw bytes).
-  // JWT requires this exact format, NOT DER. So we just base64url it directly.
   const signatureB64 = base64UrlEncodeBytes(new Uint8Array(signature));
-
   return `${headerB64}.${payloadB64}.${signatureB64}`;
 }
 

@@ -3,15 +3,20 @@
 import type { VendorConfig } from './brands/types';
 import type { EncryptedChunk } from './crypto';
 
+export interface PendingChunkInfo {
+  receivedChunks: number[];
+  totalChunks: number;
+}
+
 export interface SessionInfo {
   sessionId: string;
   publicKey: JsonWebKey;
   status: string;
   providerCount: number;
-  pendingChunks?: {
-    receivedChunks: number[];
-    totalChunks: number;
-  } | null;
+  /** Per-provider pending chunk state, keyed by providerKey. */
+  pendingChunks?: Record<string, PendingChunkInfo> | null;
+  attemptMeta?: UploadAttemptMeta | null;
+  hasFinalizeToken?: boolean;
 }
 
 export interface Provider {
@@ -19,22 +24,12 @@ export interface Provider {
   connectedAt: string;
 }
 
-export interface EncryptedPayload {
-  encrypted: true;
-  version: 2;
-  ephemeralPublicKey: JsonWebKey;
-  iv: string;  // base64
-  ciphertext: string;  // base64
+export interface UploadAttemptMeta {
+  attemptId: string;
+  selectedProviderKeys: string[];
+  status: 'active' | 'finalized';
+  createdAt: string;
 }
-
-export interface ChunkedEncryptedPayload {
-  encrypted: true;
-  version: 3;
-  totalChunks: number;
-  chunks: EncryptedChunk[];
-}
-
-export type AnyEncryptedPayload = EncryptedPayload | ChunkedEncryptedPayload;
 
 const BASE_URL = '';  // Same-origin API
 
@@ -42,22 +37,6 @@ export async function getSessionInfo(sessionId: string): Promise<SessionInfo> {
   const res = await fetch(`${BASE_URL}/api/session/${sessionId}`);
   if (!res.ok) {
     throw new Error(res.status === 404 ? 'Session not found or expired' : 'Failed to get session');
-  }
-  return res.json();
-}
-
-export async function sendEncryptedData(
-  sessionId: string,
-  payload: EncryptedPayload
-): Promise<{ success: boolean; providerCount: number }> {
-  const res = await fetch(`${BASE_URL}/api/data/${sessionId}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || `Server returned ${res.status}`);
   }
   return res.json();
 }
@@ -109,89 +88,6 @@ function uploadChunk(
   });
 }
 
-export interface ChunkedUploadProgress {
-  currentChunk: number;
-  totalChunks: number;
-  chunkLoaded: number;
-  chunkTotal: number;
-  totalLoaded: number;
-  totalSize: number;
-}
-
-export async function sendEncryptedEhrData(
-  sessionId: string,
-  payload: AnyEncryptedPayload,
-  finalizeToken: string,
-  onProgress?: (progress: UploadProgress) => void,
-  onChunkedProgress?: (progress: ChunkedUploadProgress) => void
-): Promise<{ success: boolean; providerCount: number; redirectTo: string; errorId?: string }> {
-  
-  // v3 chunked upload
-  if (payload.version === 3) {
-    const chunked = payload as ChunkedEncryptedPayload;
-    let totalUploaded = 0;
-    
-    // Calculate total size of all chunks
-    const chunkSizes = chunked.chunks.map(c => JSON.stringify(c).length);
-    const totalSize = chunkSizes.reduce((a, b) => a + b, 0);
-    
-    let result: any;
-    for (let i = 0; i < chunked.chunks.length; i++) {
-      const chunk = chunked.chunks[i];
-      const body = JSON.stringify({
-        sessionId,
-        finalizeToken,
-        version: 3,
-        totalChunks: chunked.totalChunks,
-        chunk,
-      });
-      
-      const chunkSize = chunkSizes[i];
-      
-      result = await uploadChunk(
-        `${BASE_URL}/api/receive-ehr`,
-        body,
-        (p) => {
-          onChunkedProgress?.({
-            currentChunk: i + 1,
-            totalChunks: chunked.totalChunks,
-            chunkLoaded: p.loaded,
-            chunkTotal: p.total,
-            totalLoaded: totalUploaded + p.loaded,
-            totalSize,
-          });
-          // Also report simple progress
-          onProgress?.({ loaded: totalUploaded + p.loaded, total: totalSize });
-        }
-      );
-      
-      totalUploaded += chunkSize;
-    }
-    
-    return result;
-  }
-  
-  // v2 single upload
-  const body = JSON.stringify({
-    ...payload,
-    sessionId,
-    finalizeToken,
-  });
-
-  return uploadChunk(`${BASE_URL}/api/receive-ehr`, body, onProgress);
-}
-
-export interface StreamingUploadProgress {
-  phase: 'processing' | 'uploading' | 'done';
-  currentChunk: number;
-  bytesIn: number;
-  totalBytesIn: number;
-  bytesOut: number;
-}
-
-/**
- * Upload a single encrypted chunk to server.
- */
 /**
  * Upload a single encrypted chunk with retry logic.
  * Retries up to 3 times with exponential backoff on transient failures.
@@ -199,16 +95,20 @@ export interface StreamingUploadProgress {
 export async function uploadEncryptedChunk(
   sessionId: string,
   finalizeToken: string,
+  attemptId: string,
   chunk: EncryptedChunk,
   chunkIndex: number,
-  totalChunks: number | null // null if unknown yet
+  totalChunks: number | null, // null if unknown yet
+  providerKey: string,
 ): Promise<any> {
   const body = JSON.stringify({
     sessionId,
     finalizeToken,
+    attemptId,
     version: 3,
     totalChunks: totalChunks ?? -1, // -1 means "more coming, count unknown"
     chunk,
+    providerKey,
   });
   
   const maxRetries = 3;
@@ -239,9 +139,43 @@ export async function uploadEncryptedChunk(
 
 export async function finalizeSession(
   sessionId: string,
-  finalizeToken?: string
+  finalizeToken?: string,
+  attemptId?: string
 ): Promise<{ success: boolean; providerCount: number }> {
   const res = await fetch(`${BASE_URL}/api/finalize/${sessionId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ finalizeToken, attemptId }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Server returned ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function startUploadAttempt(
+  sessionId: string,
+  finalizeToken: string,
+  selectedProviderKeys: string[]
+): Promise<{ success: boolean; attemptMeta: UploadAttemptMeta; pendingChunks: Record<string, PendingChunkInfo> }> {
+  const res = await fetch(`${BASE_URL}/api/upload/start/${sessionId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ finalizeToken, selectedProviderKeys }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Server returned ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function resetUploadState(
+  sessionId: string,
+  finalizeToken: string
+): Promise<{ success: boolean }> {
+  const res = await fetch(`${BASE_URL}/api/upload/reset/${sessionId}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ finalizeToken }),

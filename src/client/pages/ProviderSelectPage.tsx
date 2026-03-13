@@ -1,11 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { searchBrands, collapseBrands } from '../lib/brands/loader';
 import type { BrandItem } from '../lib/brands/types';
-import { saveOAuthState } from '../lib/storage';
 import { useRecordsStore } from '../store/records';
 import { useBrandsStore } from '../store/brands';
-import { buildAuthorizationUrl, generatePKCE } from '../lib/smart/oauth';
+import { launchOAuth } from '../lib/smart/launch';
 import ProviderSearch from '../components/ProviderSearch';
 import ProviderCard from '../components/ProviderCard';
 import StatusMessage from '../components/StatusMessage';
@@ -32,47 +31,50 @@ export default function ProviderSelectPage() {
   const [page, setPage] = useState(1);
 
   // Local search state (ephemeral UI)
-  const [searchResults, setSearchResults] = useState<BrandItem[]>([]);
   const [query, setQuery] = useState('');
-  const [searchInitialized, setSearchInitialized] = useState(false);
-  
-  // Paginated view
-  const totalPages = Math.ceil(searchResults.length / PAGE_SIZE);
-  const displayedItems = searchResults.slice(0, page * PAGE_SIZE);
 
   // Modal state
   const [selectedItem, setSelectedItem] = useState<BrandItem | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const connectButtonRef = useRef<HTMLButtonElement>(null);
 
   // Load brands (no-op if already cached in memory)
   useEffect(() => {
     brands.loadBrands();
   }, []);
 
-  // Initialize search results when brands finish loading
+  // Derived search results (no effect/state syncing needed).
+  const searchResults = useMemo(() => {
+    const q = query.trim();
+    if (!q) return brands.allItems;
+    const matches = searchBrands(brands.allItems, q);
+    return collapseBrands(brands.allItems, matches, q);
+  }, [brands.allItems, query]);
+
+  // Paginated view
+  const displayedItems = searchResults.slice(0, page * PAGE_SIZE);
+
+  // Keep keyboard focus in the search box when the page becomes interactive.
   useEffect(() => {
-    if (brands.loaded && brands.allItems.length > 0 && !searchInitialized) {
-      setSearchResults(brands.allItems);
-      setSearchInitialized(true);
-    }
-  }, [brands.loaded, brands.allItems, searchInitialized]);
+    if (!brands.loaded || selectedItem) return;
+    searchInputRef.current?.focus();
+  }, [brands.loaded, selectedItem]);
+
+  // Move focus into the primary modal action when opening provider connect dialog.
+  useEffect(() => {
+    if (!selectedItem || connecting) return;
+    const id = window.requestAnimationFrame(() => {
+      connectButtonRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [selectedItem, connecting]);
 
   // Handle search
-  const handleSearch = useCallback(
-    (q: string) => {
-      setQuery(q);
-      setPage(1); // Reset to first page on new search
-      if (!q.trim()) {
-        setSearchResults(brands.allItems);
-        return;
-      }
-
-      const matches = searchBrands(brands.allItems, q);
-      const collapsed = collapseBrands(brands.allItems, matches, q);
-      setSearchResults(collapsed);
-    },
-    [brands.allItems]
-  );
+  const handleSearch = (q: string) => {
+    setQuery(q);
+    setPage(1); // Reset to first page on new search
+  };
 
   // Handle provider selection
   const handleSelectProvider = (item: BrandItem) => {
@@ -82,7 +84,6 @@ export default function ProviderSelectPage() {
   // Handle connect (start OAuth)
   const handleConnect = async () => {
     if (!selectedItem) return;
-    // For standalone mode, use a local session ID
     const effectiveSessionId = sessionId || 'local_' + crypto.randomUUID();
 
     const vendorName = (selectedItem as any)._vendor as string;
@@ -102,37 +103,16 @@ export default function ProviderSelectPage() {
     setError(null);
 
     try {
-      // Generate PKCE
-      const pkce = await generatePKCE();
-
-      // Use configured redirect URI (must match what's registered with EHR)
-      const redirectUri = vendorConfig.redirectUrl || `${window.location.origin}/connect/callback`;
-
-      // Build authorization URL (sessionId encoded in state for cross-origin recovery)
-      const { authUrl, state, tokenEndpoint } = await buildAuthorizationUrl({
+      const storeSession = useRecordsStore.getState().session;
+      await launchOAuth({
         fhirBaseUrl: endpoint.url,
         clientId: vendorConfig.clientId,
         scopes: vendorConfig.scopes,
-        redirectUri,
-        pkce,
-        sessionId: effectiveSessionId,
-      });
-
-      // Save OAuth state keyed by state nonce (survives cross-origin redirect)
-      const storeSession = useRecordsStore.getState().session;
-      saveOAuthState(state, {
+        redirectUri: vendorConfig.redirectUrl || `${window.location.origin}/connect/callback`,
         sessionId: effectiveSessionId,
         publicKeyJwk: storeSession?.publicKeyJwk || null,
-        codeVerifier: pkce.codeVerifier,
-        tokenEndpoint,
-        fhirBaseUrl: endpoint.url,
-        clientId: vendorConfig.clientId,
-        redirectUri,
         providerName: selectedItem.displayName,
       });
-
-      // Redirect to authorization server
-      window.location.href = authUrl;
     } catch (err) {
       setConnecting(false);
       setError(err instanceof Error ? err.message : 'Failed to start authorization');
@@ -154,7 +134,7 @@ export default function ProviderSelectPage() {
   const displayError = error || brands.error;
 
   // Loading / error states
-  if (!brands.loaded || !searchInitialized) {
+  if (!brands.loaded) {
     return (
       <div className="page-centered">
         <div className="panel">
@@ -204,7 +184,11 @@ export default function ProviderSelectPage() {
         </p>
       </div>
 
-      <ProviderSearch onSearch={handleSearch} placeholder="Search by name, city, or state..." />
+      <ProviderSearch
+        onSearch={handleSearch}
+        placeholder="Search by name, city, or state..."
+        inputRef={searchInputRef}
+      />
 
       <div className="provider-results">
         {displayedItems.length === 0 ? (
@@ -256,7 +240,7 @@ export default function ProviderSelectPage() {
               >
                 Cancel
               </button>
-              <button className="btn" onClick={handleConnect} disabled={connecting}>
+              <button className="btn" onClick={handleConnect} disabled={connecting} autoFocus ref={connectButtonRef}>
                 {connecting ? 'Connecting...' : 'Connect'}
               </button>
             </div>
