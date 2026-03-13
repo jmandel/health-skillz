@@ -92,9 +92,9 @@ export default function HomePage() {
                             <strong>Allow network egress</strong>.
                           </p>
                           <p>
-                            For <strong>Domain allowlist</strong>, either choose <strong>All domains</strong>,
-                            or choose <strong>None</strong> and add <code>{BASE_DOMAIN}</code> under{' '}
-                            <strong>Additional allowed domains</strong>.
+                            For <strong>Domain allowlist</strong>, choose <strong>All domains</strong>.
+                            Alternatively, choose the option that allows <strong>package managers</strong> and
+                            add <code>{BASE_DOMAIN}</code> under <strong>Additional allowed domains</strong>.
                           </p>
                         </section>
 
